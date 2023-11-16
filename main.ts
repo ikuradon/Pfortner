@@ -3,6 +3,9 @@ dotenv.loadSync({ export: true });
 
 const UPSTREAM_RELAY = Deno.env.get("UPSTREAM_RELAY");
 const UPSTREAM_HTTPS = Deno.env.get("UPSTREAM_HTTPS") === "true" ? true : false;
+const UPSTREAM_RAW_URL = new URL(
+  Deno.env.get("UPSTREAM_RAW_URL") ?? "ws://localhost"
+).toString();
 const X_FORWARDED_FOR =
   Deno.env.get("X_FORWARDED_FOR") === "true" ? true : false;
 
@@ -53,7 +56,7 @@ app.get("/", async (c) => {
   });
   serverSocket.addEventListener("message", (e) => {
     const packet = e.data;
-    console.log(`${connectionId} S2C (message): ${e}`);
+    console.log(`${connectionId} S2C (message): ${packet}`);
 
     try {
       const packetData = JSON.parse(packet);
@@ -92,6 +95,8 @@ app.get("/", async (c) => {
 
   function verifyAuthMessage(packet: string): void {
     console.log("AUTH");
+    let checkChallenge = false;
+    let checkRelay = false;
     try {
       const packetData = JSON.parse(packet);
       const event = JSON.parse(packetData[1]) as nostrTools.Event;
@@ -106,17 +111,24 @@ app.get("/", async (c) => {
             tag[0] === "challenge" &&
             tag[1] === connectionId
           )
-            userPubkey = event.pubkey;
+            checkChallenge = true;
+          else if (
+            tag.length === 2 &&
+            tag[0] === "relay" &&
+            new URL(tag[1]).toString() === UPSTREAM_RAW_URL
+          )
+            checkRelay = true;
         });
       }
 
-      if (userPubkey == null) {
+      if (checkChallenge && checkRelay) {
+        userPubkey = event.pubkey;
+        clientAuthorized = true;
+        sendStash();
+      } else {
         clientSocket.send(
           JSON.stringify(["NOTICE", "restricted: auth failed."])
         );
-      } else {
-        clientAuthorized = true;
-        sendStash();
       }
     } catch (e) {
       console.log(e);
@@ -161,6 +173,7 @@ app.get("/", async (c) => {
         return null;
       }
     })();
+    if (packetData == null) return;
     if (packetData.length === 2 && packetData[0] === "AUTH") {
       if (!clientAuthorized) verifyAuthMessage(packet);
     } else {
