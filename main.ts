@@ -93,6 +93,20 @@ app.get("/", async (c) => {
     clientSocket.send(JSON.stringify(packet));
   }
 
+  function currUnixtime(): number {
+    return Math.floor(new Date().getTime() / 1000);
+  }
+  function validateEventTime(ev: nostrTools.Event): boolean {
+    const now = currUnixtime();
+    const allowedTimeDuration = 10 * 60;
+    if (
+      ev.created_at > now - allowedTimeDuration &&
+      ev.created_at < now + allowedTimeDuration
+    )
+      return true;
+    return false;
+  }
+
   function verifyAuthMessage(packet: string): void {
     console.log("AUTH");
     let checkChallenge = false;
@@ -103,7 +117,8 @@ app.get("/", async (c) => {
       if (
         nostrTools.validateEvent(event) &&
         nostrTools.verifySignature(event) &&
-        event.kind === 22242
+        event.kind === 22242 &&
+        validateEventTime(event)
       ) {
         event.tags.forEach((tag) => {
           if (
@@ -122,10 +137,12 @@ app.get("/", async (c) => {
       }
 
       if (checkChallenge && checkRelay) {
+        console.log("AUTH OK");
         userPubkey = event.pubkey;
         clientAuthorized = true;
         sendStash();
       } else {
+        console.log("AUTH NG");
         clientSocket.send(
           JSON.stringify(["NOTICE", "restricted: auth failed."])
         );
