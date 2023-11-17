@@ -198,7 +198,7 @@ app.get("/", async (c) => {
         console.log(
           `${connectionId} C2S connecting...: ${serverSocket.readyState}`
         );
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 500));
       }
 
       if (packetData[0] === "REQ" && !clientAuthorized) {
