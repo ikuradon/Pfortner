@@ -32,7 +32,6 @@ Deno.serve(
 
     const clientIp = req.headers.get('X-Forwarded-For') || conn.remoteAddr.hostname || '';
     const connectionId = crypto.randomUUID();
-    // const serverSocket = new WebSocket(UPSTREAM_URL_WS);
     const reqOptions: wsClientOptions = {};
     if (X_FORWARDED_FOR && clientIp != null) {
       reqOptions.headers = { 'X-Forwarded-For': clientIp };
@@ -41,7 +40,7 @@ Deno.serve(
     let serverConnected = false;
     let clientConnected = false;
     let clientAuthorized = false;
-    let userPubkey: string;
+    let clientPubkey: string;
 
     const stash = new Map<string, nostrTools.Event[]>();
 
@@ -135,7 +134,7 @@ Deno.serve(
 
         if (checkChallenge && checkRelay) {
           console.log('AUTH OK');
-          userPubkey = event.pubkey;
+          clientPubkey = event.pubkey;
           clientAuthorized = true;
           sendStash();
         } else {
@@ -163,11 +162,11 @@ Deno.serve(
     }
 
     function isRelatedEvent(ev: nostrTools.Event): boolean {
-      if (ev.pubkey === userPubkey) return true;
+      if (ev.pubkey === clientPubkey) return true;
       for (const tag of ev.tags) {
         if (
           tag[0] === 'p' &&
-          tag[1] === userPubkey
+          tag[1] === clientPubkey
         ) return true;
       }
       return false;
