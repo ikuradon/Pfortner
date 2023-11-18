@@ -116,7 +116,7 @@ Deno.serve({ port: APP_PORT }, async (req, conn) => {
     let checkRelay = false;
     try {
       const packetData = JSON.parse(packet);
-      const event = JSON.parse(packetData[1]) as nostrTools.Event;
+      const event = packetData[1] as nostrTools.Event;
       if (
         nostrTools.validateEvent(event) &&
         nostrTools.verifySignature(event) &&
