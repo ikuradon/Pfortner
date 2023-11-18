@@ -1,31 +1,24 @@
-import { dotenv, nostrTools, ws, type wsClientOptions } from "./deps.ts";
+import { dotenv, nostrTools, ws, type wsClientOptions } from './deps.ts';
 dotenv.loadSync({ export: true });
 
-const APP_PORT = Number(Deno.env.get("APP_PORT")) || 3000;
-const UPSTREAM_RELAY = Deno.env.get("UPSTREAM_RELAY");
-const UPSTREAM_HTTPS = Deno.env.get("UPSTREAM_HTTPS") === "true" ? true : false;
-const UPSTREAM_RAW_URL = new URL(
-  Deno.env.get("UPSTREAM_RAW_URL") || "ws://localhost"
-).toString();
-const X_FORWARDED_FOR =
-  Deno.env.get("X_FORWARDED_FOR") === "true" ? true : false;
+const APP_PORT = Number(Deno.env.get('APP_PORT')) || 3000;
+const UPSTREAM_RELAY = Deno.env.get('UPSTREAM_RELAY');
+const UPSTREAM_HTTPS = Deno.env.get('UPSTREAM_HTTPS') === 'true' ? true : false;
+const UPSTREAM_RAW_URL = new URL(Deno.env.get('UPSTREAM_RAW_URL') || 'ws://localhost:3000').toString();
+const X_FORWARDED_FOR = Deno.env.get('X_FORWARDED_FOR') === 'true' ? true : false;
 
-const UPSTREAM_URL_WS = `${
-  UPSTREAM_HTTPS ? "wss://" : "ws://"
-}${UPSTREAM_RELAY}`;
-const UPSTREAM_URL_HTTP = `${
-  UPSTREAM_HTTPS ? "https://" : "http://"
-}${UPSTREAM_RELAY}`;
+const UPSTREAM_URL_WS = `${UPSTREAM_HTTPS ? 'wss://' : 'ws://'}${UPSTREAM_RELAY}`;
+const UPSTREAM_URL_HTTP = `${UPSTREAM_HTTPS ? 'https://' : 'http://'}${UPSTREAM_RELAY}`;
 
 console.log(UPSTREAM_URL_WS);
 
 Deno.serve(
   { port: APP_PORT },
   async (req: Request, conn: Deno.ServeHandlerInfo) => {
-    if (req.headers.get("Accept") === "application/nostr+json") {
+    if (req.headers.get('Accept') === 'application/nostr+json') {
       const response = await fetch(UPSTREAM_URL_HTTP, {
         headers: {
-          Accept: "application/nostr+json",
+          Accept: 'application/nostr+json',
         },
       });
       const relayInfo = await response.json();
@@ -33,19 +26,16 @@ Deno.serve(
       return new Response(JSON.stringify(relayInfo));
     }
 
-    if (req.headers.get("upgrade") != "websocket") {
-      return new Response("Please use a Nostr client to connect.", {
-        status: 400,
-      });
+    if (req.headers.get('upgrade') != 'websocket') {
+      return new Response('Please use a Nostr client to connect.', { status: 400 });
     }
 
-    const clientIp =
-      req.headers.get("X-Forwarded-For") || conn.remoteAddr.hostname || "";
+    const clientIp = req.headers.get('X-Forwarded-For') || conn.remoteAddr.hostname || '';
     const connectionId = crypto.randomUUID();
     // const serverSocket = new WebSocket(UPSTREAM_URL_WS);
     const reqOptions: wsClientOptions = {};
     if (X_FORWARDED_FOR && clientIp != null) {
-      reqOptions.headers = { "X-Forwarded-For": clientIp };
+      reqOptions.headers = { 'X-Forwarded-For': clientIp };
     }
     const serverSocket = new ws(UPSTREAM_URL_WS, [], reqOptions);
     let serverConnected = false;
@@ -55,17 +45,17 @@ Deno.serve(
 
     const stash = new Map<string, nostrTools.Event[]>();
 
-    serverSocket.addEventListener("open", (e) => {
+    serverSocket.addEventListener('open', (e) => {
       console.log(`${connectionId} S2C (open): ${e}`);
       serverConnected = true;
     });
-    serverSocket.addEventListener("message", (e) => {
+    serverSocket.addEventListener('message', (e) => {
       const packet = e.data;
       console.log(`${connectionId} S2C (message): ${packet}`);
 
       try {
         const packetData = JSON.parse(packet);
-        if (packetData.length === 3 && packetData[0] === "EVENT") {
+        if (packetData.length === 3 && packetData[0] === 'EVENT') {
           const event = packetData[2] as nostrTools.Event;
           if (!clientAuthorized && event.kind === 4) {
             const reqId = packetData[1];
@@ -83,7 +73,7 @@ Deno.serve(
         console.log(e);
       }
     });
-    serverSocket.addEventListener("close", (e) => {
+    serverSocket.addEventListener('close', (e) => {
       console.log(`${connectionId} S2C (close): ${e}`);
       if (clientConnected) {
         clientSocket.close();
@@ -92,7 +82,7 @@ Deno.serve(
     });
 
     function sendAuthMessage(): void {
-      const packet = ["AUTH"];
+      const packet = ['AUTH'];
       packet.push(connectionId);
 
       clientSocket.send(JSON.stringify(packet));
@@ -107,13 +97,14 @@ Deno.serve(
       if (
         ev.created_at > now - allowedTimeDuration &&
         ev.created_at < now + allowedTimeDuration
-      )
+      ) {
         return true;
+      }
       return false;
     }
 
     function verifyAuthMessage(packet: string): void {
-      console.log("AUTH");
+      console.log('AUTH');
       let checkChallenge = false;
       let checkRelay = false;
       try {
@@ -128,28 +119,29 @@ Deno.serve(
           event.tags.forEach((tag) => {
             if (
               tag.length === 2 &&
-              tag[0] === "challenge" &&
+              tag[0] === 'challenge' &&
               tag[1] === connectionId
-            )
+            ) {
               checkChallenge = true;
-            else if (
+            } else if (
               tag.length === 2 &&
-              tag[0] === "relay" &&
+              tag[0] === 'relay' &&
               new URL(tag[1]).toString() === UPSTREAM_RAW_URL
-            )
+            ) {
               checkRelay = true;
+            }
           });
         }
 
         if (checkChallenge && checkRelay) {
-          console.log("AUTH OK");
+          console.log('AUTH OK');
           userPubkey = event.pubkey;
           clientAuthorized = true;
           sendStash();
         } else {
-          console.log("AUTH NG");
+          console.log('AUTH NG');
           clientSocket.send(
-            JSON.stringify(["NOTICE", "restricted: auth failed."])
+            JSON.stringify(['NOTICE', 'restricted: auth failed.']),
           );
         }
       } catch (e) {
@@ -162,7 +154,7 @@ Deno.serve(
         console.log(reqId);
         for (const event of events) {
           if (isRelatedEvent(event)) {
-            const message = ["EVENT", reqId, event];
+            const message = ['EVENT', reqId, event];
             clientSocket.send(JSON.stringify(message));
           }
         }
@@ -173,18 +165,21 @@ Deno.serve(
     function isRelatedEvent(ev: nostrTools.Event): boolean {
       if (ev.pubkey === userPubkey) return true;
       for (const tag of ev.tags) {
-        if (tag[0] === "p" && tag[1] === userPubkey) return true;
+        if (
+          tag[0] === 'p' &&
+          tag[1] === userPubkey
+        ) return true;
       }
       return false;
     }
 
     const { response, socket: clientSocket } = Deno.upgradeWebSocket(req);
-    clientSocket.addEventListener("open", (e) => {
+    clientSocket.addEventListener('open', (e) => {
       console.log(`${connectionId} C2S (open): ${e}`);
       clientConnected = true;
       sendAuthMessage();
     });
-    clientSocket.addEventListener("message", async (e: MessageEvent) => {
+    clientSocket.addEventListener('message', async (e: MessageEvent) => {
       const packet = e.data;
       console.log(`${connectionId} C2S (message): ${packet}`);
 
@@ -196,26 +191,35 @@ Deno.serve(
         }
       })();
       if (packetData == null) return;
-      if (packetData.length === 2 && packetData[0] === "AUTH") {
+      if (
+        packetData.length === 2 &&
+        packetData[0] === 'AUTH'
+      ) {
         if (!clientAuthorized) verifyAuthMessage(packet);
       } else {
         while (serverSocket.readyState !== serverSocket.OPEN) {
           console.log(
-            `${connectionId} C2S connecting...: ${serverSocket.readyState}`
+            `${connectionId} C2S connecting...: ${serverSocket.readyState}`,
           );
           await new Promise((resolve) => setTimeout(resolve, 500));
         }
 
-        if (packetData[0] === "REQ" && !clientAuthorized) {
+        if (
+          packetData[0] === 'REQ' &&
+          !clientAuthorized
+        ) {
           stash.set(packetData[1], [] as nostrTools.Event[]);
-        } else if (packetData[0] === "CLOSE" && !clientAuthorized) {
+        } else if (
+          packetData[0] === 'CLOSE' &&
+          !clientAuthorized
+        ) {
           stash.delete(packetData[1]);
         }
 
         serverSocket.send(packet);
       }
     });
-    clientSocket.addEventListener("close", (e) => {
+    clientSocket.addEventListener('close', (e) => {
       console.log(`${connectionId} C2S (close): ${e}`);
       if (serverConnected) {
         serverSocket.close();
@@ -224,5 +228,5 @@ Deno.serve(
     });
 
     return response;
-  }
+  },
 );
