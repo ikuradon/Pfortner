@@ -1,6 +1,7 @@
 import { Hono, dotenv, nostrTools, nWebSocket } from "./deps.ts";
 dotenv.loadSync({ export: true });
 
+const APP_PORT = Number(Deno.env.get("APP_PORT")) || 3000;
 const UPSTREAM_RELAY = Deno.env.get("UPSTREAM_RELAY");
 const UPSTREAM_HTTPS = Deno.env.get("UPSTREAM_HTTPS") === "true" ? true : false;
 const UPSTREAM_RAW_URL = new URL(
@@ -221,4 +222,4 @@ app.get("/", async (c) => {
   return response;
 });
 
-Deno.serve({ port: 3000 }, app.fetch);
+Deno.serve({ port: APP_PORT }, app.fetch);
