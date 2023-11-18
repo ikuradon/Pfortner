@@ -1,0 +1,23 @@
+{
+  "name": "Deno DevContainer",
+  "dockerComposeFile": ["../compose.yaml", "compose.yaml"],
+  "service": "deno_devcontainer",
+  "workspaceFolder": "/app",
+  "forwardPorts": [3000],
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "deno.enable": true,
+        "deno.lint": true,
+        "deno.unstable": false
+      },
+      "extensions": [
+        "denoland.vscode-deno"
+      ]
+    }
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/sshd:1": {}
+  }
+}

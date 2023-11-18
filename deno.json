@@ -1,6 +1,6 @@
 {
   "tasks": {
-    "dev": "deno run --allow-env --allow-net --allow-read --watch main.ts",
-    "serve": "deno run --allow-env --allow-net --allow-read main.ts"
+    "dev": "deno run --allow-env --allow-net --allow-read --watch src/main.ts",
+    "serve": "deno run --allow-env --allow-net --allow-read src/main.ts"
   }
 }

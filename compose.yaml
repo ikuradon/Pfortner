@@ -1,0 +1,12 @@
+version: "3"
+
+services:
+  deno_devcontainer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: deno_devcontainer
+    volumes:
+      - .:/workspace
+    ports:
+      - "3000:3000"
