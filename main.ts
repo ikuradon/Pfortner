@@ -1,4 +1,4 @@
-import { dotenv, nostrTools, nWebSocket } from "./deps.ts";
+import { dotenv, nostrTools, ws, type wsClientOptions } from "./deps.ts";
 dotenv.loadSync({ export: true });
 
 const APP_PORT = Number(Deno.env.get("APP_PORT")) || 3000;
@@ -41,11 +41,11 @@ Deno.serve({ port: APP_PORT }, async (req, conn) => {
     req.headers.get("X-Forwarded-For") || conn.remoteAddr.hostname || "";
   const connectionId = crypto.randomUUID();
   // const serverSocket = new WebSocket(UPSTREAM_URL_WS);
-  const reqOptions = {};
+  const reqOptions: wsClientOptions = {};
   if (X_FORWARDED_FOR && clientIp != null) {
-    reqOptions["X-Forwarded-For"] = clientIp;
+    reqOptions.headers = { "X-Forwarded-For": clientIp };
   }
-  const serverSocket = new nWebSocket(UPSTREAM_URL_WS, [], reqOptions);
+  const serverSocket = new ws(UPSTREAM_URL_WS, [], reqOptions);
   let serverConnected = false;
   let clientConnected = false;
   let clientAuthorized = false;
