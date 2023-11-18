@@ -2,18 +2,5 @@
   "tasks": {
     "dev": "deno run --allow-env --allow-net --allow-read --watch main.ts",
     "serve": "deno run --allow-env --allow-net --allow-read main.ts"
-  },
-  "imports": {
-    "/": "./",
-    "./": "./",
-    "@hono/swagger-ui": "npm:@hono/swagger-ui@0.1.0",
-    "@hono/zod-openapi": "npm:@hono/zod-openapi@0.8.3",
-    "@types/ip": "npm:@types/ip@1.1.3",
-    "hono": "npm:hono@3.9.2",
-    "hono/logger": "npm:hono@3.9.2/logger",
-    "ip": "npm:ip@1.1.8",
-    "maxmind": "npm:maxmind@4.3.17",
-    "nostr-tools": "npm:nostr-tools@1.17.0",
-    "zod": "npm:zod@3.22.4"
   }
 }
