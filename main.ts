@@ -19,8 +19,8 @@ const UPSTREAM_URL_HTTP = `${
 
 console.log(UPSTREAM_URL_WS);
 
-Deno.serve({ port: APP_PORT }, async (request) => {
-  if (request.headers.get("Accept") === "application/nostr+json") {
+Deno.serve({ port: APP_PORT }, async (req, conn) => {
+  if (req.headers.get("Accept") === "application/nostr+json") {
     const response = await fetch(UPSTREAM_URL_HTTP, {
       headers: {
         Accept: "application/nostr+json",
@@ -31,13 +31,14 @@ Deno.serve({ port: APP_PORT }, async (request) => {
     return new Response(JSON.stringify(relayInfo));
   }
 
-  if (request.headers.get("upgrade") != "websocket") {
+  if (req.headers.get("upgrade") != "websocket") {
     return new Response("Please use a Nostr client to connect.", {
       status: 400,
     });
   }
 
-  const clientIp = request.headers.get("X-Forwarded-For");
+  const clientIp =
+    req.headers.get("X-Forwarded-For") || conn.remoteAddr.hostname || "";
   const connectionId = crypto.randomUUID();
   // const serverSocket = new WebSocket(UPSTREAM_URL_WS);
   const reqOptions = {};
@@ -175,7 +176,7 @@ Deno.serve({ port: APP_PORT }, async (request) => {
     return false;
   }
 
-  const { response, socket: clientSocket } = Deno.upgradeWebSocket(request);
+  const { response, socket: clientSocket } = Deno.upgradeWebSocket(req);
   clientSocket.addEventListener("open", (e) => {
     console.log(`${connectionId} C2S (open): ${e}`);
     clientConnected = true;
