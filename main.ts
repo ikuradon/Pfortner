@@ -5,7 +5,7 @@ const APP_PORT = Number(Deno.env.get("APP_PORT")) || 3000;
 const UPSTREAM_RELAY = Deno.env.get("UPSTREAM_RELAY");
 const UPSTREAM_HTTPS = Deno.env.get("UPSTREAM_HTTPS") === "true" ? true : false;
 const UPSTREAM_RAW_URL = new URL(
-  Deno.env.get("UPSTREAM_RAW_URL") ?? "ws://localhost"
+  Deno.env.get("UPSTREAM_RAW_URL") || "ws://localhost"
 ).toString();
 const X_FORWARDED_FOR =
   Deno.env.get("X_FORWARDED_FOR") === "true" ? true : false;
