@@ -198,9 +198,12 @@ Deno.serve(
       } else {
         while (serverSocket.readyState !== serverSocket.OPEN) {
           console.log(
-            `${connectionId} C2S connecting...: ${serverSocket.readyState}`,
+            `${connectionId} C2S:  connecting...`,
           );
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          await new Promise<void>((resolve, reject) => {
+            serverSocket.addEventListener('open', () => resolve());
+            serverSocket.addEventListener('error', () => reject());
+          });
         }
 
         if (
