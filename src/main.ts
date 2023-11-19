@@ -13,7 +13,7 @@ const UPSTREAM_URL_HTTP = `${UPSTREAM_HTTPS ? 'https://' : 'http://'}${UPSTREAM_
 console.log(UPSTREAM_URL_WS);
 
 Deno.serve(
-  { port: APP_PORT },
+  { hostname: '[::]', port: APP_PORT },
   async (req: Request, conn: Deno.ServeHandlerInfo) => {
     if (req.headers.get('Accept') === 'application/nostr+json') {
       const response = await fetch(UPSTREAM_URL_HTTP, {
