@@ -12,18 +12,22 @@ const UPSTREAM_URL_HTTP = `${UPSTREAM_HTTPS ? 'https://' : 'http://'}${UPSTREAM_
 
 console.log(UPSTREAM_URL_WS);
 
+const appendNip42Proxy = async ({ upstreamHost }: { upstreamHost: string }): Promise<Response> => {
+  const response = await fetch(new URL(upstreamHost).href, {
+    headers: {
+      Accept: 'application/nostr+json',
+    },
+  });
+  const relayInfo = await response.json();
+  relayInfo.supported_nips.push(42);
+  return new Response(JSON.stringify(relayInfo));
+};
+
 Deno.serve(
   { hostname: '[::]', port: APP_PORT },
   async (req: Request, conn: Deno.ServeHandlerInfo) => {
-    if (req.headers.get('Accept') === 'application/nostr+json') {
-      const response = await fetch(UPSTREAM_URL_HTTP, {
-        headers: {
-          Accept: 'application/nostr+json',
-        },
-      });
-      const relayInfo = await response.json();
-      console.log(relayInfo.supported_nips.push(42));
-      return new Response(JSON.stringify(relayInfo));
+    if (req.headers.get('accept') === 'application/nostr+json') {
+      return await appendNip42Proxy({ upstreamHost: UPSTREAM_URL_HTTP });
     }
 
     if (req.headers.get('upgrade') != 'websocket') {
