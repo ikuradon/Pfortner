@@ -49,11 +49,11 @@ Deno.serve(
       serverConnected = true;
     });
     serverSocket.addEventListener('message', (e) => {
-      const packet = e.data;
-      console.log(`${connectionId} S2C (message): ${packet}`);
+      const json = e.data;
+      console.log(`${connectionId} S2C (message): ${json}`);
 
       try {
-        const packetData = JSON.parse(packet);
+        const packetData = JSON.parse(json);
         if (packetData.length === 3 && packetData[0] === 'EVENT') {
           const event = packetData[2] as nostrTools.Event;
           if (!clientAuthorized && event.kind === 4) {
@@ -63,10 +63,10 @@ Deno.serve(
             reqStash.push(event);
             stash.set(reqId, reqStash);
           }
-          if (event.kind !== 4) return clientSocket.send(packet);
-          if (isRelatedEvent(event)) return clientSocket.send(packet);
+          if (event.kind !== 4) return clientSocket.send(json);
+          if (isRelatedEvent(event)) return clientSocket.send(json);
         } else {
-          return clientSocket.send(packet);
+          return clientSocket.send(json);
         }
       } catch (e) {
         console.log(e);
@@ -102,13 +102,13 @@ Deno.serve(
       return false;
     }
 
-    function verifyAuthMessage(packet: string): void {
+    function verifyAuthMessage(json: string): void {
       console.log('AUTH');
       let checkChallenge = false;
       let checkRelay = false;
       try {
-        const packetData = JSON.parse(packet);
-        const event = packetData[1] as nostrTools.Event;
+        const packet = JSON.parse(json);
+        const event = packet[1] as nostrTools.Event;
         if (
           nostrTools.validateEvent(event) &&
           nostrTools.verifySignature(event) &&
@@ -179,12 +179,12 @@ Deno.serve(
       sendAuthMessage();
     });
     clientSocket.addEventListener('message', async (e: MessageEvent) => {
-      const packet = e.data;
-      console.log(`${connectionId} C2S (message): ${packet}`);
+      const json = e.data;
+      console.log(`${connectionId} C2S (message): ${json}`);
 
       const packetData = (() => {
         try {
-          return JSON.parse(packet);
+          return JSON.parse(json);
         } catch (_) {
           return null;
         }
@@ -194,7 +194,7 @@ Deno.serve(
         packetData.length === 2 &&
         packetData[0] === 'AUTH'
       ) {
-        if (!clientAuthorized) verifyAuthMessage(packet);
+        if (!clientAuthorized) verifyAuthMessage(json);
       } else {
         while (serverSocket.readyState !== serverSocket.OPEN) {
           console.log(
@@ -218,7 +218,7 @@ Deno.serve(
           stash.delete(packetData[1]);
         }
 
-        serverSocket.send(packet);
+        serverSocket.send(json);
       }
     });
     clientSocket.addEventListener('close', (e) => {
