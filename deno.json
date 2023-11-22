@@ -4,25 +4,19 @@
     "serve": "deno run --allow-env --allow-net --allow-read src/main.ts"
   },
   "lint": {
-    "files": {
-      "include": ["."]
-    },
+    "include": ["."],
     "rules": {
       "tags": ["recommended"],
       "exclude": ["no-explicit-any"]
     }
   },
   "fmt": {
-    "files": {
-      "include": ["."]
-    },
-    "options": {
-      "useTabs": false,
-      "lineWidth": 120,
-      "indentWidth": 2,
-      "semiColons": true,
-      "singleQuote": true,
-      "proseWrap": "preserve"
-    }
+    "include": ["."],
+    "useTabs": false,
+    "lineWidth": 120,
+    "indentWidth": 2,
+    "semiColons": true,
+    "singleQuote": true,
+    "proseWrap": "preserve"
   }
 }
