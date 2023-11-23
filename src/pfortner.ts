@@ -250,10 +250,10 @@ export const pfortnerInit = (
   }
 
   function sendAuthMessage(): void {
-    const packet = ['AUTH'];
-    packet.push(connectionInfo.connectionId);
+    const msg = ['AUTH'];
+    msg.push(connectionInfo.connectionId);
 
-    sendmessageToClient(JSON.stringify(packet));
+    sendmessageToClient(JSON.stringify(msg));
   }
 
   function currUnixtime(): number {
