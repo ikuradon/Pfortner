@@ -1,16 +1,14 @@
-import { dotenv, nostrTools, ws, type wsClientOptions } from './deps.ts';
+import { dotenv, nostrTools } from './deps.ts';
+import { pfortnerInit, type Policy } from './pfortner.ts';
 dotenv.loadSync({ export: true });
 
 const APP_PORT = Number(Deno.env.get('APP_PORT')) || 3000;
 const UPSTREAM_RELAY = Deno.env.get('UPSTREAM_RELAY');
 const UPSTREAM_HTTPS = Deno.env.get('UPSTREAM_HTTPS') === 'true' ? true : false;
-const UPSTREAM_RAW_URL = new URL(Deno.env.get('UPSTREAM_RAW_URL') || 'ws://localhost:3000').toString();
-const X_FORWARDED_FOR = Deno.env.get('X_FORWARDED_FOR') === 'true' ? true : false;
+const UPSTREAM_RAW_URL = new URL(Deno.env.get('UPSTREAM_RAW_URL') || 'ws://localhost:3000').href;
 
 const UPSTREAM_URL_WS = `${UPSTREAM_HTTPS ? 'wss://' : 'ws://'}${UPSTREAM_RELAY}`;
 const UPSTREAM_URL_HTTP = `${UPSTREAM_HTTPS ? 'https://' : 'http://'}${UPSTREAM_RELAY}`;
-
-console.log(UPSTREAM_URL_WS);
 
 const appendNip42Proxy = async ({ upstreamHost }: { upstreamHost: string }): Promise<Response> => {
   const response = await fetch(new URL(upstreamHost).href, {
@@ -21,6 +19,44 @@ const appendNip42Proxy = async ({ upstreamHost }: { upstreamHost: string }): Pro
   const relayInfo = await response.json();
   relayInfo.supported_nips.push(42);
   return new Response(JSON.stringify(relayInfo));
+};
+
+const passThuruPolicy: Policy<void> = (message) => {
+  return { message, action: 'accept' };
+};
+
+const isRelatedEvent = (pubkey: string, event: nostrTools.Event): boolean => {
+  if (event.pubkey === pubkey) return true;
+  for (const tag of event.tags) {
+    if (
+      tag[0] === 'p' &&
+      tag[1] === pubkey
+    ) return true;
+  }
+  return false;
+};
+
+const filterDmPolicy: Policy<Map<string, nostrTools.Event[]>> = (message, connectionInfo, stash) => {
+  if (message[0] !== 'EVENT' || message.length !== 3) {
+    return { message, action: 'next' };
+  }
+
+  const reqId = message[1] as string;
+  const event = message[2] as nostrTools.Event;
+  if (event.kind !== 4) {
+    return { message, action: 'next' };
+  }
+
+  if (!connectionInfo.clientAuthorized) {
+    const reqStash = stash?.get(reqId) ?? ([] as nostrTools.Event[]);
+    reqStash.push(event);
+    stash?.set(reqId, reqStash);
+    return { message, action: 'reject' };
+  } else if (isRelatedEvent(connectionInfo.clientPubkey, event)) {
+    return { message, action: 'accept' };
+  } else {
+    return { message, action: 'reject' };
+  }
 };
 
 Deno.serve(
@@ -35,204 +71,50 @@ Deno.serve(
     }
 
     const clientIp = req.headers.get('X-Forwarded-For') || conn.remoteAddr.hostname || '';
-    const connectionId = crypto.randomUUID();
-    const reqOptions: wsClientOptions = {};
-    if (X_FORWARDED_FOR && clientIp != null) {
-      reqOptions.headers = { 'X-Forwarded-For': clientIp };
-    }
-    const serverSocket = new ws(UPSTREAM_URL_WS, [], reqOptions);
-    let serverConnected = false;
-    let clientConnected = false;
-    let clientAuthorized = false;
-    let clientPubkey: string;
 
     const stash = new Map<string, nostrTools.Event[]>();
 
-    serverSocket.addEventListener('open', (e) => {
-      console.log(`${connectionId} S2C (open): ${e}`);
-      serverConnected = true;
+    const pfortner = pfortnerInit(UPSTREAM_URL_WS, {
+      clientIp,
+      sendAuthOnConnect: true,
+      upstreamRawAddress: UPSTREAM_RAW_URL,
     });
-    serverSocket.addEventListener('message', (e) => {
-      const json = e.data;
-      console.log(`${connectionId} S2C (message): ${json}`);
+    // pfortner.on('serverConnect', () => console.log(`${pfortner.connectionInfo.connectionId} serverConnect`));
+    // pfortner.on('serverMsg', (message) => console.log(`${pfortner.connectionInfo.connectionId} serverMsg: ${message}`));
+    // pfortner.on('serverDisconnect', () => console.log(`${pfortner.connectionInfo.connectionId} serverDisconnect`));
 
-      try {
-        const packetData = JSON.parse(json);
-        if (packetData.length === 3 && packetData[0] === 'EVENT') {
-          const event = packetData[2] as nostrTools.Event;
-          if (!clientAuthorized && event.kind === 4) {
-            const reqId = packetData[1];
-            console.log(`Add ${event.id} to stash ${reqId}`);
-            const reqStash = stash.get(reqId) ?? ([] as nostrTools.Event[]);
-            reqStash.push(event);
-            stash.set(reqId, reqStash);
-          }
-          if (event.kind !== 4) return clientSocket.send(json);
-          if (isRelatedEvent(event)) return clientSocket.send(json);
-        } else {
-          return clientSocket.send(json);
-        }
-      } catch (e) {
-        console.log(e);
+    // pfortner.on('clientConnect', () => console.log(`${pfortner.connectionInfo.connectionId} clientConnect`));
+    // pfortner.on('clientMsg', (message) => console.log(`${pfortner.connectionInfo.connectionId} clientMsg: ${message}`));
+    // pfortner.on('clientDisconnect', () => console.log(`${pfortner.connectionInfo.connectionId} clientDisconnect`));
+
+    // pfortner.on('clientAuth', () => console.log(`${pfortner.connectionInfo.connectionId} clientAuth`));
+    // pfortner.on('authSuccess', () => console.log(`${pfortner.connectionInfo.connectionId} authSuccess`));
+    // pfortner.on('authFailed', () => console.log(`${pfortner.connectionInfo.connectionId} authFailed`));
+
+    pfortner.registerClientPipeline([passThuruPolicy]);
+    pfortner.registerServerPipeline([[filterDmPolicy, stash], passThuruPolicy]);
+
+    pfortner.on('clientRequest', (requestId) => {
+      if (!pfortner.connectionInfo.clientAuthorized) {
+        stash.set(requestId, [] as nostrTools.Event[]);
       }
     });
-    serverSocket.addEventListener('close', (e) => {
-      console.log(`${connectionId} S2C (close): ${e}`);
-      if (clientConnected) {
-        clientSocket.close();
-        clientConnected = false;
+    pfortner.on('clientClose', (requestId) => {
+      if (!pfortner.connectionInfo.clientAuthorized) {
+        stash.delete(requestId);
       }
     });
-
-    function sendAuthMessage(): void {
-      const packet = ['AUTH'];
-      packet.push(connectionId);
-
-      clientSocket.send(JSON.stringify(packet));
-    }
-
-    function currUnixtime(): number {
-      return Math.floor(new Date().getTime() / 1000);
-    }
-    function validateEventTime(ev: nostrTools.Event): boolean {
-      const now = currUnixtime();
-      const allowedTimeDuration = 10 * 60;
-      if (
-        ev.created_at > now - allowedTimeDuration &&
-        ev.created_at < now + allowedTimeDuration
-      ) {
-        return true;
-      }
-      return false;
-    }
-
-    function verifyAuthMessage(json: string): void {
-      console.log('AUTH');
-      let checkChallenge = false;
-      let checkRelay = false;
-      try {
-        const packet = JSON.parse(json);
-        const event = packet[1] as nostrTools.Event;
-        if (
-          nostrTools.validateEvent(event) &&
-          nostrTools.verifySignature(event) &&
-          event.kind === 22242 &&
-          validateEventTime(event)
-        ) {
-          event.tags.forEach((tag) => {
-            if (
-              tag.length === 2 &&
-              tag[0] === 'challenge' &&
-              tag[1] === connectionId
-            ) {
-              checkChallenge = true;
-            } else if (
-              tag.length === 2 &&
-              tag[0] === 'relay' &&
-              new URL(tag[1]).toString() === UPSTREAM_RAW_URL
-            ) {
-              checkRelay = true;
-            }
-          });
-        }
-
-        if (checkChallenge && checkRelay) {
-          console.log('AUTH OK');
-          clientPubkey = event.pubkey;
-          clientAuthorized = true;
-          sendStash();
-        } else {
-          console.log('AUTH NG');
-          clientSocket.send(
-            JSON.stringify(['NOTICE', 'restricted: auth failed.']),
-          );
-        }
-      } catch (e) {
-        console.log(e);
-      }
-    }
-
-    function sendStash(): void {
+    pfortner.on('authSuccess', () => {
       stash.forEach((events: nostrTools.Event[], reqId: string, _) => {
-        console.log(reqId);
         for (const event of events) {
-          if (isRelatedEvent(event)) {
-            const message = ['EVENT', reqId, event];
-            clientSocket.send(JSON.stringify(message));
+          if (isRelatedEvent(pfortner.connectionInfo.clientPubkey, event)) {
+            const msg = ['EVENT', reqId, event];
+            pfortner.sendmessageToClient(JSON.stringify(msg));
           }
         }
       });
-      stash.clear();
-    }
-
-    function isRelatedEvent(ev: nostrTools.Event): boolean {
-      if (ev.pubkey === clientPubkey) return true;
-      for (const tag of ev.tags) {
-        if (
-          tag[0] === 'p' &&
-          tag[1] === clientPubkey
-        ) return true;
-      }
-      return false;
-    }
-
-    const { response, socket: clientSocket } = Deno.upgradeWebSocket(req);
-    clientSocket.addEventListener('open', (e) => {
-      console.log(`${connectionId} C2S (open): ${e}`);
-      clientConnected = true;
-      sendAuthMessage();
-    });
-    clientSocket.addEventListener('message', async (e: MessageEvent) => {
-      const json = e.data;
-      console.log(`${connectionId} C2S (message): ${json}`);
-
-      const packetData = (() => {
-        try {
-          return JSON.parse(json);
-        } catch (_) {
-          return null;
-        }
-      })();
-      if (packetData == null) return;
-      if (
-        packetData.length === 2 &&
-        packetData[0] === 'AUTH'
-      ) {
-        if (!clientAuthorized) verifyAuthMessage(json);
-      } else {
-        while (serverSocket.readyState !== serverSocket.OPEN) {
-          console.log(
-            `${connectionId} C2S:  connecting...`,
-          );
-          await new Promise<void>((resolve, reject) => {
-            serverSocket.addEventListener('open', () => resolve());
-            serverSocket.addEventListener('error', () => reject());
-          });
-        }
-
-        if (
-          packetData[0] === 'REQ' &&
-          !clientAuthorized
-        ) {
-          stash.set(packetData[1], [] as nostrTools.Event[]);
-        } else if (
-          packetData[0] === 'CLOSE' &&
-          !clientAuthorized
-        ) {
-          stash.delete(packetData[1]);
-        }
-
-        serverSocket.send(json);
-      }
-    });
-    clientSocket.addEventListener('close', (e) => {
-      console.log(`${connectionId} C2S (close): ${e}`);
-      if (serverConnected) {
-        serverSocket.close();
-        serverConnected = false;
-      }
     });
 
-    return response;
+    return pfortner.createSession(req);
   },
 );

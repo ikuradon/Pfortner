@@ -1,7 +1,7 @@
 import { nostrTools, ws, wsClientOptions } from './deps.ts';
 
 type SocketEvent = {
-  authSuccess: (clientPubkey: string) => void | Promise<void>;
+  authSuccess: () => void | Promise<void>;
   authFailed: () => void | Promise<void>;
 
   clientConnect: () => void | Promise<void>;
@@ -10,8 +10,8 @@ type SocketEvent = {
   clientMsg: (message: string) => void | Promise<void>;
   clientAuth: (event: nostrTools.Event) => void | Promise<void>;
   clientEvent: (event: nostrTools.Event) => void | Promise<void>;
-  clientRequest: (requestId: string, filter: nostrTools.Filter) => void | Promise<void>;
-  clientClose: (message: string) => void | Promise<void>;
+  clientRequest: (subscriptionId: string, filter: nostrTools.Filter) => void | Promise<void>;
+  clientClose: (subscriptionId: string) => void | Promise<void>;
 
   serverConnect: () => void | Promise<void>;
   serverDisconnect: () => void | Promise<void>;
@@ -56,7 +56,7 @@ interface ConnectionInfo {
   clientPubkey: string;
 }
 export type Policy<Options = unknown> = (
-  message: string,
+  message: unknown[],
   connectionInfo: ConnectionInfo,
   options?: Options,
 ) => Promise<OutputMessage> | OutputMessage;
@@ -137,8 +137,8 @@ export const pfortnerInit = (
             return; // Terminate at proxy (Do not send message to upstream relay.)
           case 'CLOSE': // NIP-01
             {
-              const reqId: string = msg[1];
-              listeners.clientClose.forEach((cb) => cb(reqId));
+              const subId: string = msg[1];
+              listeners.clientClose.forEach((cb) => cb(subId));
             }
             break;
           case 'EVENT': // NIP-01
@@ -149,9 +149,9 @@ export const pfortnerInit = (
             break;
           case 'REQ': // NIP-01
             {
-              const reqId: string = msg[1];
+              const subId: string = msg[1];
               const filter: nostrTools.Filter = msg[2];
-              listeners.clientRequest.forEach((cb) => cb(reqId, filter));
+              listeners.clientRequest.forEach((cb) => cb(subId, filter));
             }
             break;
         }
@@ -301,7 +301,7 @@ export const pfortnerInit = (
       if (checkChallenge && checkRelay) {
         connectionInfo.clientPubkey = event.pubkey;
         connectionInfo.clientAuthorized = true;
-        listeners.authSuccess.forEach((cb) => cb(connectionInfo.clientPubkey));
+        listeners.authSuccess.forEach((cb) => cb());
       } else {
         listeners.authFailed.forEach((cb) => cb());
       }
