@@ -316,9 +316,9 @@ export const pfortnerInit = (
     serverSocket.send(message);
   }
 
-  function closeClientSocket(): void {
+  function closeClientSocket(code = 1000): void {
     if (clientConnected) {
-      clientSocket.close();
+      clientSocket.close(code);
       clientConnected = false;
     }
   }
