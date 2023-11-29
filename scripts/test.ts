@@ -26,7 +26,7 @@ relay.url = 'wss://yabu.me';
 const sub = relay.sub([
   {
     kinds: [4],
-    since: currUnixtime(),
+    // since: currUnixtime(),
   },
 ]);
 
