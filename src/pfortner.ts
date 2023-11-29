@@ -330,8 +330,8 @@ export const pfortnerInit = (
     }
   }
 
-  function closeSocket(): void {
-    closeClientSocket();
+  function closeSocket(code = 1000): void {
+    closeClientSocket(code);
     closeServerSocket();
   }
 
