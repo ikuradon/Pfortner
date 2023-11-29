@@ -71,12 +71,14 @@ export const pfortnerInit = (
   options: {
     allowedAuthTimeDuration?: number;
     clientIp?: string;
+    idleTimeout?: number;
     sendAuthOnConnect?: boolean;
     upstreamRawAddress?: string;
   } = {},
 ) => {
   let clientSocket: WebSocket;
   let serverSocket: ws;
+  let sessionTimer: number | null = null;
 
   let serverConnected = false;
   let clientConnected = false;
@@ -92,6 +94,7 @@ export const pfortnerInit = (
 
   const allowedAuthTimeDuration = options.allowedAuthTimeDuration || 10 * 60;
   const sendAuthOnConnect = options.sendAuthOnConnect || false;
+  const idleTimeout = (options.idleTimeout || 10 * 60) * 1000;
 
   const reqOptions: wsClientOptions = {};
   if (options.clientIp != null) {
@@ -111,12 +114,17 @@ export const pfortnerInit = (
 
     clientSocket.addEventListener('open', () => {
       clientConnected = true;
+
+      setIdleTimeout();
+
       listeners.clientConnect.forEach((cb) => cb());
     });
     clientSocket.addEventListener('error', () => {
       listeners.clientError.forEach((cb) => cb());
     });
     clientSocket.addEventListener('message', async ({ data: json }) => {
+      setIdleTimeout();
+
       if (serverSocket.readyState !== serverSocket.OPEN) {
         await new Promise<void>((resolve, reject) => {
           serverSocket.addEventListener('open', () => resolve());
@@ -180,12 +188,17 @@ export const pfortnerInit = (
 
     serverSocket.addEventListener('open', () => {
       serverConnected = true;
+
+      setIdleTimeout();
+
       listeners.serverConnect.forEach((cb) => cb());
     });
     serverSocket.addEventListener('error', () => {
       listeners.serverError.forEach((cb) => cb());
     });
     serverSocket.addEventListener('message', async ({ data: json }) => {
+      setIdleTimeout();
+
       listeners.serverMsg.forEach((cb) => cb(json));
 
       try {
@@ -318,6 +331,7 @@ export const pfortnerInit = (
 
   function closeClientSocket(code = 1000): void {
     if (clientConnected) {
+      clearIdleTimeout();
       clientSocket.close(code);
       clientConnected = false;
     }
@@ -325,6 +339,7 @@ export const pfortnerInit = (
 
   function closeServerSocket(): void {
     if (serverConnected) {
+      clearIdleTimeout();
       serverSocket.close();
       serverConnected = false;
     }
@@ -333,6 +348,17 @@ export const pfortnerInit = (
   function closeSocket(code = 1000): void {
     closeClientSocket(code);
     closeServerSocket();
+  }
+
+  function setIdleTimeout(): void {
+    clearIdleTimeout();
+    sessionTimer = setTimeout(closeSocket, idleTimeout);
+  }
+
+  function clearIdleTimeout(): void {
+    if (sessionTimer != null) {
+      clearTimeout(sessionTimer);
+    }
   }
 
   function registerClientPipeline<T extends unknown[]>(policies: [...Policies<T>]): void {
