@@ -1,7 +1,7 @@
 {
   "tasks": {
-    "dev": "deno run --allow-env --allow-net --allow-read --watch scripts/serve.ts",
-    "serve": "deno run --allow-env --allow-net --allow-read scripts/serve.ts"
+    "dev": "deno run --unstable --allow-env --allow-net --allow-read --watch scripts/serve.ts",
+    "serve": "deno run --unstable --allow-env --allow-net --allow-read scripts/serve.ts"
   },
   "lint": {
     "include": ["."],

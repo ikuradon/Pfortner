@@ -1,9 +1,12 @@
 {
+  "deno.enable": true,
   "deno.enablePaths": [
     "./"
   ],
-  "deno.enable": true,
+  "deno.cacheOnSave": true,
+  "deno.unstable": true,
   "editor.inlayHints.enabled": "off",
+  "editor.tabSize": 2,
   "[json]": {
     "editor.defaultFormatter": "denoland.vscode-deno"
   },
@@ -15,7 +18,5 @@
   },
   "[typescript]": {
     "editor.defaultFormatter": "denoland.vscode-deno"
-  },
-  "deno.cacheOnSave": true,
-  "editor.tabSize": 2
+  }
 }
