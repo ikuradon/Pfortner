@@ -1,4 +1,4 @@
-import { nostrTools, ws, wsClientOptions } from './deps.ts';
+import { nostrTools } from './deps.ts';
 
 type SocketEvent = {
   authSuccess: () => void | Promise<void>;
@@ -77,7 +77,11 @@ export const pfortnerInit = (
   } = {},
 ) => {
   let clientSocket: WebSocket;
-  let serverSocket: ws;
+  let serverSocket: WebSocketStream;
+  let serverReadable: ReadableStream;
+  let serverWritable: WritableStream;
+  let serverWriter: WritableStreamDefaultWriter;
+
   let sessionTimer: number | null = null;
 
   let serverConnected = false;
@@ -96,9 +100,9 @@ export const pfortnerInit = (
   const sendAuthOnConnect = options.sendAuthOnConnect || false;
   const idleTimeout = (options.idleTimeout || 10 * 60) * 1000;
 
-  const reqOptions: wsClientOptions = {};
+  const headers: HeadersInit = {};
   if (options.clientIp != null) {
-    reqOptions.headers = { 'X-Forwarded-For': options.clientIp };
+    headers['X-Forwarded-For'] = options.clientIp;
   }
   const listeners = newListeners();
 
@@ -107,7 +111,7 @@ export const pfortnerInit = (
   }
   on('clientAuth', verifyAuthMessage);
 
-  function createSession(request: Request): Response {
+  async function createSession(request: Request): Promise<Response> {
     const opts = Deno.upgradeWebSocket(request);
 
     clientSocket = opts.socket;
@@ -177,72 +181,81 @@ export const pfortnerInit = (
       closeServerSocket();
     });
 
-    serverSocket = new ws(upstreamAddress, [], reqOptions);
+    serverSocket = new WebSocketStream(upstreamAddress, { headers });
 
-    serverSocket.addEventListener('open', () => {
+    ({ readable: serverReadable, writable: serverWritable } = await serverSocket.opened);
+
+    await serverSocket.opened.then((webSocketConnection) => {
+      ({ readable: serverReadable, writable: serverWritable } = webSocketConnection);
+      serverWriter = serverWritable.getWriter();
+
       serverConnected = true;
-
       setIdleTimeout();
 
       listeners.serverConnect.forEach((cb) => cb());
-    });
-    serverSocket.addEventListener('error', () => {
+    }).catch(() => {
       listeners.serverError.forEach((cb) => cb());
     });
-    serverSocket.addEventListener('message', async ({ data: json }) => {
-      setIdleTimeout();
 
-      listeners.serverMsg.forEach((cb) => cb(json));
+    (async () => {
+      for await (const json of serverReadable) {
+        setIdleTimeout();
 
-      try {
-        const msg = JSON.parse(json);
-        switch (msg[0]) {
-          case 'EVENT': // NIP-01
+        listeners.serverMsg.forEach((cb) => cb(json));
+
+        try {
+          const msg = JSON.parse(json);
+          switch (msg[0]) {
+            case 'EVENT': // NIP-01
+              {
+                const subId = msg[1];
+                const event: nostrTools.Event = msg[2];
+                listeners.serverEvent.forEach((cb) => cb(subId, event));
+              }
+              break;
+            case 'OK': // NIP-01
+              {
+                const eventId = msg[1];
+                const isPublished = msg[2];
+                const message = msg[3] || '';
+                listeners.serverOk.forEach((cb) => cb(eventId, isPublished, message));
+              }
+              break;
+            case 'EOSE': // NIP-01
+              {
+                const subId: string = msg[1];
+                listeners.serverEose.forEach((cb) => cb(subId));
+              }
+              break;
+            case 'NOTICE': // NIP-01
             {
-              const subId = msg[1];
-              const event: nostrTools.Event = msg[2];
-              listeners.serverEvent.forEach((cb) => cb(subId, event));
+              const message: string = msg[1];
+              listeners.serverNotice.forEach((cb) => cb(message));
             }
-            break;
-          case 'OK': // NIP-01
-            {
-              const eventId = msg[1];
-              const isPublished = msg[2];
-              const message = msg[3] || '';
-              listeners.serverOk.forEach((cb) => cb(eventId, isPublished, message));
-            }
-            break;
-          case 'EOSE': // NIP-01
-            {
-              const subId: string = msg[1];
-              listeners.serverEose.forEach((cb) => cb(subId));
-            }
-            break;
-          case 'NOTICE': // NIP-01
-          {
-            const message: string = msg[1];
-            listeners.serverNotice.forEach((cb) => cb(message));
           }
-        }
 
-        for (const item of serverPolicies as (Policy | PolicyTuple)[]) {
-          const [policy, options] = toTuple(item);
-          const result = await policy(msg, connectionInfo, options);
-          if (result.action === 'accept') {
-            sendmessageToClient(JSON.stringify(result.message));
-            break;
-          } else if (result.action === 'reject') {
-            break;
+          for (const item of serverPolicies as (Policy | PolicyTuple)[]) {
+            const [policy, options] = toTuple(item);
+            const result = await policy(msg, connectionInfo, options);
+            if (result.action === 'accept') {
+              sendmessageToClient(JSON.stringify(result.message));
+              break;
+            } else if (result.action === 'reject') {
+              break;
+            }
           }
+        } catch (e) {
+          console.log(e);
         }
-      } catch (e) {
-        console.log(e);
       }
-    });
-    serverSocket.addEventListener('close', () => {
-      listeners.serverDisconnect.forEach((cb) => cb());
-      closeClientSocket();
-    });
+    })();
+
+    (async () => {
+      await serverSocket.closed.then(() => {
+        listeners.serverDisconnect.forEach((cb) => cb());
+        closeClientSocket();
+      });
+    })();
 
     return opts.response;
   }
@@ -338,26 +351,13 @@ export const pfortnerInit = (
   }
 
   async function sendmessageToServer(message: string): Promise<void> {
-    switch (serverSocket.readyState) {
-      case serverSocket.CONNECTING: {
-        await new Promise<void>((resolve, reject) => {
-          serverSocket.addEventListener('open', () => resolve());
-          serverSocket.addEventListener('error', () => reject());
-        });
-      }
-      // falls through
-      case serverSocket.OPEN:
-        {
-          serverSocket.send(message);
-        }
-        break;
-      case serverSocket.CLOSING:
-      case serverSocket.CLOSED:
-        {
-          closeSocket();
-        }
-        break;
+    if (!serverConnected) {
+      await new Promise<void>((resolve, reject) => {
+        on('serverConnect', () => resolve());
+        on('serverError', () => reject());
+      });
     }
+    await serverWriter.write(message);
   }
 
   function closeClientSocket(code = 1000): void {
