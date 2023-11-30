@@ -125,13 +125,6 @@ export const pfortnerInit = (
     clientSocket.addEventListener('message', async ({ data: json }) => {
       setIdleTimeout();
 
-      if (serverSocket.readyState !== serverSocket.OPEN) {
-        await new Promise<void>((resolve, reject) => {
-          serverSocket.addEventListener('open', () => resolve());
-          serverSocket.addEventListener('error', () => reject());
-        });
-      }
-
       listeners.clientMsg.forEach((cb) => cb(json));
 
       try {
@@ -321,12 +314,50 @@ export const pfortnerInit = (
     }
   }
 
-  function sendmessageToClient(message: string): void {
-    clientSocket.send(message);
+  async function sendmessageToClient(message: string): Promise<void> {
+    switch (clientSocket.readyState) {
+      case clientSocket.CONNECTING: {
+        await new Promise<void>((resolve, reject) => {
+          clientSocket.addEventListener('open', () => resolve());
+          clientSocket.addEventListener('error', () => reject());
+        });
+      }
+      // falls through
+      case clientSocket.OPEN:
+        {
+          clientSocket.send(message);
+        }
+        break;
+      case clientSocket.CLOSING:
+      case clientSocket.CLOSED:
+        {
+          closeSocket();
+        }
+        break;
+    }
   }
 
-  function sendmessageToServer(message: string): void {
-    serverSocket.send(message);
+  async function sendmessageToServer(message: string): Promise<void> {
+    switch (serverSocket.readyState) {
+      case serverSocket.CONNECTING: {
+        await new Promise<void>((resolve, reject) => {
+          serverSocket.addEventListener('open', () => resolve());
+          serverSocket.addEventListener('error', () => reject());
+        });
+      }
+      // falls through
+      case serverSocket.OPEN:
+        {
+          serverSocket.send(message);
+        }
+        break;
+      case serverSocket.CLOSING:
+      case serverSocket.CLOSED:
+        {
+          closeSocket();
+        }
+        break;
+    }
   }
 
   function closeClientSocket(code = 1000): void {
