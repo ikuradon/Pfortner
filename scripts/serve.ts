@@ -4,11 +4,12 @@ dotenv.loadSync({ export: true });
 
 const APP_PORT = Number(Deno.env.get('APP_PORT')) || 3000;
 const UPSTREAM_RELAY = Deno.env.get('UPSTREAM_RELAY');
-const UPSTREAM_HTTPS = Deno.env.get('UPSTREAM_HTTPS') === 'true' ? true : false;
+if (UPSTREAM_RELAY == undefined) {
+  Deno.exit(1);
+}
 const UPSTREAM_RAW_URL = new URL(Deno.env.get('UPSTREAM_RAW_URL') || 'ws://localhost:3000').href;
 
-const UPSTREAM_URL_WS = `${UPSTREAM_HTTPS ? 'wss://' : 'ws://'}${UPSTREAM_RELAY}`;
-const UPSTREAM_URL_HTTP = `${UPSTREAM_HTTPS ? 'https://' : 'http://'}${UPSTREAM_RELAY}`;
+const UPSTREAM_URL_HTTP = UPSTREAM_RELAY?.replace('wss://', 'https://').replace('ws://', 'http://');
 
 const appendNip42Proxy = async ({ upstreamHost }: { upstreamHost: string }): Promise<Response> => {
   const response = await fetch(new URL(upstreamHost).href, {
@@ -76,7 +77,7 @@ Deno.serve(
 
     const stash = new Map<string, nostrTools.Event[]>();
 
-    const pfortner = pfortnerInit(UPSTREAM_URL_WS, {
+    const pfortner = pfortnerInit(UPSTREAM_RELAY, {
       clientIp,
       sendAuthOnConnect: true,
       upstreamRawAddress: UPSTREAM_RAW_URL,
