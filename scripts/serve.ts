@@ -18,7 +18,9 @@ const appendNip42Proxy = async ({ upstreamHost }: { upstreamHost: string }): Pro
   });
   const relayInfo = await response.json();
   relayInfo.supported_nips.push(42);
-  return new Response(JSON.stringify(relayInfo));
+  const headers = new Headers();
+  headers.append('Content-Type', 'application/json');
+  return new Response(JSON.stringify(relayInfo), { headers });
 };
 
 const passThuruPolicy: Policy<void> = (message) => {
