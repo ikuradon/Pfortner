@@ -183,8 +183,6 @@ export const pfortnerInit = (
 
     serverSocket = new WebSocketStream(upstreamAddress, { headers });
 
-    ({ readable: serverReadable, writable: serverWritable } = await serverSocket.opened);
-
     await serverSocket.opened.then((webSocketConnection) => {
       ({ readable: serverReadable, writable: serverWritable } = webSocketConnection);
       serverWriter = serverWritable.getWriter();
