@@ -1,5 +1,6 @@
 import { dotenv, nostrTools } from './deps.ts';
 import { pfortnerInit, type Policy } from '../src/pfortner.ts';
+import { acceptPolicy } from '../src/policies/mod.ts';
 dotenv.loadSync({ export: true });
 
 const APP_PORT = Number(Deno.env.get('APP_PORT')) || 3000;
@@ -22,10 +23,6 @@ const appendNip42Proxy = async ({ upstreamHost }: { upstreamHost: string }): Pro
   const headers = new Headers();
   headers.append('Content-Type', 'application/json');
   return new Response(JSON.stringify(relayInfo), { headers });
-};
-
-const passThuruPolicy: Policy<void> = (message) => {
-  return { message, action: 'accept' };
 };
 
 const isRelatedEvent = (pubkey: string, event: nostrTools.Event): boolean => {
@@ -94,8 +91,8 @@ Deno.serve(
     // pfortner.on('authSuccess', () => console.log(`${pfortner.connectionInfo.connectionId} authSuccess`));
     // pfortner.on('authFailed', () => console.log(`${pfortner.connectionInfo.connectionId} authFailed`));
 
-    pfortner.registerClientPipeline([passThuruPolicy]);
-    pfortner.registerServerPipeline([[filterDmPolicy, stash], passThuruPolicy]);
+    pfortner.registerClientPipeline([acceptPolicy]);
+    pfortner.registerServerPipeline([[filterDmPolicy, stash], acceptPolicy]);
 
     pfortner.on('clientRequest', (requestId) => {
       if (!pfortner.connectionInfo.clientAuthorized) {
