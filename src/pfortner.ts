@@ -49,6 +49,7 @@ const newListeners = (): { [TK in keyof SocketEvent]: SocketEvent[TK][] } => ({
 interface OutputMessage {
   message: any;
   action: 'accept' | 'reject' | 'next';
+  response?: string;
 }
 
 interface ConnectionInfo {
@@ -172,6 +173,9 @@ export const pfortnerInit = (
             sendmessageToServer(JSON.stringify(result.message));
             break;
           } else if (result.action === 'reject') {
+            if (result.response != null) {
+              sendmessageToClient(result.response);
+            }
             break;
           }
         }
