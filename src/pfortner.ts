@@ -50,11 +50,14 @@ interface OutputMessage {
   message: any;
   action: 'accept' | 'reject' | 'next';
 }
+
 interface ConnectionInfo {
   connectionId: string;
+  connectionIpAddr: string;
   clientAuthorized: boolean;
   clientPubkey: string;
 }
+
 export type Policy<Options = unknown> = (
   message: unknown[],
   connectionInfo: ConnectionInfo,
@@ -92,6 +95,7 @@ export const pfortnerInit = (
 
   const connectionInfo: ConnectionInfo = {
     connectionId: crypto.randomUUID(),
+    connectionIpAddr: options.clientIp || '127.0.0.1',
     clientAuthorized: false,
     clientPubkey: '',
   };
