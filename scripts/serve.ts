@@ -22,6 +22,7 @@ const appendNip42Proxy = async ({ upstreamHost }: { upstreamHost: string }): Pro
   relayInfo.supported_nips.push(42);
   const headers = new Headers();
   headers.append('Content-Type', 'application/json');
+  headers.append('Access-Control-Allow-Origin', '*');
   return new Response(JSON.stringify(relayInfo), { headers });
 };
 
