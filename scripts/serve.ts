@@ -1,6 +1,5 @@
+import { acceptPolicy, pfortnerInit, type Policy } from '../mod.ts';
 import { dotenv, nostrTools } from './deps.ts';
-import { pfortnerInit, type Policy } from '../src/pfortner.ts';
-import { acceptPolicy } from '../src/policies/mod.ts';
 dotenv.loadSync({ export: true });
 
 const APP_PORT = Number(Deno.env.get('APP_PORT')) || 3000;
