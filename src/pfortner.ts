@@ -20,6 +20,7 @@ type SocketEvent = {
   serverEvent: (subscriptionId: string, event: nostrTools.Event) => void | Promise<void>;
   serverOk: (eventId: string, isPublished: boolean, message: string) => void | Promise<void>;
   serverEose: (subscriptionId: string) => void | Promise<void>;
+  serverClosed: (subscriptionId: string, message: string) => void | Promise<void>;
   serverNotice: (message: string) => void | Promise<void>;
 };
 
@@ -43,6 +44,7 @@ const newListeners = (): { [TK in keyof SocketEvent]: SocketEvent[TK][] } => ({
   serverEvent: [],
   serverOk: [],
   serverEose: [],
+  serverClosed: [],
   serverNotice: [],
 });
 
@@ -147,8 +149,8 @@ export const pfortnerInit = (
             return; // Terminate at proxy (Do not send message to upstream relay.)
           case 'CLOSE': // NIP-01
             {
-              const subId: string = msg[1];
-              listeners.clientClose.forEach((cb) => cb(subId));
+              const subscriptionId: string = msg[1];
+              listeners.clientClose.forEach((cb) => cb(subscriptionId));
             }
             break;
           case 'EVENT': // NIP-01
@@ -159,9 +161,9 @@ export const pfortnerInit = (
             break;
           case 'REQ': // NIP-01
             {
-              const subId: string = msg[1];
+              const subscriptionId: string = msg[1];
               const filter: nostrTools.Filter = msg[2];
-              listeners.clientRequest.forEach((cb) => cb(subId, filter));
+              listeners.clientRequest.forEach((cb) => cb(subscriptionId, filter));
             }
             break;
         }
@@ -214,9 +216,9 @@ export const pfortnerInit = (
           switch (msg[0]) {
             case 'EVENT': // NIP-01
               {
-                const subId = msg[1];
+                const subscriptionId = msg[1];
                 const event: nostrTools.Event = msg[2];
-                listeners.serverEvent.forEach((cb) => cb(subId, event));
+                listeners.serverEvent.forEach((cb) => cb(subscriptionId, event));
               }
               break;
             case 'OK': // NIP-01
@@ -229,8 +231,15 @@ export const pfortnerInit = (
               break;
             case 'EOSE': // NIP-01
               {
-                const subId: string = msg[1];
-                listeners.serverEose.forEach((cb) => cb(subId));
+                const subscriptionId: string = msg[1];
+                listeners.serverEose.forEach((cb) => cb(subscriptionId));
+              }
+              break;
+            case 'CLOSED': // NIP-01
+              {
+                const subscriptionId: string = msg[1];
+                const message: string = msg[2];
+                listeners.serverClosed.forEach((cb) => cb(subscriptionId, message));
               }
               break;
             case 'NOTICE': // NIP-01
