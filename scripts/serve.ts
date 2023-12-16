@@ -104,7 +104,9 @@ Deno.serve(
         stash.delete(requestId);
       }
     });
-    pfortner.on('authSuccess', () => {
+    pfortner.on('authSuccess', (event) => {
+      pfortner.sendmessageToClient(JSON.stringify(['OK', event.id, true, '']));
+
       stash.forEach((events: nostrTools.Event[], reqId: string, _) => {
         for (const event of events) {
           if (isRelatedEvent(pfortner.connectionInfo.clientPubkey, event)) {

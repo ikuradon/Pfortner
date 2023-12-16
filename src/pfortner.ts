@@ -1,7 +1,7 @@
 import { nostrTools } from './deps.ts';
 
 type SocketEvent = {
-  authSuccess: () => void | Promise<void>;
+  authSuccess: (event: nostrTools.Event) => void | Promise<void>;
   authFailed: () => void | Promise<void>;
 
   clientConnect: () => void | Promise<void>;
@@ -335,7 +335,7 @@ export const pfortnerInit = (
       if (checkChallenge && checkRelay) {
         connectionInfo.clientPubkey = event.pubkey;
         connectionInfo.clientAuthorized = true;
-        listeners.authSuccess.forEach((cb) => cb());
+        listeners.authSuccess.forEach((cb) => cb(event));
       } else {
         listeners.authFailed.forEach((cb) => cb());
       }
