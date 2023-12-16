@@ -59,6 +59,11 @@ const filterDmPolicy: Policy<Map<string, nostrTools.Event[]>> = (message, connec
   }
 };
 
+globalThis.addEventListener('unhandledrejection', (e) => {
+  console.log('unhandled rejection at:', e.promise, 'reason:', e.reason);
+  e.preventDefault();
+});
+
 Deno.serve(
   { hostname: '[::]', port: APP_PORT },
   async (req: Request, conn: Deno.ServeHandlerInfo) => {
