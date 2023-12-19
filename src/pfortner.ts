@@ -134,55 +134,72 @@ export const pfortnerInit = (
       listeners.clientError.forEach((cb) => cb());
     });
     clientSocket.addEventListener('message', async ({ data: json }) => {
+      if (typeof json != 'string') {
+        // Drop non string messages.
+        sendmessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: unparseable message']));
+        return;
+      }
+
+      try {
+        JSON.parse(json);
+      } catch (e) {
+        // await (async () => {
+        (() => {
+          console.log(e);
+          console.log(connectionInfo);
+          console.log(JSON.stringify(json));
+        })();
+
+        sendmessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: unparseable message']));
+
+        return;
+      }
+
       setIdleTimeout();
 
       listeners.clientMsg.forEach((cb) => cb(json));
 
-      try {
-        const msg = JSON.parse(json);
-        switch (msg[0]) {
-          case 'AUTH': // NIP-42
-            {
-              const event: nostrTools.Event = msg[1];
-              listeners.clientAuth.forEach((cb) => cb(event));
-            }
-            return; // Terminate at proxy (Do not send message to upstream relay.)
-          case 'CLOSE': // NIP-01
-            {
-              const subscriptionId: string = msg[1];
-              listeners.clientClose.forEach((cb) => cb(subscriptionId));
-            }
-            break;
-          case 'EVENT': // NIP-01
-            {
-              const event: nostrTools.Event = msg[1];
-              listeners.clientEvent.forEach((cb) => cb(event));
-            }
-            break;
-          case 'REQ': // NIP-01
-            {
-              const subscriptionId: string = msg[1];
-              const filter: nostrTools.Filter = msg[2];
-              listeners.clientRequest.forEach((cb) => cb(subscriptionId, filter));
-            }
-            break;
-        }
-
-        for (const item of clientPolicies as (Policy | PolicyTuple)[]) {
-          const [policy, options] = toTuple(item);
-          const result = await policy(msg, connectionInfo, options);
-          if (result.action === 'accept') {
-            sendmessageToServer(JSON.stringify(result.message));
-            break;
-          } else if (result.action === 'reject') {
-            if (result.response != null) {
-              sendmessageToClient(result.response);
-            }
-            break;
+      const msg = JSON.parse(json);
+      switch (msg[0]) {
+        case 'AUTH': // NIP-42
+          {
+            const event: nostrTools.Event = msg[1];
+            listeners.clientAuth.forEach((cb) => cb(event));
           }
+          return; // Terminate at proxy (Do not send message to upstream relay.)
+        case 'CLOSE': // NIP-01
+          {
+            const subscriptionId: string = msg[1];
+            listeners.clientClose.forEach((cb) => cb(subscriptionId));
+          }
+          break;
+        case 'EVENT': // NIP-01
+          {
+            const event: nostrTools.Event = msg[1];
+            listeners.clientEvent.forEach((cb) => cb(event));
+          }
+          break;
+        case 'REQ': // NIP-01
+          {
+            const subscriptionId: string = msg[1];
+            const filter: nostrTools.Filter = msg[2];
+            listeners.clientRequest.forEach((cb) => cb(subscriptionId, filter));
+          }
+          break;
+      }
+
+      for (const item of clientPolicies as (Policy | PolicyTuple)[]) {
+        const [policy, options] = toTuple(item);
+        const result = await policy(msg, connectionInfo, options);
+        if (result.action === 'accept') {
+          sendmessageToServer(JSON.stringify(result.message));
+          break;
+        } else if (result.action === 'reject') {
+          if (result.response != null) {
+            sendmessageToClient(result.response);
+          }
+          break;
         }
-      } catch (e) {
-        console.log(e);
       }
     });
     clientSocket.addEventListener('close', () => {
