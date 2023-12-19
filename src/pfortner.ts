@@ -136,7 +136,7 @@ export const pfortnerInit = (
     clientSocket.addEventListener('message', async ({ data: json }) => {
       if (typeof json != 'string') {
         // Drop non string messages.
-        sendmessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: unparseable message']));
+        sendmessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: unparsable message']));
         return;
       }
 
@@ -150,7 +150,7 @@ export const pfortnerInit = (
           console.log(JSON.stringify(json));
         })();
 
-        sendmessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: unparseable message']));
+        sendmessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: unparsable message']));
 
         return;
       }
