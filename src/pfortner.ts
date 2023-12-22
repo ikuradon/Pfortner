@@ -330,7 +330,7 @@ export const pfortnerInit = (
 
     if (
       nostrTools.validateEvent(event) &&
-      nostrTools.verifySignature(event) &&
+      nostrTools.verifyEvent(event) &&
       event.kind === 22242 &&
       validateEventTime(event)
     ) {
