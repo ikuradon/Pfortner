@@ -1,4 +1,4 @@
-FROM denoland/deno:1.39.0
+FROM denoland/deno:1.39.1
 
 WORKDIR /app
 COPY --chown=deno src/deps.ts src/
