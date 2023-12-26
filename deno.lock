@@ -4,7 +4,7 @@
     "specifiers": {
       "npm:@types/ip@1.1.3": "npm:@types/ip@1.1.3",
       "npm:ip@1.1.8": "npm:ip@1.1.8",
-      "npm:nostr-tools@2.1.0": "npm:nostr-tools@2.1.0"
+      "npm:nostr-tools@2.1.1": "npm:nostr-tools@2.1.1"
     },
     "npm": {
       "@noble/ciphers@0.2.0": {
@@ -68,8 +68,8 @@
         "integrity": "sha512-VKQ0r3jriTOU9E2Z+mwbZrUmbg4Li4QyFfi7kfHKl6reZhGzL0AYlu3wE0VPXzIwA5xnFzmEQoBwCcNT8stUkA==",
         "dependencies": {}
       },
-      "nostr-tools@2.1.0": {
-        "integrity": "sha512-LY5y3/BWaqtfySOhG+NSY3mAt+vUw4vQVFjqvawtO6SdEHqvWdNsb2uUqYdyBztFcIKFxoAbGMntbXQ9QO22oA==",
+      "nostr-tools@2.1.1": {
+        "integrity": "sha512-rU+CavvVYWsvGpEn8i5Ez+O//adi1H8MVedM1NgMQ21leJ+5nuW4swPZfNAUH05xz34+p90rfMVZpBkREEqrzA==",
         "dependencies": {
           "@noble/ciphers": "@noble/ciphers@0.2.0",
           "@noble/curves": "@noble/curves@1.2.0",
