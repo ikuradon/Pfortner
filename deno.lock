@@ -4,7 +4,7 @@
     "specifiers": {
       "npm:@types/ip@1.1.3": "npm:@types/ip@1.1.3",
       "npm:ip@1.1.8": "npm:ip@1.1.8",
-      "npm:nostr-tools@2.1.1": "npm:nostr-tools@2.1.1"
+      "npm:nostr-tools@2.1.2": "npm:nostr-tools@2.1.2"
     },
     "npm": {
       "@noble/ciphers@0.2.0": {
@@ -68,8 +68,8 @@
         "integrity": "sha512-VKQ0r3jriTOU9E2Z+mwbZrUmbg4Li4QyFfi7kfHKl6reZhGzL0AYlu3wE0VPXzIwA5xnFzmEQoBwCcNT8stUkA==",
         "dependencies": {}
       },
-      "nostr-tools@2.1.1": {
-        "integrity": "sha512-rU+CavvVYWsvGpEn8i5Ez+O//adi1H8MVedM1NgMQ21leJ+5nuW4swPZfNAUH05xz34+p90rfMVZpBkREEqrzA==",
+      "nostr-tools@2.1.2": {
+        "integrity": "sha512-7a30ipG5N3pMeRT5tjNodFbYy8JO37Ndh54yshkGjSRa08umLDmEcmVzdIoSI7yxdac24WbFz4OBoJhR7kHFkw==",
         "dependencies": {
           "@noble/ciphers": "@noble/ciphers@0.2.0",
           "@noble/curves": "@noble/curves@1.2.0",
@@ -88,8 +88,8 @@
     }
   },
   "remote": {
-    "https://deno.land/std@0.210.0/dotenv/mod.ts": "55d51d0c244da70e10ccbbdb68644064ce19c8af1683289d16ac802ceef64c8c",
-    "https://deno.land/std@0.210.0/dotenv/parse.ts": "d76ff5a59bd7c374a40249dc28bd15c740da0428559c838b1ea5644f561bff20",
-    "https://deno.land/std@0.210.0/dotenv/stringify.ts": "df8c503a9d46c567f1daa6554211dcfbe05179f9b3ca3d9adc9d92a14987442e"
+    "https://deno.land/std@0.211.0/dotenv/mod.ts": "bcfa9c102d5ce6218ec0c4a69aa0fc1009fc309a85448f98a8debaa75866a3d7",
+    "https://deno.land/std@0.211.0/dotenv/parse.ts": "ddcb04a8a7198918cfc52efbebb0d4fc51abfea913649912fcc1cf4c52bd81a2",
+    "https://deno.land/std@0.211.0/dotenv/stringify.ts": "74521a8e907adffff19f132765902a8c51743e386107b91cc934bae154031e84"
   }
 }

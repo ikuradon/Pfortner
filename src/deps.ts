@@ -1,1 +1,1 @@
-export * as nostrTools from 'npm:nostr-tools@2.1.1';
+export * as nostrTools from 'npm:nostr-tools@2.1.2';
