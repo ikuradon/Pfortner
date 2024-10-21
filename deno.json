@@ -1,22 +1,30 @@
 {
-  "tasks": {
-    "dev": "deno run --unstable --allow-env --allow-net --allow-read --watch scripts/serve.ts",
-    "serve": "deno run --unstable --allow-env --allow-net --allow-read scripts/serve.ts"
-  },
-  "lint": {
-    "include": ["."],
-    "rules": {
-      "tags": ["recommended"],
-      "exclude": ["no-explicit-any"]
-    }
-  },
   "fmt": {
-    "include": ["."],
-    "useTabs": false,
-    "lineWidth": 120,
+    "include": [
+      "."
+    ],
     "indentWidth": 2,
+    "lineWidth": 120,
+    "proseWrap": "preserve",
     "semiColons": true,
     "singleQuote": true,
-    "proseWrap": "preserve"
+    "useTabs": false
+  },
+  "lint": {
+    "include": [
+      "."
+    ],
+    "rules": {
+      "exclude": [
+        "no-explicit-any"
+      ],
+      "tags": [
+        "recommended"
+      ]
+    }
+  },
+  "tasks": {
+    "dev": "deno run --unstable-net --allow-env --allow-net --allow-read --watch scripts/serve.ts",
+    "serve": "deno run --unstable-net --allow-env --allow-net --allow-read scripts/serve.ts"
   }
 }
