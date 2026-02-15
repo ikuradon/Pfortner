@@ -16,13 +16,13 @@ deno task dev
 deno task serve
 
 # Run all tests
-deno test --allow-env
+deno task test
 
 # Run a single test file
-deno test --allow-env src/policies/AcceptPolicy.test.ts
+deno test --allow-env --allow-net --unstable-net src/policies/AcceptPolicy.test.ts
 
 # Run tests matching a pattern
-deno test --allow-env --filter "eventSifterPolicy"
+deno test --allow-env --allow-net --unstable-net --filter "eventSifterPolicy" src/
 
 # Format code
 deno fmt

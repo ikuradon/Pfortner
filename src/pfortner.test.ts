@@ -1,0 +1,326 @@
+import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { nostrTools } from './deps.ts';
+import { pfortnerInit } from './pfortner.ts';
+
+const sk = nostrTools.generateSecretKey();
+
+function currUnixtime(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
+function makeAuthEvent(
+  challenge: string,
+  relayUrl: string,
+  createdAt?: number,
+): nostrTools.VerifiedEvent {
+  return nostrTools.finalizeEvent({
+    kind: 22242,
+    created_at: createdAt ?? currUnixtime(),
+    tags: [
+      ['challenge', challenge],
+      ['relay', relayUrl],
+    ],
+    content: '',
+  }, sk);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function createEnv(opts: Record<string, unknown> = {}) {
+  // Mock upstream relay
+  const relayAc = new AbortController();
+  const relayPort = await new Promise<number>((resolve) => {
+    Deno.serve({
+      port: 0,
+      signal: relayAc.signal,
+      onListen({ port }) {
+        resolve(port);
+      },
+    }, (req) => {
+      if (req.headers.get('upgrade') === 'websocket') {
+        return Deno.upgradeWebSocket(req).response;
+      }
+      return new Response('ok');
+    });
+  });
+
+  const upstreamUrl = `ws://127.0.0.1:${relayPort}`;
+
+  const proxy = pfortnerInit(upstreamUrl, {
+    sendAuthOnConnect: true,
+    upstreamRawAddress: upstreamUrl,
+    ...opts,
+  });
+
+  // Proxy server
+  const proxyAc = new AbortController();
+  const proxyPort = await new Promise<number>((resolve) => {
+    Deno.serve({
+      port: 0,
+      signal: proxyAc.signal,
+      onListen({ port }) {
+        resolve(port);
+      },
+    }, (req) => proxy.createSession(req));
+  });
+
+  // Connect client WebSocket and receive AUTH challenge
+  const { ws, challenge } = await new Promise<{ ws: WebSocket; challenge: string }>(
+    (resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${proxyPort}`);
+      ws.onmessage = ({ data }) => {
+        try {
+          const msg = JSON.parse(data as string);
+          if (msg[0] === 'AUTH') {
+            resolve({ ws, challenge: msg[1] });
+          }
+        } catch { /* ignore */ }
+      };
+      ws.onerror = () => reject(new Error('Client WebSocket connection failed'));
+      setTimeout(() => reject(new Error('Timeout waiting for AUTH challenge')), 5000);
+    },
+  );
+
+  return {
+    proxy,
+    ws,
+    challenge,
+    upstreamUrl,
+    async cleanup() {
+      ws.close();
+      proxy.closeSocket();
+      proxyAc.abort();
+      relayAc.abort();
+      await delay(100);
+    },
+  };
+}
+
+function sendAuth(
+  ws: WebSocket,
+  proxy: ReturnType<typeof pfortnerInit>,
+  event: nostrTools.VerifiedEvent,
+): Promise<'success' | 'failed'> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      proxy.off('authSuccess', onSuccess);
+      proxy.off('authFailed', onFailed);
+      resolve('failed');
+    }, 3000);
+
+    function onSuccess() {
+      clearTimeout(timeout);
+      proxy.off('authFailed', onFailed);
+      resolve('success');
+    }
+
+    function onFailed() {
+      clearTimeout(timeout);
+      proxy.off('authSuccess', onSuccess);
+      resolve('failed');
+    }
+
+    proxy.on('authSuccess', onSuccess);
+    proxy.on('authFailed', onFailed);
+    ws.send(JSON.stringify(['AUTH', event]));
+  });
+}
+
+// =============================
+// AUTH リプレイ攻撃防止
+// =============================
+
+Deno.test({
+  name: 'verifyAuthMessage: valid AUTH event succeeds',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const env = await createEnv();
+    try {
+      const event = makeAuthEvent(env.challenge, env.upstreamUrl);
+      const result = await sendAuth(env.ws, env.proxy, event);
+      assertEquals(result, 'success');
+      assertEquals(env.proxy.connectionInfo.clientAuthorized, true);
+    } finally {
+      await env.cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: 'verifyAuthMessage: replay with same event ID is rejected',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const env = await createEnv();
+    try {
+      const event = makeAuthEvent(env.challenge, env.upstreamUrl);
+      assertEquals(await sendAuth(env.ws, env.proxy, event), 'success');
+      // Same event (same id) should be rejected
+      assertEquals(await sendAuth(env.ws, env.proxy, event), 'failed');
+    } finally {
+      await env.cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: 'verifyAuthMessage: new event ID after replay is accepted',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const env = await createEnv();
+    try {
+      const now = currUnixtime();
+      const event1 = makeAuthEvent(env.challenge, env.upstreamUrl, now);
+      assertEquals(await sendAuth(env.ws, env.proxy, event1), 'success');
+      // Replay of event1 should fail
+      assertEquals(await sendAuth(env.ws, env.proxy, event1), 'failed');
+      // Different event (different created_at → different id) should succeed
+      const event2 = makeAuthEvent(env.challenge, env.upstreamUrl, now - 5);
+      assertEquals(await sendAuth(env.ws, env.proxy, event2), 'success');
+    } finally {
+      await env.cleanup();
+    }
+  },
+});
+
+// =============================
+// AUTH レートリミット
+// =============================
+
+Deno.test({
+  name: 'verifyAuthMessage: rejects after maxAuthAttempts exceeded',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const env = await createEnv({ maxAuthAttempts: 3 });
+    try {
+      // 3 invalid AUTH attempts (wrong challenge, each with unique created_at)
+      for (let i = 0; i < 3; i++) {
+        const badEvent = makeAuthEvent('wrong-challenge', env.upstreamUrl, currUnixtime() - i);
+        assertEquals(await sendAuth(env.ws, env.proxy, badEvent), 'failed');
+      }
+      // 4th attempt: valid but rate limited
+      const validEvent = makeAuthEvent(env.challenge, env.upstreamUrl);
+      assertEquals(await sendAuth(env.ws, env.proxy, validEvent), 'failed');
+    } finally {
+      await env.cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: 'verifyAuthMessage: succeeds within maxAuthAttempts limit',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const env = await createEnv({ maxAuthAttempts: 5 });
+    try {
+      // 4 invalid attempts
+      for (let i = 0; i < 4; i++) {
+        const badEvent = makeAuthEvent('wrong-challenge', env.upstreamUrl, currUnixtime() - i);
+        assertEquals(await sendAuth(env.ws, env.proxy, badEvent), 'failed');
+      }
+      // 5th attempt: valid and within limit (5 <= 5)
+      const validEvent = makeAuthEvent(env.challenge, env.upstreamUrl);
+      assertEquals(await sendAuth(env.ws, env.proxy, validEvent), 'success');
+    } finally {
+      await env.cleanup();
+    }
+  },
+});
+
+// =============================
+// AUTH タイムスタンプ検証
+// =============================
+
+Deno.test({
+  name: 'verifyAuthMessage: rejects timestamp too far in the past',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const env = await createEnv({ allowedAuthTimeDuration: 60 });
+    try {
+      // 70 seconds ago — outside 60s past window
+      const event = makeAuthEvent(env.challenge, env.upstreamUrl, currUnixtime() - 70);
+      assertEquals(await sendAuth(env.ws, env.proxy, event), 'failed');
+    } finally {
+      await env.cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: 'verifyAuthMessage: accepts timestamp within past duration',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const env = await createEnv({ allowedAuthTimeDuration: 120 });
+    try {
+      // 60 seconds ago — within 120s past window
+      const event = makeAuthEvent(env.challenge, env.upstreamUrl, currUnixtime() - 60);
+      assertEquals(await sendAuth(env.ws, env.proxy, event), 'success');
+    } finally {
+      await env.cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: 'verifyAuthMessage: rejects timestamp too far in the future',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const env = await createEnv({ allowedAuthFutureTimeDuration: 30 });
+    try {
+      // 40 seconds in the future — outside 30s future window
+      const event = makeAuthEvent(env.challenge, env.upstreamUrl, currUnixtime() + 40);
+      assertEquals(await sendAuth(env.ws, env.proxy, event), 'failed');
+    } finally {
+      await env.cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: 'verifyAuthMessage: accepts timestamp within future duration',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const env = await createEnv({ allowedAuthFutureTimeDuration: 120 });
+    try {
+      // 60 seconds in the future — within 120s future window
+      const event = makeAuthEvent(env.challenge, env.upstreamUrl, currUnixtime() + 60);
+      assertEquals(await sendAuth(env.ws, env.proxy, event), 'success');
+    } finally {
+      await env.cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: 'verifyAuthMessage: future uses allowedAuthFutureTimeDuration not allowedAuthTimeDuration',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    // Past window: 600s (10 min), future window: 30s
+    const env = await createEnv({
+      allowedAuthTimeDuration: 600,
+      allowedAuthFutureTimeDuration: 30,
+    });
+    try {
+      // 300s past — within 600s past window → success
+      const pastEvent = makeAuthEvent(env.challenge, env.upstreamUrl, currUnixtime() - 300);
+      assertEquals(await sendAuth(env.ws, env.proxy, pastEvent), 'success');
+
+      // 40s future — outside 30s future window → failed
+      const futureEvent = makeAuthEvent(env.challenge, env.upstreamUrl, currUnixtime() + 40);
+      assertEquals(await sendAuth(env.ws, env.proxy, futureEvent), 'failed');
+    } finally {
+      await env.cleanup();
+    }
+  },
+});

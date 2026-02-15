@@ -148,6 +148,9 @@ Deno.serve(
         }
       });
     });
+    pfortner.on('clientDisconnect', () => {
+      stash.clear();
+    });
 
     return pfortner.createSession(req);
   },

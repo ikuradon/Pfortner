@@ -76,6 +76,8 @@ export const pfortnerInit = (
   upstreamAddress: string,
   options: {
     allowedAuthTimeDuration?: number;
+    allowedAuthFutureTimeDuration?: number;
+    maxAuthAttempts?: number;
     clientIp?: string;
     idleTimeout?: number;
     sendAuthOnConnect?: boolean;
@@ -104,8 +106,13 @@ export const pfortnerInit = (
   };
 
   const allowedAuthTimeDuration = Math.max(options.allowedAuthTimeDuration ?? 10 * 60, 1);
+  const allowedAuthFutureTimeDuration = Math.max(options.allowedAuthFutureTimeDuration ?? 60, 1);
+  const maxAuthAttempts = Math.max(options.maxAuthAttempts ?? 10, 1);
   const sendAuthOnConnect = options.sendAuthOnConnect ?? false;
   const idleTimeout = Math.max(options.idleTimeout ?? 10 * 60, 1) * 1000;
+
+  const usedAuthEventIds = new Set<string>();
+  let authAttemptCount = 0;
 
   const headers: HeadersInit = {};
   if (options.clientIp != null) {
@@ -321,6 +328,11 @@ export const pfortnerInit = (
     const index = listeners[type].indexOf(cb);
     if (index !== -1) listeners[type].splice(index, 1);
   }
+  function clearAllListeners(): void {
+    (Object.keys(listeners) as (keyof SocketEvent)[]).forEach((key) => {
+      listeners[key] = [] as any;
+    });
+  }
 
   function sendAuthMessage(): void {
     const msg = ['AUTH'];
@@ -337,11 +349,26 @@ export const pfortnerInit = (
     const now = currUnixtime();
     return (
       event.created_at > now - allowedAuthTimeDuration &&
-      event.created_at < now + allowedAuthTimeDuration
+      event.created_at < now + allowedAuthFutureTimeDuration
     );
   }
 
   function verifyAuthMessage(event: nostrTools.Event): void {
+    // Rate limit: reject if too many AUTH attempts on this connection
+    authAttemptCount++;
+    if (authAttemptCount > maxAuthAttempts) {
+      log.warn(`AUTH rate limit exceeded connectionId=${connectionInfo.connectionId}`);
+      listeners.authFailed.forEach((cb) => cb());
+      return;
+    }
+
+    // Replay prevention: reject if this AUTH event ID was already used
+    if (usedAuthEventIds.has(event.id)) {
+      log.warn(`AUTH replay detected eventId=${event.id} connectionId=${connectionInfo.connectionId}`);
+      listeners.authFailed.forEach((cb) => cb());
+      return;
+    }
+
     let relayAddress: string;
     try {
       relayAddress = new URL(options.upstreamRawAddress || upstreamAddress).href;
@@ -378,12 +405,16 @@ export const pfortnerInit = (
         }
       }
       if (checkChallenge && checkRelay) {
+        // Record used event ID to prevent replay
+        usedAuthEventIds.add(event.id);
         connectionInfo.clientPubkey = event.pubkey;
         connectionInfo.clientAuthorized = true;
         listeners.authSuccess.forEach((cb) => cb(event));
       } else {
         listeners.authFailed.forEach((cb) => cb());
       }
+    } else {
+      listeners.authFailed.forEach((cb) => cb());
     }
   }
 
@@ -410,10 +441,12 @@ export const pfortnerInit = (
       await new Promise<void>((resolve, reject) => {
         const onConnect = () => {
           off('serverError', onError);
+          off('serverConnect', onConnect);
           resolve();
         };
         const onError = () => {
           off('serverConnect', onConnect);
+          off('serverError', onError);
           reject(new Error('Server connection failed'));
         };
         on('serverConnect', onConnect);
@@ -434,6 +467,13 @@ export const pfortnerInit = (
   function closeServerSocket(): void {
     if (serverConnected) {
       clearIdleTimeout();
+      if (serverWriter) {
+        try {
+          serverWriter.releaseLock();
+        } catch {
+          // Writer may already be released
+        }
+      }
       serverSocket.close();
       serverConnected = false;
     }
@@ -442,6 +482,7 @@ export const pfortnerInit = (
   function closeSocket(code = 1000): void {
     closeClientSocket(code);
     closeServerSocket();
+    clearAllListeners();
   }
 
   function setIdleTimeout(): void {
@@ -452,6 +493,7 @@ export const pfortnerInit = (
   function clearIdleTimeout(): void {
     if (sessionTimer != null) {
       clearTimeout(sessionTimer);
+      sessionTimer = null;
     }
   }
 

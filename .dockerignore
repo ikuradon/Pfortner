@@ -1,1 +1,46 @@
-.env*
+# Git
+.git
+.gitignore
+.github
+
+# Environment files
+.env
+.env.*
+!.env.sample
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage
+.nyc_output
+
+# Documentation (not needed in container)
+README.md
+CLAUDE.md
+*.md
+!.env.sample
+
+# Node (if present)
+node_modules
+
+# Docker
+Dockerfile
+docker-compose.yml
+compose.yaml
+.dockerignore
+
+# Misc
+.DS_Store
+*.tmp
+*.temp
