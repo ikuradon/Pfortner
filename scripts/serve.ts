@@ -1,28 +1,65 @@
 import { acceptPolicy, pfortnerInit, type Policy } from '../mod.ts';
-import { dotenv, nostrTools } from './deps.ts';
-dotenv.loadSync({ export: true });
+import { dotenv, log, nostrTools } from './deps.ts';
+dotenv.loadSync({ export: true, defaultsPath: null });
 
 const APP_PORT = Number(Deno.env.get('APP_PORT')) || 3000;
 const UPSTREAM_RELAY = Deno.env.get('UPSTREAM_RELAY');
 if (UPSTREAM_RELAY == undefined) {
+  log.error('UPSTREAM_RELAY environment variable is required');
   Deno.exit(1);
 }
-const UPSTREAM_RAW_URL = new URL(Deno.env.get('UPSTREAM_RAW_URL') || 'ws://localhost:3000').href;
+
+let UPSTREAM_RAW_URL: string;
+try {
+  UPSTREAM_RAW_URL = new URL(Deno.env.get('UPSTREAM_RAW_URL') || UPSTREAM_RELAY).href;
+} catch {
+  log.error('Invalid UPSTREAM_RAW_URL');
+  Deno.exit(1);
+}
 
 const UPSTREAM_URL_HTTP = UPSTREAM_RELAY?.replace('wss://', 'https://').replace('ws://', 'http://');
 
 const appendNip42Proxy = async ({ upstreamHost }: { upstreamHost: string }): Promise<Response> => {
-  const response = await fetch(new URL(upstreamHost).href, {
-    headers: {
-      Accept: 'application/nostr+json',
-    },
-  });
-  const relayInfo = await response.json();
-  relayInfo.supported_nips.push(42);
   const headers = new Headers();
   headers.append('Content-Type', 'application/json');
   headers.append('Access-Control-Allow-Origin', '*');
-  return new Response(JSON.stringify(relayInfo), { headers });
+
+  try {
+    const response = await fetch(new URL(upstreamHost).href, {
+      headers: {
+        Accept: 'application/nostr+json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Upstream relay returned status ${response.status}`);
+    }
+
+    const relayInfo = await response.json();
+
+    // Ensure supported_nips exists and is an array
+    if (!Array.isArray(relayInfo.supported_nips)) {
+      relayInfo.supported_nips = [];
+    }
+
+    // Add NIP-42 only if not already present
+    if (!relayInfo.supported_nips.includes(42)) {
+      relayInfo.supported_nips.push(42);
+    }
+
+    return new Response(JSON.stringify(relayInfo), { headers });
+  } catch (error) {
+    log.warn(`Failed to fetch upstream relay info: ${error instanceof Error ? error.message : String(error)}`);
+
+    // Return a minimal relay info with NIP-42 support as fallback
+    const fallbackInfo = {
+      name: 'Pförtner Proxy',
+      description: 'Nostr relay proxy with NIP-42 authentication',
+      supported_nips: [42],
+    };
+
+    return new Response(JSON.stringify(fallbackInfo), { headers });
+  }
 };
 
 const isRelatedEvent = (pubkey: string, event: nostrTools.Event): boolean => {
@@ -60,7 +97,7 @@ const filterDmPolicy: Policy<Map<string, nostrTools.Event[]>> = (message, connec
 };
 
 globalThis.addEventListener('unhandledrejection', (e) => {
-  console.log('unhandled rejection at:', e.promise, 'reason:', e.reason);
+  log.error(`Unhandled rejection: ${e.reason}`);
   e.preventDefault();
 });
 
@@ -75,7 +112,8 @@ Deno.serve(
       return new Response('Please use a Nostr client to connect.', { status: 400 });
     }
 
-    const clientIp = req.headers.get('X-Forwarded-For') || conn.remoteAddr.hostname || '';
+    const clientIp = req.headers.get('X-Forwarded-For') ||
+      ('hostname' in conn.remoteAddr ? conn.remoteAddr.hostname : '');
 
     const stash = new Map<string, nostrTools.Event[]>();
 
@@ -84,17 +122,6 @@ Deno.serve(
       sendAuthOnConnect: true,
       upstreamRawAddress: UPSTREAM_RAW_URL,
     });
-    // pfortner.on('serverConnect', () => console.log(`${pfortner.connectionInfo.connectionId} serverConnect`));
-    // pfortner.on('serverMsg', (message) => console.log(`${pfortner.connectionInfo.connectionId} serverMsg: ${message}`));
-    // pfortner.on('serverDisconnect', () => console.log(`${pfortner.connectionInfo.connectionId} serverDisconnect`));
-
-    // pfortner.on('clientConnect', () => console.log(`${pfortner.connectionInfo.connectionId} clientConnect`));
-    // pfortner.on('clientMsg', (message) => console.log(`${pfortner.connectionInfo.connectionId} clientMsg: ${message}`));
-    // pfortner.on('clientDisconnect', () => console.log(`${pfortner.connectionInfo.connectionId} clientDisconnect`));
-
-    // pfortner.on('clientAuth', () => console.log(`${pfortner.connectionInfo.connectionId} clientAuth`));
-    // pfortner.on('authSuccess', () => console.log(`${pfortner.connectionInfo.connectionId} authSuccess`));
-    // pfortner.on('authFailed', () => console.log(`${pfortner.connectionInfo.connectionId} authFailed`));
 
     pfortner.registerClientPipeline([acceptPolicy]);
     pfortner.registerServerPipeline([[filterDmPolicy, stash], acceptPolicy]);

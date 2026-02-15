@@ -1,4 +1,4 @@
-import { nostrTools } from './deps.ts';
+import { log, nostrTools } from './deps.ts';
 
 type SocketEvent = {
   authSuccess: (event: nostrTools.Event) => void | Promise<void>;
@@ -93,8 +93,8 @@ export const pfortnerInit = (
   let serverConnected = false;
   let clientConnected = false;
 
-  let clientPolicies: Policies<any[]>;
-  let serverPolicies: Policies<any[]>;
+  let clientPolicies: Policies<any[]> = [];
+  let serverPolicies: Policies<any[]> = [];
 
   const connectionInfo: ConnectionInfo = {
     connectionId: crypto.randomUUID(),
@@ -103,9 +103,9 @@ export const pfortnerInit = (
     clientPubkey: '',
   };
 
-  const allowedAuthTimeDuration = options.allowedAuthTimeDuration || 10 * 60;
-  const sendAuthOnConnect = options.sendAuthOnConnect || false;
-  const idleTimeout = (options.idleTimeout || 10 * 60) * 1000;
+  const allowedAuthTimeDuration = Math.max(options.allowedAuthTimeDuration ?? 10 * 60, 1);
+  const sendAuthOnConnect = options.sendAuthOnConnect ?? false;
+  const idleTimeout = Math.max(options.idleTimeout ?? 10 * 60, 1) * 1000;
 
   const headers: HeadersInit = {};
   if (options.clientIp != null) {
@@ -135,23 +135,21 @@ export const pfortnerInit = (
     });
     clientSocket.addEventListener('message', async ({ data: json }) => {
       if (typeof json != 'string') {
-        // Drop non string messages.
-        sendmessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: unparsable message']));
+        sendmessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: non-string message']));
         return;
       }
 
+      let msg: unknown[];
       try {
-        JSON.parse(json);
+        const parsed = JSON.parse(json);
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+          sendmessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: expected JSON array']));
+          return;
+        }
+        msg = parsed;
       } catch (e) {
-        // await (async () => {
-        (() => {
-          console.log(e);
-          console.log(connectionInfo);
-          console.log(JSON.stringify(json));
-        })();
-
-        sendmessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: unparsable message']));
-
+        log.warn(`Failed to parse client message: ${e} connectionId=${connectionInfo.connectionId}`);
+        sendmessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: unparsable JSON']));
         return;
       }
 
@@ -159,47 +157,50 @@ export const pfortnerInit = (
 
       listeners.clientMsg.forEach((cb) => cb(json));
 
-      const msg = JSON.parse(json);
       switch (msg[0]) {
         case 'AUTH': // NIP-42
-          {
-            const event: nostrTools.Event = msg[1];
+          if (msg.length >= 2) {
+            const event = msg[1] as nostrTools.Event;
             listeners.clientAuth.forEach((cb) => cb(event));
           }
           return; // Terminate at proxy (Do not send message to upstream relay.)
         case 'CLOSE': // NIP-01
-          {
-            const subscriptionId: string = msg[1];
+          if (msg.length >= 2) {
+            const subscriptionId = msg[1] as string;
             listeners.clientClose.forEach((cb) => cb(subscriptionId));
           }
           break;
         case 'EVENT': // NIP-01
-          {
-            const event: nostrTools.Event = msg[1];
+          if (msg.length >= 2) {
+            const event = msg[1] as nostrTools.Event;
             listeners.clientEvent.forEach((cb) => cb(event));
           }
           break;
         case 'REQ': // NIP-01
-          {
-            const subscriptionId: string = msg[1];
-            const filter: nostrTools.Filter = msg[2];
+          if (msg.length >= 3) {
+            const subscriptionId = msg[1] as string;
+            const filter = msg[2] as nostrTools.Filter;
             listeners.clientRequest.forEach((cb) => cb(subscriptionId, filter));
           }
           break;
       }
 
-      for (const item of clientPolicies as (Policy | PolicyTuple)[]) {
-        const [policy, options] = toTuple(item);
-        const result = await policy(msg, connectionInfo, options);
-        if (result.action === 'accept') {
-          sendmessageToServer(JSON.stringify(result.message));
-          break;
-        } else if (result.action === 'reject') {
-          if (result.response != null) {
-            sendmessageToClient(result.response);
+      try {
+        for (const item of clientPolicies as (Policy | PolicyTuple)[]) {
+          const [policy, options] = toTuple(item);
+          const result = await policy(msg, connectionInfo, options);
+          if (result.action === 'accept') {
+            sendmessageToServer(JSON.stringify(result.message));
+            break;
+          } else if (result.action === 'reject') {
+            if (result.response != null) {
+              sendmessageToClient(result.response);
+            }
+            break;
           }
-          break;
         }
+      } catch (e) {
+        log.error(`Client policy error: ${e} connectionId=${connectionInfo.connectionId}`);
       }
     });
     clientSocket.addEventListener('close', () => {
@@ -223,71 +224,92 @@ export const pfortnerInit = (
     });
 
     (async () => {
-      for await (const json of serverReadable) {
-        setIdleTimeout();
+      try {
+        for await (const json of serverReadable) {
+          setIdleTimeout();
 
-        listeners.serverMsg.forEach((cb) => cb(json));
+          listeners.serverMsg.forEach((cb) => cb(json));
 
-        try {
-          const msg = JSON.parse(json);
+          let msg: unknown[];
+          try {
+            const parsed = JSON.parse(json);
+            if (!Array.isArray(parsed) || parsed.length === 0) {
+              continue;
+            }
+            msg = parsed;
+          } catch (e) {
+            log.warn(`Failed to parse server message: ${e}`);
+            continue;
+          }
+
           switch (msg[0]) {
             case 'EVENT': // NIP-01
-              {
-                const subscriptionId = msg[1];
-                const event: nostrTools.Event = msg[2];
+              if (msg.length >= 3) {
+                const subscriptionId = msg[1] as string;
+                const event = msg[2] as nostrTools.Event;
                 listeners.serverEvent.forEach((cb) => cb(subscriptionId, event));
               }
               break;
             case 'OK': // NIP-01
-              {
-                const eventId = msg[1];
-                const isPublished = msg[2];
-                const message = msg[3] || '';
+              if (msg.length >= 3) {
+                const eventId = msg[1] as string;
+                const isPublished = msg[2] as boolean;
+                const message = (msg[3] as string) || '';
                 listeners.serverOk.forEach((cb) => cb(eventId, isPublished, message));
               }
               break;
             case 'EOSE': // NIP-01
-              {
-                const subscriptionId: string = msg[1];
+              if (msg.length >= 2) {
+                const subscriptionId = msg[1] as string;
                 listeners.serverEose.forEach((cb) => cb(subscriptionId));
               }
               break;
             case 'CLOSED': // NIP-01
-              {
-                const subscriptionId: string = msg[1];
-                const message: string = msg[2];
+              if (msg.length >= 3) {
+                const subscriptionId = msg[1] as string;
+                const message = msg[2] as string;
                 listeners.serverClosed.forEach((cb) => cb(subscriptionId, message));
               }
               break;
             case 'NOTICE': // NIP-01
-            {
-              const message: string = msg[1];
-              listeners.serverNotice.forEach((cb) => cb(message));
-            }
+              if (msg.length >= 2) {
+                const message = msg[1] as string;
+                listeners.serverNotice.forEach((cb) => cb(message));
+              }
+              break;
           }
 
-          for (const item of serverPolicies as (Policy | PolicyTuple)[]) {
-            const [policy, options] = toTuple(item);
-            const result = await policy(msg, connectionInfo, options);
-            if (result.action === 'accept') {
-              sendmessageToClient(JSON.stringify(result.message));
-              break;
-            } else if (result.action === 'reject') {
-              break;
+          try {
+            for (const item of serverPolicies as (Policy | PolicyTuple)[]) {
+              const [policy, options] = toTuple(item);
+              const result = await policy(msg, connectionInfo, options);
+              if (result.action === 'accept') {
+                sendmessageToClient(JSON.stringify(result.message));
+                break;
+              } else if (result.action === 'reject') {
+                if (result.response != null) {
+                  sendmessageToClient(result.response);
+                }
+                break;
+              }
             }
+          } catch (e) {
+            log.error(`Server policy error: ${e}`);
           }
-        } catch (e) {
-          console.log(e);
         }
+      } catch (e) {
+        log.warn(`Server read loop error: ${e}`);
       }
     })();
 
-    (async () => {
-      await serverSocket.closed.then(() => {
-        listeners.serverDisconnect.forEach((cb) => cb());
-        closeClientSocket();
-      });
-    })();
+    serverSocket.closed.then(() => {
+      listeners.serverDisconnect.forEach((cb) => cb());
+      closeClientSocket();
+    }).catch((e) => {
+      log.warn(`Server socket closed with error: ${e}`);
+      listeners.serverDisconnect.forEach((cb) => cb());
+      closeClientSocket();
+    });
 
     return opts.response;
   }
@@ -313,20 +335,21 @@ export const pfortnerInit = (
 
   function validateEventTime(event: nostrTools.Event): boolean {
     const now = currUnixtime();
-    if (
+    return (
       event.created_at > now - allowedAuthTimeDuration &&
       event.created_at < now + allowedAuthTimeDuration
-    ) {
-      return true;
-    }
-    return false;
+    );
   }
 
   function verifyAuthMessage(event: nostrTools.Event): void {
-    let checkChallenge = false;
-    let checkRelay = false;
-
-    const relayAddress = new URL(options.upstreamRawAddress || upstreamAddress).href;
+    let relayAddress: string;
+    try {
+      relayAddress = new URL(options.upstreamRawAddress || upstreamAddress).href;
+    } catch {
+      log.error('Invalid relay address for AUTH verification');
+      listeners.authFailed.forEach((cb) => cb());
+      return;
+    }
 
     if (
       nostrTools.validateEvent(event) &&
@@ -334,21 +357,26 @@ export const pfortnerInit = (
       event.kind === 22242 &&
       validateEventTime(event)
     ) {
-      event.tags.forEach((tag) => {
+      let checkChallenge = false;
+      let checkRelay = false;
+
+      for (const tag of event.tags) {
         if (
           tag.length === 2 &&
           tag[0] === 'challenge' &&
           tag[1] === connectionInfo.connectionId
         ) {
           checkChallenge = true;
-        } else if (
-          tag.length === 2 &&
-          tag[0] === 'relay' &&
-          new URL(tag[1]).href === relayAddress
-        ) {
-          checkRelay = true;
+        } else if (tag.length === 2 && tag[0] === 'relay') {
+          try {
+            if (new URL(tag[1]).href === relayAddress) {
+              checkRelay = true;
+            }
+          } catch {
+            // Invalid relay URL in tag
+          }
         }
-      });
+      }
       if (checkChallenge && checkRelay) {
         connectionInfo.clientPubkey = event.pubkey;
         connectionInfo.clientAuthorized = true;
@@ -361,23 +389,18 @@ export const pfortnerInit = (
 
   async function sendmessageToClient(message: string): Promise<void> {
     switch (clientSocket.readyState) {
-      case clientSocket.CONNECTING: {
+      case clientSocket.CONNECTING:
         await new Promise<void>((resolve, reject) => {
-          clientSocket.addEventListener('open', () => resolve());
-          clientSocket.addEventListener('error', () => reject());
+          clientSocket.addEventListener('open', () => resolve(), { once: true });
+          clientSocket.addEventListener('error', () => reject(), { once: true });
         });
-      }
-      // falls through
+        // falls through
       case clientSocket.OPEN:
-        {
-          clientSocket.send(message);
-        }
+        clientSocket.send(message);
         break;
       case clientSocket.CLOSING:
       case clientSocket.CLOSED:
-        {
-          closeSocket();
-        }
+        closeSocket();
         break;
     }
   }
@@ -385,8 +408,16 @@ export const pfortnerInit = (
   async function sendmessageToServer(message: string): Promise<void> {
     if (!serverConnected) {
       await new Promise<void>((resolve, reject) => {
-        on('serverConnect', () => resolve());
-        on('serverError', () => reject());
+        const onConnect = () => {
+          off('serverError', onError);
+          resolve();
+        };
+        const onError = () => {
+          off('serverConnect', onConnect);
+          reject(new Error('Server connection failed'));
+        };
+        on('serverConnect', onConnect);
+        on('serverError', onError);
       });
     }
     await serverWriter.write(message);

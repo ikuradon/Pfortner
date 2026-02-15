@@ -1,4 +1,4 @@
-version: "3"
+version: '3'
 
 services:
   deno_devcontainer:
@@ -9,4 +9,4 @@ services:
     volumes:
       - .:/workspace
     ports:
-      - "3000:3000"
+      - '3000:3000'

@@ -48,7 +48,7 @@ export const eventSifterPolicy: Policy<ESPolicies<unknown[]>> = async (
     return { message, action: 'next' };
   }
 
-  const event = message[1] as nostrTools.Event;
+  const event = message[2] as nostrTools.Event;
   const msg: ESInputMessage = {
     type: 'new',
     event,

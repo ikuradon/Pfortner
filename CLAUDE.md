@@ -43,6 +43,7 @@ Configured in `deno.json`: 2-space indent, 120-char line width, semicolons requi
 ### Core: `src/pfortner.ts`
 
 `pfortnerInit(upstreamAddress, options?)` is the single entry point. It creates a per-connection proxy instance that:
+
 1. Upgrades an HTTP request to a client-side WebSocket
 2. Opens an upstream `WebSocketStream` to the relay
 3. Routes messages through registered policy pipelines in each direction
@@ -56,6 +57,7 @@ Returns an object with: `createSession`, `registerClientPipeline`, `registerServ
 A `Policy` is a function: `(message, connectionInfo, options?) => OutputMessage | Promise<OutputMessage>`
 
 `OutputMessage.action` determines flow:
+
 - `'accept'` — forward the message and stop the pipeline
 - `'reject'` — drop the message (optional `response` string sent to client) and stop
 - `'next'` — pass to the next policy in the chain
@@ -82,6 +84,7 @@ Demonstrates NIP-42 auth enforcement for DM (kind 4) access, including message s
 ## Environment Variables
 
 Defined in `.env` (copy from `.env.sample`):
+
 - `APP_PORT` — server listen port
 - `UPSTREAM_RELAY` — WebSocket URL of upstream relay (e.g. `wss://relay.example.com`)
 - `UPSTREAM_RAW_URL` — HTTP URL of upstream relay (for relay info endpoint)

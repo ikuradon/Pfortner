@@ -25,6 +25,7 @@
   },
   "tasks": {
     "dev": "deno run --unstable-net --allow-env --allow-net --allow-read --watch scripts/serve.ts",
-    "serve": "deno run --unstable-net --allow-env --allow-net --allow-read scripts/serve.ts"
+    "serve": "deno run --unstable-net --allow-env --allow-net --allow-read scripts/serve.ts",
+    "test": "deno test --allow-env src/"
   }
 }
