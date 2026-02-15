@@ -1,6 +1,6 @@
 import { acceptPolicy, pfortnerInit, type Policy } from '../mod.ts';
 import { dotenv, log, nostrTools } from './deps.ts';
-dotenv.loadSync({ export: true, defaultsPath: null });
+dotenv.loadSync({ export: true });
 
 const APP_PORT = Number(Deno.env.get('APP_PORT')) || 3000;
 const UPSTREAM_RELAY = Deno.env.get('UPSTREAM_RELAY');

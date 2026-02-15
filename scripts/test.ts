@@ -1,4 +1,5 @@
 import { nostrTools } from './deps.ts';
+import { Relay } from 'jsr:@nostr/tools@2.23.1/relay';
 
 // Helper function to convert hex string to Uint8Array
 function hexToBytes(hex: string): Uint8Array {
@@ -16,8 +17,8 @@ const relayUrl = Deno.args[0] || 'wss://yabu.me';
 const skHex = Deno.env.get('PRIVKEY');
 const sk: Uint8Array = skHex ? hexToBytes(skHex) : nostrTools.generateSecretKey();
 
-// Create relay instance (v2 API)
-const relay = new nostrTools.Relay(relayUrl);
+// Create relay instance
+const relay = new Relay(relayUrl);
 
 // Handle AUTH challenges (NIP-42)
 relay._onauth = async (_challenge: string) => {
