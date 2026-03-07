@@ -111,6 +111,13 @@ export const pfortnerInit = (
   const sendAuthOnConnect = options.sendAuthOnConnect ?? false;
   const idleTimeout = Math.max(options.idleTimeout ?? 10 * 60, 1) * 1000;
 
+  let relayAddress: string | null = null;
+  try {
+    relayAddress = new URL(options.upstreamRawAddress || upstreamAddress).href;
+  } catch {
+    // Will be checked in verifyAuthMessage
+  }
+
   const usedAuthEventIds = new Set<string>();
   let authAttemptCount = 0;
 
@@ -142,7 +149,7 @@ export const pfortnerInit = (
     });
     clientSocket.addEventListener('message', async ({ data: json }) => {
       if (typeof json != 'string') {
-        sendmessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: non-string message']));
+        sendMessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: non-string message']));
         return;
       }
 
@@ -150,13 +157,13 @@ export const pfortnerInit = (
       try {
         const parsed = JSON.parse(json);
         if (!Array.isArray(parsed) || parsed.length === 0) {
-          sendmessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: expected JSON array']));
+          sendMessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: expected JSON array']));
           return;
         }
         msg = parsed;
       } catch (e) {
         log.warn(`Failed to parse client message: ${e} connectionId=${connectionInfo.connectionId}`);
-        sendmessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: unparsable JSON']));
+        sendMessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: unparsable JSON']));
         return;
       }
 
@@ -193,19 +200,7 @@ export const pfortnerInit = (
       }
 
       try {
-        for (const item of clientPolicies as (Policy | PolicyTuple)[]) {
-          const [policy, options] = toTuple(item);
-          const result = await policy(msg, connectionInfo, options);
-          if (result.action === 'accept') {
-            sendmessageToServer(JSON.stringify(result.message));
-            break;
-          } else if (result.action === 'reject') {
-            if (result.response != null) {
-              sendmessageToClient(result.response);
-            }
-            break;
-          }
-        }
+        await runPipeline(clientPolicies, msg, sendMessageToServer);
       } catch (e) {
         log.error(`Client policy error: ${e} connectionId=${connectionInfo.connectionId}`);
       }
@@ -287,19 +282,7 @@ export const pfortnerInit = (
           }
 
           try {
-            for (const item of serverPolicies as (Policy | PolicyTuple)[]) {
-              const [policy, options] = toTuple(item);
-              const result = await policy(msg, connectionInfo, options);
-              if (result.action === 'accept') {
-                sendmessageToClient(JSON.stringify(result.message));
-                break;
-              } else if (result.action === 'reject') {
-                if (result.response != null) {
-                  sendmessageToClient(result.response);
-                }
-                break;
-              }
-            }
+            await runPipeline(serverPolicies, msg, sendMessageToClient);
           } catch (e) {
             log.error(`Server policy error: ${e}`);
           }
@@ -309,11 +292,9 @@ export const pfortnerInit = (
       }
     })();
 
-    serverSocket.closed.then(() => {
-      listeners.serverDisconnect.forEach((cb) => cb());
-      closeClientSocket();
-    }).catch((e) => {
+    serverSocket.closed.catch((e) => {
       log.warn(`Server socket closed with error: ${e}`);
+    }).finally(() => {
       listeners.serverDisconnect.forEach((cb) => cb());
       closeClientSocket();
     });
@@ -338,11 +319,11 @@ export const pfortnerInit = (
     const msg = ['AUTH'];
     msg.push(connectionInfo.connectionId);
 
-    sendmessageToClient(JSON.stringify(msg));
+    sendMessageToClient(JSON.stringify(msg));
   }
 
   function currUnixtime(): number {
-    return Math.floor(new Date().getTime() / 1000);
+    return Math.floor(Date.now() / 1000);
   }
 
   function validateEventTime(event: nostrTools.Event): boolean {
@@ -369,10 +350,7 @@ export const pfortnerInit = (
       return;
     }
 
-    let relayAddress: string;
-    try {
-      relayAddress = new URL(options.upstreamRawAddress || upstreamAddress).href;
-    } catch {
+    if (relayAddress == null) {
       log.error('Invalid relay address for AUTH verification');
       listeners.authFailed.forEach((cb) => cb());
       return;
@@ -418,7 +396,7 @@ export const pfortnerInit = (
     }
   }
 
-  async function sendmessageToClient(message: string): Promise<void> {
+  async function sendMessageToClient(message: string): Promise<void> {
     switch (clientSocket.readyState) {
       case clientSocket.CONNECTING:
         await new Promise<void>((resolve, reject) => {
@@ -436,7 +414,7 @@ export const pfortnerInit = (
     }
   }
 
-  async function sendmessageToServer(message: string): Promise<void> {
+  async function sendMessageToServer(message: string): Promise<void> {
     if (!serverConnected) {
       await new Promise<void>((resolve, reject) => {
         const onConnect = () => {
@@ -467,12 +445,10 @@ export const pfortnerInit = (
   function closeServerSocket(): void {
     if (serverConnected) {
       clearIdleTimeout();
-      if (serverWriter) {
-        try {
-          serverWriter.releaseLock();
-        } catch {
-          // Writer may already be released
-        }
+      try {
+        serverWriter.releaseLock();
+      } catch {
+        // Writer may already be released
       }
       serverSocket.close();
       serverConnected = false;
@@ -509,14 +485,34 @@ export const pfortnerInit = (
     return typeof item === 'function' ? [item] : item;
   }
 
+  async function runPipeline(
+    policies: Policies<any[]>,
+    msg: unknown[],
+    sendAccepted: (message: string) => Promise<void>,
+  ): Promise<void> {
+    for (const item of policies as (Policy | PolicyTuple)[]) {
+      const [policy, options] = toTuple(item);
+      const result = await policy(msg, connectionInfo, options);
+      if (result.action === 'accept') {
+        sendAccepted(JSON.stringify(result.message));
+        break;
+      } else if (result.action === 'reject') {
+        if (result.response != null) {
+          sendMessageToClient(result.response);
+        }
+        break;
+      }
+    }
+  }
+
   return {
     closeSocket,
     createSession,
     registerClientPipeline,
     registerServerPipeline,
     sendAuthMessage,
-    sendmessageToClient,
-    sendmessageToServer,
+    sendMessageToClient,
+    sendMessageToServer,
 
     on,
     off,

@@ -17,7 +17,7 @@ try {
   Deno.exit(1);
 }
 
-const UPSTREAM_URL_HTTP = UPSTREAM_RELAY?.replace('wss://', 'https://').replace('ws://', 'http://');
+const UPSTREAM_URL_HTTP = UPSTREAM_RELAY.replace('wss://', 'https://').replace('ws://', 'http://');
 
 const appendNip42Proxy = async ({ upstreamHost }: { upstreamHost: string }): Promise<Response> => {
   const headers = new Headers();
@@ -137,13 +137,13 @@ Deno.serve(
       }
     });
     pfortner.on('authSuccess', (event) => {
-      pfortner.sendmessageToClient(JSON.stringify(['OK', event.id, true, '']));
+      pfortner.sendMessageToClient(JSON.stringify(['OK', event.id, true, '']));
 
       stash.forEach((events: nostrTools.Event[], reqId: string, _) => {
         for (const event of events) {
           if (isRelatedEvent(pfortner.connectionInfo.clientPubkey, event)) {
             const msg = ['EVENT', reqId, event];
-            pfortner.sendmessageToClient(JSON.stringify(msg));
+            pfortner.sendMessageToClient(JSON.stringify(msg));
           }
         }
       });
