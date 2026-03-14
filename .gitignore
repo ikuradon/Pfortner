@@ -1,3 +1,4 @@
 .env*
 !.env.defaults
 !.env.sample
+docs/superpowers/
