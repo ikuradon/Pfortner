@@ -48,13 +48,13 @@ const newListeners = (): { [TK in keyof SocketEvent]: SocketEvent[TK][] } => ({
   serverNotice: [],
 });
 
-interface OutputMessage {
+export interface OutputMessage {
   message: any;
   action: 'accept' | 'reject' | 'next';
   response?: string;
 }
 
-interface ConnectionInfo {
+export interface ConnectionInfo {
   connectionId: string;
   connectionIpAddr: string;
   clientAuthorized: boolean;
@@ -132,7 +132,7 @@ export const pfortnerInit = (
   }
   on('clientAuth', verifyAuthMessage);
 
-  async function createSession(request: Request): Promise<Response> {
+  function createSession(request: Request): Response {
     const opts = Deno.upgradeWebSocket(request);
 
     clientSocket = opts.socket;
@@ -213,7 +213,7 @@ export const pfortnerInit = (
 
     serverSocket = new WebSocketStream(upstreamAddress, { headers });
 
-    await serverSocket.opened.then((webSocketConnection) => {
+    serverSocket.opened.then((webSocketConnection) => {
       ({ readable: serverReadable, writable: serverWritable } = webSocketConnection);
       serverWriter = serverWritable.getWriter();
 
@@ -221,82 +221,84 @@ export const pfortnerInit = (
       setIdleTimeout();
 
       listeners.serverConnect.forEach((cb) => cb());
+
+      (async () => {
+        try {
+          for await (const json of serverReadable) {
+            setIdleTimeout();
+
+            listeners.serverMsg.forEach((cb) => cb(json));
+
+            let msg: unknown[];
+            try {
+              const parsed = JSON.parse(json);
+              if (!Array.isArray(parsed) || parsed.length === 0) {
+                continue;
+              }
+              msg = parsed;
+            } catch (e) {
+              log.warn(`Failed to parse server message: ${e}`);
+              continue;
+            }
+
+            switch (msg[0]) {
+              case 'EVENT': // NIP-01
+                if (msg.length >= 3) {
+                  const subscriptionId = msg[1] as string;
+                  const event = msg[2] as nostrTools.Event;
+                  listeners.serverEvent.forEach((cb) => cb(subscriptionId, event));
+                }
+                break;
+              case 'OK': // NIP-01
+                if (msg.length >= 3) {
+                  const eventId = msg[1] as string;
+                  const isPublished = msg[2] as boolean;
+                  const message = (msg[3] as string) || '';
+                  listeners.serverOk.forEach((cb) => cb(eventId, isPublished, message));
+                }
+                break;
+              case 'EOSE': // NIP-01
+                if (msg.length >= 2) {
+                  const subscriptionId = msg[1] as string;
+                  listeners.serverEose.forEach((cb) => cb(subscriptionId));
+                }
+                break;
+              case 'CLOSED': // NIP-01
+                if (msg.length >= 3) {
+                  const subscriptionId = msg[1] as string;
+                  const message = msg[2] as string;
+                  listeners.serverClosed.forEach((cb) => cb(subscriptionId, message));
+                }
+                break;
+              case 'NOTICE': // NIP-01
+                if (msg.length >= 2) {
+                  const message = msg[1] as string;
+                  listeners.serverNotice.forEach((cb) => cb(message));
+                }
+                break;
+            }
+
+            try {
+              await runPipeline(serverPolicies, msg, sendMessageToClient);
+            } catch (e) {
+              log.error(`Server policy error: ${e}`);
+            }
+          }
+        } catch (e) {
+          log.warn(`Server read loop error: ${e}`);
+        }
+      })();
     }).catch(() => {
       listeners.serverError.forEach((cb) => cb());
     });
 
-    (async () => {
-      try {
-        for await (const json of serverReadable) {
-          setIdleTimeout();
-
-          listeners.serverMsg.forEach((cb) => cb(json));
-
-          let msg: unknown[];
-          try {
-            const parsed = JSON.parse(json);
-            if (!Array.isArray(parsed) || parsed.length === 0) {
-              continue;
-            }
-            msg = parsed;
-          } catch (e) {
-            log.warn(`Failed to parse server message: ${e}`);
-            continue;
-          }
-
-          switch (msg[0]) {
-            case 'EVENT': // NIP-01
-              if (msg.length >= 3) {
-                const subscriptionId = msg[1] as string;
-                const event = msg[2] as nostrTools.Event;
-                listeners.serverEvent.forEach((cb) => cb(subscriptionId, event));
-              }
-              break;
-            case 'OK': // NIP-01
-              if (msg.length >= 3) {
-                const eventId = msg[1] as string;
-                const isPublished = msg[2] as boolean;
-                const message = (msg[3] as string) || '';
-                listeners.serverOk.forEach((cb) => cb(eventId, isPublished, message));
-              }
-              break;
-            case 'EOSE': // NIP-01
-              if (msg.length >= 2) {
-                const subscriptionId = msg[1] as string;
-                listeners.serverEose.forEach((cb) => cb(subscriptionId));
-              }
-              break;
-            case 'CLOSED': // NIP-01
-              if (msg.length >= 3) {
-                const subscriptionId = msg[1] as string;
-                const message = msg[2] as string;
-                listeners.serverClosed.forEach((cb) => cb(subscriptionId, message));
-              }
-              break;
-            case 'NOTICE': // NIP-01
-              if (msg.length >= 2) {
-                const message = msg[1] as string;
-                listeners.serverNotice.forEach((cb) => cb(message));
-              }
-              break;
-          }
-
-          try {
-            await runPipeline(serverPolicies, msg, sendMessageToClient);
-          } catch (e) {
-            log.error(`Server policy error: ${e}`);
-          }
-        }
-      } catch (e) {
-        log.warn(`Server read loop error: ${e}`);
-      }
-    })();
-
     serverSocket.closed.catch((e) => {
       log.warn(`Server socket closed with error: ${e}`);
     }).finally(() => {
-      listeners.serverDisconnect.forEach((cb) => cb());
-      closeClientSocket();
+      if (serverConnected) {
+        listeners.serverDisconnect.forEach((cb) => cb());
+        closeClientSocket();
+      }
     });
 
     return opts.response;
@@ -316,10 +318,7 @@ export const pfortnerInit = (
   }
 
   function sendAuthMessage(): void {
-    const msg = ['AUTH'];
-    msg.push(connectionInfo.connectionId);
-
-    sendMessageToClient(JSON.stringify(msg));
+    sendMessageToClient(JSON.stringify(['AUTH', connectionInfo.connectionId]));
   }
 
   function currUnixtime(): number {
@@ -397,20 +396,16 @@ export const pfortnerInit = (
   }
 
   async function sendMessageToClient(message: string): Promise<void> {
-    switch (clientSocket.readyState) {
-      case clientSocket.CONNECTING:
-        await new Promise<void>((resolve, reject) => {
-          clientSocket.addEventListener('open', () => resolve(), { once: true });
-          clientSocket.addEventListener('error', () => reject(), { once: true });
-        });
-        // falls through
-      case clientSocket.OPEN:
-        clientSocket.send(message);
-        break;
-      case clientSocket.CLOSING:
-      case clientSocket.CLOSED:
-        closeSocket();
-        break;
+    if (clientSocket.readyState === clientSocket.CONNECTING) {
+      await new Promise<void>((resolve, reject) => {
+        clientSocket.addEventListener('open', () => resolve(), { once: true });
+        clientSocket.addEventListener('error', () => reject(), { once: true });
+      });
+    }
+    if (clientSocket.readyState === clientSocket.OPEN) {
+      clientSocket.send(message);
+    } else {
+      closeSocket();
     }
   }
 

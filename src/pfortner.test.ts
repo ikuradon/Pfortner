@@ -324,3 +324,49 @@ Deno.test({
     }
   },
 });
+
+// =============================
+// upstream 接続失敗
+// =============================
+
+Deno.test({
+  name: 'createSession: handles upstream connection failure gracefully',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const proxy = pfortnerInit('ws://127.0.0.1:1', {
+      sendAuthOnConnect: false,
+    });
+
+    let serverErrorFired = false;
+    proxy.on('serverError', () => {
+      serverErrorFired = true;
+    });
+
+    const proxyAc = new AbortController();
+    const proxyPort = await new Promise<number>((resolve) => {
+      Deno.serve({
+        port: 0,
+        signal: proxyAc.signal,
+        onListen({ port }) {
+          resolve(port);
+        },
+      }, (req) => proxy.createSession(req));
+    });
+
+    const ws = new WebSocket(`ws://127.0.0.1:${proxyPort}`);
+    await new Promise<void>((resolve) => {
+      ws.onopen = () => resolve();
+      ws.onerror = () => resolve();
+    });
+
+    await new Promise((r) => setTimeout(r, 500));
+
+    assertEquals(serverErrorFired, true);
+
+    ws.close();
+    proxy.closeSocket();
+    proxyAc.abort();
+    await new Promise((r) => setTimeout(r, 100));
+  },
+});

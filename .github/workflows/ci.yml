@@ -19,6 +19,15 @@ jobs:
         with:
           deno-version: v2.x
 
+      - name: Cache Deno dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/deno
+          key: deno-${{ runner.os }}-${{ hashFiles('src/deps.ts', 'scripts/deps.ts', 'deno.json') }}
+          restore-keys: |
+            deno-${{ runner.os }}-
+
       - name: Run deno lint
         run: deno lint
 
@@ -49,13 +58,21 @@ jobs:
         with:
           deno-version: v2.x
 
+      - name: Cache Deno dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/deno
+          key: deno-${{ runner.os }}-${{ hashFiles('src/deps.ts', 'scripts/deps.ts', 'deno.json') }}
+          restore-keys: |
+            deno-${{ runner.os }}-
+
       - name: Run tests
         run: deno task test
 
   docker-build:
     name: Docker Build Check
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

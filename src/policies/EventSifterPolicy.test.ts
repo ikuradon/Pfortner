@@ -162,8 +162,7 @@ Deno.test('eventSifterPolicy falls back to Stream for non-IP string', async () =
   assertEquals(capturedMsg.sourceInfo, 'not-an-ip');
 });
 
-// NOTE: ip.isV6Format('') returns true, so empty string is classified as IP6 by the ip library
-Deno.test('eventSifterPolicy classifies empty string IP as IP6 (ip library behavior)', async () => {
+Deno.test('eventSifterPolicy classifies empty string IP as Stream', async () => {
   const event = makeEvent();
   const message = ['EVENT', 'sub1', event];
   const emptyInfo = { ...connectionInfo, connectionIpAddr: '' };
@@ -175,7 +174,7 @@ Deno.test('eventSifterPolicy classifies empty string IP as IP6 (ip library behav
   };
 
   await eventSifterPolicy(message, emptyInfo, [capturePolicy]);
-  assertEquals(capturedMsg.sourceType, 'IP6');
+  assertEquals(capturedMsg.sourceType, 'Stream');
   assertEquals(capturedMsg.sourceInfo, '');
 });
 
@@ -275,4 +274,14 @@ Deno.test('eventSifterPolicy passes EVENT with 4+ elements through', async () =>
   const result = await eventSifterPolicy(message, connectionInfo, []);
   assertEquals(result.action, 'next');
   assertEquals(result.message, message);
+});
+
+Deno.test('eventSifterPolicy works with ESPolicyTuple without options', async () => {
+  const event = makeEvent();
+  const message = ['EVENT', 'sub1', event];
+
+  const acceptPolicy = () => ({ id: event.id, action: 'accept' as const, msg: '' });
+
+  const result = await eventSifterPolicy(message, connectionInfo, [[acceptPolicy] as any]);
+  assertEquals(result.action, 'accept');
 });

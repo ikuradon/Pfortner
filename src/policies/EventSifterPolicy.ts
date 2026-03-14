@@ -1,13 +1,14 @@
-import { ip } from './deps.ts';
 import { type Policy } from '../../mod.ts';
 import { nostrTools } from '../deps.ts';
 
 type sourceType = 'IP4' | 'IP6' | 'Import' | 'Stream' | 'Sync';
 
+const IPV4_REGEX = /^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
+
 const detectIpType = (ipAddr: string): sourceType => {
-  if (ip.isV4Format(ipAddr)) {
+  if (IPV4_REGEX.test(ipAddr)) {
     return 'IP4';
-  } else if (ip.isV6Format(ipAddr)) {
+  } else if (ipAddr.includes(':')) {
     return 'IP6';
   } else {
     return 'Stream';

@@ -103,7 +103,7 @@ globalThis.addEventListener('unhandledrejection', (e) => {
 
 Deno.serve(
   { hostname: '[::]', port: APP_PORT },
-  async (req: Request, conn: Deno.ServeHandlerInfo) => {
+  async (req: Request, conn: Deno.ServeHandlerInfo<Deno.NetAddr>) => {
     if (req.headers.get('accept') === 'application/nostr+json') {
       return await appendNip42Proxy({ upstreamHost: UPSTREAM_URL_HTTP });
     }
@@ -139,7 +139,7 @@ Deno.serve(
     pfortner.on('authSuccess', (event) => {
       pfortner.sendMessageToClient(JSON.stringify(['OK', event.id, true, '']));
 
-      stash.forEach((events: nostrTools.Event[], reqId: string, _) => {
+      stash.forEach((events: nostrTools.Event[], reqId: string) => {
         for (const event of events) {
           if (isRelatedEvent(pfortner.connectionInfo.clientPubkey, event)) {
             const msg = ['EVENT', reqId, event];

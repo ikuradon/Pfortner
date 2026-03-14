@@ -1,8 +1,9 @@
-FROM denoland/deno:2.0.6
+FROM denoland/deno:2.7.5
 
 WORKDIR /app
 COPY --chown=deno src/deps.ts src/
-RUN deno cache src/deps.ts
+COPY --chown=deno scripts/deps.ts scripts/
+RUN deno cache src/deps.ts scripts/deps.ts
 
 COPY --chown=deno . .
 RUN deno cache scripts/serve.ts

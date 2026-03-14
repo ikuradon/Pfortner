@@ -36,7 +36,11 @@ Subscribe to lifecycle events for fine-grained control:
 Pförtner is a Deno library. No installation is required—simply import it directly:
 
 ```typescript
-import { acceptPolicy, eventSifterPolicy, pfortnerInit } from 'https://deno.land/x/pfortner/mod.ts';
+import {
+  acceptPolicy,
+  eventSifterPolicy,
+  pfortnerInit,
+} from 'https://raw.githubusercontent.com/ikuradon/Pfortner/main/mod.ts';
 ```
 
 ## Quick Start
@@ -77,14 +81,13 @@ Configure Pförtner using these environment variables in your `.env` file:
 | `APP_PORT`         | No       | Server listen port                                       | `3000`                      |
 | `UPSTREAM_RELAY`   | **Yes**  | WebSocket URL of the upstream relay                      | `wss://relay.example.com`   |
 | `UPSTREAM_RAW_URL` | No       | HTTP URL of the upstream relay (for relay info endpoint) | `https://relay.example.com` |
-| `X_FORWARDED_FOR`  | No       | Whether to forward client IP addresses                   | `true` or `false`           |
 
 ## Creating Custom Policies
 
 A policy is a function that examines a message and decides what to do with it:
 
 ```typescript
-import { type Policy } from 'https://deno.land/x/pfortner/mod.ts';
+import { type Policy } from 'https://raw.githubusercontent.com/ikuradon/Pfortner/main/mod.ts';
 
 const myPolicy: Policy = (message, connectionInfo, options?) => {
   // Examine the message
@@ -155,7 +158,6 @@ docker run -p 3000:3000 \
 Or use Docker Compose:
 
 ```yaml
-version: '3.8'
 services:
   pfortner:
     build: .
@@ -194,8 +196,8 @@ Creates a proxy instance.
 - `on(event, handler)` — Subscribe to lifecycle events
 - `off(event, handler)` — Unsubscribe from events
 - `connectionInfo` — Current connection state (auth status, pubkey, etc.)
-- `sendmessageToClient(message)` — Send a message directly to the client
-- `sendmessageToServer(message)` — Send a message directly to the upstream relay
+- `sendMessageToClient(message)` — Send a message directly to the client
+- `sendMessageToServer(message)` — Send a message directly to the upstream relay
 
 ### Event Types
 
@@ -209,7 +211,7 @@ Subscribe to these events using `pfortner.on(event, handler)`:
 **Authentication Events:**
 
 - `authSuccess(event)` — Client successfully authenticated
-- `authFailed(reason)` — Client authentication failed
+- `authFailed()` — Client authentication failed
 
 **Message Events:**
 
@@ -231,7 +233,7 @@ Subscribe to these events using `pfortner.on(event, handler)`:
 deno task dev
 
 # Run tests
-deno test --allow-env
+deno task test
 
 # Format code
 deno fmt

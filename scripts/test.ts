@@ -21,9 +21,8 @@ const sk: Uint8Array = skHex ? hexToBytes(skHex) : nostrTools.generateSecretKey(
 const relay = new Relay(relayUrl);
 
 // Handle AUTH challenges (NIP-42)
-relay._onauth = async (_challenge: string) => {
-  // deno-lint-ignore require-await
-  await relay.auth(async (evt: nostrTools.EventTemplate) => {
+relay.onauth = async (_challenge: string) => {
+  await relay.auth((evt: nostrTools.EventTemplate) => {
     return nostrTools.finalizeEvent(evt, sk);
   });
 };
