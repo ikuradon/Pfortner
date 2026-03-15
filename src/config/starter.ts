@@ -2,6 +2,10 @@ import { pfortnerInit } from '../pfortner.ts';
 import type { ConnectionInfo, InfraContext, PolicyFactory } from '../plugins/types.ts';
 import type { PluginRegistry } from '../plugins/registry.ts';
 import type { PfortnerConfig, PipelineEntry } from './loader.ts';
+import AjvModule from 'ajv';
+// deno-lint-ignore no-explicit-any
+const AjvClass = (AjvModule as any).default ?? AjvModule;
+const ajv = new AjvClass({ allErrors: true });
 
 interface ResolvedPipeline {
   factories: PolicyFactory[];
@@ -29,7 +33,15 @@ async function resolvePipeline(
         `Plugin "${plugin.name}" has direction "${plugin.direction}" but is placed in "${direction}" pipeline (pipelines.${direction}[${i}])`,
       );
     }
-    // TODO: Validate entry.config against plugin.configSchema using ajv (Plan 2)
+    if (entry.config && Object.keys(plugin.configSchema).length > 0) {
+      const validate = ajv.compile(plugin.configSchema);
+      if (!validate(entry.config)) {
+        const errors = validate.errors?.map((e: any) => `${e.instancePath} ${e.message}`).join('; ');
+        throw new Error(
+          `Config validation failed for plugin "${plugin.name}" at pipelines.${direction}[${i}]: ${errors}`,
+        );
+      }
+    }
     const factory = await plugin.initialize(entry.config ?? {}, infra);
     factories.push(factory);
   }

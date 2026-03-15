@@ -4,6 +4,29 @@ import { loadConfigFromString } from './loader.ts';
 import { buildInfraContext } from '../infra/context.ts';
 import { createPluginRegistry } from '../plugins/registry.ts';
 
+Deno.test('buildRequestHandler rejects invalid plugin config', async () => {
+  const config = loadConfigFromString(`
+server:
+  port: 3000
+  upstream_relay: "ws://localhost:7777"
+pipelines:
+  client:
+    - policy: rate-limit
+      config:
+        scope: "invalid-scope"
+        window: "not-a-number"
+    - policy: accept
+  server:
+    - policy: accept
+`);
+  try {
+    await buildRequestHandler(config, buildInfraContext({}), createPluginRegistry());
+    throw new Error('should have thrown');
+  } catch (e) {
+    assertEquals((e as Error).message.includes('validation'), true);
+  }
+});
+
 Deno.test('buildRequestHandler creates a function', async () => {
   const config = loadConfigFromString(`
 server:
