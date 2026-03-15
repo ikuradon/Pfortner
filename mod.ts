@@ -15,6 +15,8 @@ export type { PluginRegistry } from './src/plugins/registry.ts';
 export { buildInfraContext } from './src/infra/context.ts';
 export { createRedisClient } from './src/infra/redis.ts';
 export type { RedisOptions } from './src/infra/redis.ts';
+export { createKvClient } from './src/infra/kv.ts';
+export type { KvOptions } from './src/infra/kv.ts';
 export { buildRelayInfo } from './src/config/relay-info.ts';
 export type { RelayInfo } from './src/config/relay-info.ts';
 export { createPrometheusMetrics } from './src/infra/prometheus.ts';
