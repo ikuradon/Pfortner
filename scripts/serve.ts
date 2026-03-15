@@ -27,6 +27,13 @@ if (configPath) {
   });
   const registry = createPluginRegistry();
 
+  if (config.plugins) {
+    for (const spec of config.plugins) {
+      await registry.loadExternal(spec);
+      infra.logger.info('Loaded external plugin', { source: spec.url ?? spec.path });
+    }
+  }
+
   const adminState: AdminState = {
     config,
     pluginNames: registry.listNames(),

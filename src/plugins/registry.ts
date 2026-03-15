@@ -35,6 +35,7 @@ const BUILTIN_PLUGINS: Map<string, PolicyPlugin> = new Map([
 export interface PluginRegistry {
   resolve(name: string): PolicyPlugin;
   register(plugin: PolicyPlugin): void;
+  loadExternal(spec: { url?: string; path?: string }): Promise<void>;
   listNames(): string[];
 }
 
@@ -47,6 +48,19 @@ export function createPluginRegistry(): PluginRegistry {
       return plugin;
     },
     register(plugin: PolicyPlugin): void {
+      plugins.set(plugin.name, plugin);
+    },
+    async loadExternal(spec: { url?: string; path?: string }): Promise<void> {
+      const source = spec.url ?? spec.path;
+      if (!source) throw new Error('External plugin requires url or path');
+
+      const mod = await import(source);
+      const plugin = mod.default as PolicyPlugin;
+
+      if (!plugin?.name || !plugin?.initialize) {
+        throw new Error(`Invalid external plugin from ${source}: must export default with name and initialize`);
+      }
+
       plugins.set(plugin.name, plugin);
     },
     listNames(): string[] {
