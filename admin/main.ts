@@ -12,6 +12,7 @@ import {
   getHealthDetail,
   getHealthSimple,
   getThroughputData,
+  maskSecrets,
 } from '$admin/service.ts';
 
 // Page components
@@ -87,7 +88,9 @@ async function serveStaticFile(filePath: string): Promise<Response> {
  * Creates and returns a Fresh-based admin UI handler.
  * The handler processes all requests for /admin/* paths.
  */
-export function createAdminApp(state: AdminState): (req: Request) => Promise<Response> {
+export function createAdminApp(
+  state: AdminState,
+): (req: Request) => Promise<Response> {
   const authToken = state.config.admin?.auth_token;
   const adminPath = '/admin';
 
@@ -139,7 +142,8 @@ export function createAdminApp(state: AdminState): (req: Request) => Promise<Res
     const form = await ctx.req.formData();
     const token = form.get('token');
     if (typeof token === 'string' && token === authToken) {
-      const next = new URL(ctx.req.url).searchParams.get('next') ?? `${adminPath}/`;
+      const next = new URL(ctx.req.url).searchParams.get('next') ??
+        `${adminPath}/`;
       const safeNext = next.startsWith(adminPath) ? next : `${adminPath}/`;
       return new Response(null, {
         status: 302,
@@ -177,8 +181,11 @@ export function createAdminApp(state: AdminState): (req: Request) => Promise<Res
         pressure: String(conns?.pressure ?? 'normal'),
       },
       upstream: {
-        status: String((detail.upstream as { status?: string })?.status ?? 'unknown'),
-        latency_ms: (detail.upstream as { latency_ms?: number | null })?.latency_ms ?? null,
+        status: String(
+          (detail.upstream as { status?: string })?.status ?? 'unknown',
+        ),
+        latency_ms: (detail.upstream as { latency_ms?: number | null })?.latency_ms ??
+          null,
       },
       memory: detail.memory as { rss: number; heapUsed: number } | null,
     };
@@ -231,13 +238,19 @@ export function createAdminApp(state: AdminState): (req: Request) => Promise<Res
     let memory: Record<string, number> | null = null;
     try {
       const mem = Deno.memoryUsage();
-      memory = { rss: mem.rss, heapUsed: mem.heapUsed, heapTotal: mem.heapTotal, external: mem.external };
+      memory = {
+        rss: mem.rss,
+        heapUsed: mem.heapUsed,
+        heapTotal: mem.heapTotal,
+        external: mem.external,
+      };
     } catch { /* ignore */ }
 
     return json({
       status: state.shutdownManager?.isDraining() ? 'draining' : 'ok',
       uptime_seconds: uptime,
-      connections: conns ?? { active: state.connections.size, max: 0, pressure: 'normal' },
+      connections: conns ??
+        { active: state.connections.size, max: 0, pressure: 'normal' },
       upstream: {
         status: state.upstreamProbe?.getStatus() ?? 'unknown',
         latency_ms: state.upstreamProbe?.getLatency() ?? null,
@@ -263,6 +276,55 @@ export function createAdminApp(state: AdminState): (req: Request) => Promise<Res
     return json(getThroughputData(state));
   });
 
+  // ─── Config API ────────────────────────────────────────────────────────
+  app.get(`${adminPath}/api/config`, (_ctx) => {
+    return json(maskSecrets(state.config));
+  });
+
+  // ─── Blacklist API ─────────────────────────────────────────────────────
+  app.get(`${adminPath}/api/blacklist`, (_ctx) => {
+    return json({
+      pubkeys: [...state.blacklist.pubkeys],
+      ips: [...state.blacklist.ips],
+    });
+  });
+
+  app.post(`${adminPath}/api/blacklist/pubkey`, async (ctx) => {
+    const body = await ctx.req.json();
+    if (typeof body.pubkey === 'string' && body.pubkey.length > 0) {
+      state.blacklist.pubkeys.add(body.pubkey);
+      return json({ added: body.pubkey });
+    }
+    return json({ error: 'pubkey required' }, 400);
+  });
+
+  app.delete(`${adminPath}/api/blacklist/pubkey/:pk`, (ctx) => {
+    const pk = (ctx.params as Record<string, string>).pk ?? '';
+    if (pk) {
+      state.blacklist.pubkeys.delete(pk);
+      return json({ deleted: pk });
+    }
+    return json({ error: 'pubkey required' }, 400);
+  });
+
+  app.post(`${adminPath}/api/blacklist/ip`, async (ctx) => {
+    const body = await ctx.req.json();
+    if (typeof body.ip === 'string' && body.ip.length > 0) {
+      state.blacklist.ips.add(body.ip);
+      return json({ added: body.ip });
+    }
+    return json({ error: 'ip required' }, 400);
+  });
+
+  app.delete(`${adminPath}/api/blacklist/ip/:ip`, (ctx) => {
+    const ip = (ctx.params as Record<string, string>).ip ?? '';
+    if (ip) {
+      state.blacklist.ips.delete(ip);
+      return json({ deleted: ip });
+    }
+    return json({ error: 'ip required' }, 400);
+  });
+
   app.post(`${adminPath}/api/reload`, async (_ctx) => {
     if (!state.configPath || !state.reloadFn) {
       return json({ error: 'reload not configured' }, 500);
@@ -270,7 +332,10 @@ export function createAdminApp(state: AdminState): (req: Request) => Promise<Res
     try {
       const content = await Deno.readTextFile(state.configPath);
       await state.reloadFn(content);
-      return new Response(null, { status: 302, headers: { Location: `${adminPath}/` } });
+      return new Response(null, {
+        status: 302,
+        headers: { Location: `${adminPath}/` },
+      });
     } catch (e) {
       return json({ error: `reload failed: ${(e as Error).message}` }, 500);
     }
@@ -279,7 +344,10 @@ export function createAdminApp(state: AdminState): (req: Request) => Promise<Res
   app.post(`${adminPath}/api/shutdown`, (_ctx) => {
     if (state.shutdownManager) {
       state.shutdownManager.initiateShutdown().catch(console.error);
-      return new Response(null, { status: 302, headers: { Location: `${adminPath}/` } });
+      return new Response(null, {
+        status: 302,
+        headers: { Location: `${adminPath}/` },
+      });
     }
     return json({ error: 'shutdown not configured' }, 500);
   });
