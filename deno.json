@@ -1,7 +1,8 @@
 {
   "imports": {
     "@std/yaml": "jsr:@std/yaml@1.0.5",
-    "ajv": "npm:ajv@8.17.1"
+    "ajv": "npm:ajv@8.17.1",
+    "redis": "npm:redis@4.7.0"
   },
   "fmt": {
     "include": [

@@ -55,6 +55,10 @@ export interface RedisClient {
   sadd(key: string, ...members: string[]): Promise<number>;
   sismember(key: string, member: string): Promise<boolean>;
   del(...keys: string[]): Promise<number>;
+  // Sorted set operations (for sliding window rate limiting)
+  zadd(key: string, score: number, member: string): Promise<number>;
+  zremrangebyscore(key: string, min: number, max: number): Promise<number>;
+  zcard(key: string): Promise<number>;
   close(): Promise<void>;
 }
 
