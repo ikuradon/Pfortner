@@ -46,6 +46,10 @@ if (configPath) {
     infra.logger.info('Using Deno KV as backend', { path: config.infra.kv.path });
   }
 
+  const { UpstreamPool } = await import('../src/upstream/pool.ts');
+  const upstreamPool = new UpstreamPool(infra.logger);
+  infraWithRedis = { ...infraWithRedis, upstreamPool };
+
   const registry = createPluginRegistry();
 
   if (config.plugins) {
@@ -84,11 +88,11 @@ if (configPath) {
       drainTimeout: config.server.shutdown?.drain_timeout ?? 30,
       forceAfter: config.server.shutdown?.force_after ?? 30,
     },
-    () => {
+    async () => {
       connectionManager.stopPressureCheck();
       upstreamProbe?.stop();
       abortController.abort();
-      return Promise.resolve();
+      await upstreamPool.closeAll();
     },
   );
   adminState.shutdownManager = shutdownManager;

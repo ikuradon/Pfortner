@@ -130,12 +130,13 @@ export async function buildRequestHandler(
       hooks.onConnect(managed);
     }
 
-    // Always register disconnect handler if connectionManager OR onDisconnect exists
-    if (hooks?.connectionManager || hooks?.onDisconnect) {
+    // Always register disconnect handler if connectionManager OR onDisconnect OR upstreamPool exists
+    if (hooks?.connectionManager || hooks?.onDisconnect || infra.upstreamPool) {
       const connectionId = instance.connectionInfo.connectionId;
       instance.on('clientDisconnect', () => {
-        hooks.connectionManager?.unregister(connectionId);
-        hooks.onDisconnect?.(connectionId);
+        hooks?.connectionManager?.unregister(connectionId);
+        hooks?.onDisconnect?.(connectionId);
+        infra.upstreamPool?.notifyClientDisconnect(connectionId);
       });
     }
 

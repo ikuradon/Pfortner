@@ -48,5 +48,10 @@ export { pubkeyAclPlugin } from './src/policies/PubkeyAclPolicy.ts';
 export { ipFilterPlugin } from './src/policies/IpFilterPolicy.ts';
 export { whenPlugin } from './src/policies/WhenPlugin.ts';
 export { matchPlugin } from './src/policies/MatchPlugin.ts';
+export { routePlugin } from './src/policies/RoutePlugin.ts';
 export { evaluateCondition } from './src/conditions/evaluator.ts';
 export type { Condition, EvalContext, SimpleCondition } from './src/conditions/types.ts';
+export { buildEvalContext } from './src/conditions/context.ts';
+
+// Upstream routing
+export { UpstreamConnection, UpstreamPool } from './src/upstream/pool.ts';

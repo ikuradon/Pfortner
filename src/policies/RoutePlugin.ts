@@ -21,10 +21,10 @@ export const routePlugin: PolicyPlugin = {
     },
     required: ['upstream', 'condition'],
   },
-  async initialize(config: unknown, infra: InfraContext): Promise<PolicyFactory> {
+  initialize(config: unknown, infra: InfraContext): Promise<PolicyFactory> {
     const cfg = config as RouteConfig;
 
-    return (instance) => {
+    return Promise.resolve((instance) => {
       const routedSubIds = new Set<string>();
       const connectionId = instance.connectionInfo.connectionId;
 
@@ -86,6 +86,6 @@ export const routePlugin: PolicyPlugin = {
         // EVENT and others: pass through to default upstream
         return { message, action: 'next' };
       };
-    };
+    });
   },
 };

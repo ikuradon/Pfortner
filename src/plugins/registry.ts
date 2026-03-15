@@ -11,6 +11,7 @@ import { pubkeyAclPlugin } from '../policies/PubkeyAclPolicy.ts';
 import { ipFilterPlugin } from '../policies/IpFilterPolicy.ts';
 import { whenPlugin } from '../policies/WhenPlugin.ts';
 import { matchPlugin } from '../policies/MatchPlugin.ts';
+import { routePlugin } from '../policies/RoutePlugin.ts';
 
 const acceptPlugin: PolicyPlugin = {
   name: 'accept',
@@ -34,6 +35,7 @@ const BUILTIN_PLUGINS: Map<string, PolicyPlugin> = new Map([
   ['ip-filter', ipFilterPlugin],
   ['when', whenPlugin],
   ['match', matchPlugin],
+  ['route', routePlugin],
 ]);
 
 export interface PluginRegistry {

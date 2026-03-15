@@ -8,8 +8,9 @@ const mockInstance = (): PfortnerInstance & { sentMessages: string[] } => {
   const sentMessages: string[] = [];
   return {
     sendAuthMessage: () => {},
-    sendMessageToClient: async (msg) => {
+    sendMessageToClient: (msg) => {
       sentMessages.push(msg);
+      return Promise.resolve();
     },
     connectionInfo: {
       connectionId: 'test-conn',
