@@ -31,6 +31,9 @@
     "include": [
       "."
     ],
+    "exclude": [
+      "admin/static/"
+    ],
     "rules": {
       "exclude": [
         "no-explicit-any"

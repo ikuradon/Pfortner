@@ -77,7 +77,9 @@ export function DashboardPage({ currentPath, health }: DashboardPageProps) {
         <div class='card'>
           <div class='card-title'>Status</div>
           <div class='card-value'>{statusBadge}</div>
-          <div class='card-subtitle'>Uptime: {formatUptime(health.uptime_seconds)}</div>
+          <div class='card-subtitle'>
+            Uptime: {formatUptime(health.uptime_seconds)}
+          </div>
         </div>
         <div class='card'>
           <div class='card-title'>Connections</div>
@@ -93,7 +95,9 @@ export function DashboardPage({ currentPath, health }: DashboardPageProps) {
         </div>
         <div class='card'>
           <div class='card-title'>Memory (RSS)</div>
-          <div class='card-value'>{health.memory ? formatMemory(health.memory.rss) : 'N/A'}</div>
+          <div class='card-value'>
+            {health.memory ? formatMemory(health.memory.rss) : 'N/A'}
+          </div>
           <div class='card-subtitle'>
             Heap: {health.memory ? formatMemory(health.memory.heapUsed) : 'N/A'}
           </div>
@@ -106,7 +110,10 @@ export function DashboardPage({ currentPath, health }: DashboardPageProps) {
           Connection Pressure — {pressurePct}% ({health.connections.active}/{health.connections.max})
         </div>
         <div class='progress'>
-          <div class={`progress-bar ${pressureClass}`} style={`width:${pressurePct}%`} />
+          <div
+            class={`progress-bar ${pressureClass}`}
+            style={`width:${pressurePct}%`}
+          />
         </div>
         <div class='mt-4' style='font-size:12px;color:var(--color-text-muted)'>
           Pressure level: <strong>{health.connections.pressure}</strong>
@@ -116,11 +123,15 @@ export function DashboardPage({ currentPath, health }: DashboardPageProps) {
       {/* Throughput Chart placeholder — refreshed by client-side JS */}
       <div class='chart-container' id='throughput-chart'>
         <div class='chart-title'>Throughput (last 60s)</div>
-        <div id='throughput-chart-body' style='min-height:80px;display:flex;align-items:center;justify-content:center'>
+        <div
+          id='throughput-chart-body'
+          style='min-height:80px;display:flex;align-items:center;justify-content:center'
+        >
           <span class='text-muted'>Loading...</span>
         </div>
       </div>
 
+      <script src='/admin/static/utils.js'></script>
       <script src='/admin/static/dashboard.js' type='module'></script>
     </Layout>
   );

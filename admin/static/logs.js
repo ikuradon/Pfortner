@@ -1,4 +1,5 @@
 // Logs page — display log level from config and runtime info
+// formatUptime and safeFetch are provided globally by utils.js
 
 function makeInfoRow(label, value) {
   const tr = document.createElement('tr');
@@ -19,41 +20,20 @@ function makeInfoRow(label, value) {
 }
 
 async function fetchInfo() {
-  // Fetch config for log level
-  let logLevel = '—';
-  try {
-    const res = await fetch('/admin/api/config', {
-      credentials: 'same-origin',
-    });
-    if (res.ok) {
-      const data = await res.json();
-      logLevel = data?.log?.level || data?.logging?.level || data?.log_level ||
-        '—';
-    }
-  } catch {
-    // ignore
-  }
+  // Fetch config and health-detail in parallel
+  const [configData, healthData] = await Promise.all([
+    safeFetch('/admin/api/config'),
+    safeFetch('/admin/api/health/detail'),
+  ]);
+
+  const logLevel = configData?.log?.level || configData?.logging?.level || configData?.log_level || '—';
 
   const logLevelEl = document.getElementById('log-level-display');
   if (logLevelEl) logLevelEl.textContent = String(logLevel);
 
-  // Fetch health detail for runtime info
-  let uptime = '—';
-  let connections = '—';
-  let status = '—';
-  try {
-    const res = await fetch('/admin/api/health/detail', {
-      credentials: 'same-origin',
-    });
-    if (res.ok) {
-      const data = await res.json();
-      uptime = data.uptime_seconds != null ? formatUptime(data.uptime_seconds) : '—';
-      connections = data.connections?.active != null ? String(data.connections.active) : '—';
-      status = data.status || '—';
-    }
-  } catch {
-    // ignore
-  }
+  const uptime = healthData?.uptime_seconds != null ? formatUptime(healthData.uptime_seconds) : '—';
+  const connections = healthData?.connections?.active != null ? String(healthData.connections.active) : '—';
+  const status = healthData?.status || '—';
 
   const tbody = document.getElementById('runtime-info-tbody');
   if (!tbody) return;
@@ -67,15 +47,6 @@ async function fetchInfo() {
   tbody.appendChild(makeInfoRow('Active Connections', connections));
   tbody.appendChild(makeInfoRow('Log Streaming', 'Not yet available'));
   tbody.appendChild(makeInfoRow('Timestamp', new Date().toLocaleString()));
-}
-
-function formatUptime(seconds) {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  if (h > 0) return h + 'h ' + m + 'm';
-  if (m > 0) return m + 'm ' + s + 's';
-  return s + 's';
 }
 
 document.addEventListener('DOMContentLoaded', () => {

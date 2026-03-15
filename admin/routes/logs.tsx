@@ -61,6 +61,7 @@ export function LogsPage({ currentPath }: LogsPageProps) {
         </table>
       </div>
 
+      <script src='/admin/static/utils.js'></script>
       <script src='/admin/static/logs.js' type='module'></script>
     </Layout>
   );

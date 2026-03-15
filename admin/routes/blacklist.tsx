@@ -97,6 +97,7 @@ export function BlacklistPage({ currentPath }: BlacklistPageProps) {
         </div>
       </div>
 
+      <script src='/admin/static/utils.js'></script>
       <script src='/admin/static/blacklist.js' type='module'></script>
     </Layout>
   );

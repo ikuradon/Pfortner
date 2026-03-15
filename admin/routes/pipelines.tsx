@@ -285,6 +285,7 @@ export function PipelinesPage({ currentPath }: PipelinesPageProps) {
         </div>
       </div>
 
+      <script src='/admin/static/utils.js'></script>
       <script src='/admin/static/pipelines.js' type='module'></script>
     </Layout>
   );

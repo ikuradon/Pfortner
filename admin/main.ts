@@ -5,6 +5,8 @@
 import { App } from '@fresh/core';
 import { render } from 'preact-render-to-string';
 import { h } from 'preact';
+import { resolve } from '@std/path';
+import { json } from '$admin/server.ts';
 import type { AdminState } from '$admin/server.ts';
 import {
   closeConnectionBatch,
@@ -30,6 +32,8 @@ import { LogsPage } from './routes/logs.tsx';
 const COOKIE_NAME = 'pfortner_admin_token';
 const STATIC_DIR = new URL('./static', import.meta.url).pathname;
 
+const RESOLVED_STATIC_DIR = resolve(STATIC_DIR);
+
 const CONTENT_TYPES: Record<string, string> = {
   css: 'text/css; charset=utf-8',
   js: 'application/javascript; charset=utf-8',
@@ -42,13 +46,6 @@ function renderHtml(component: h.JSX.Element): Response {
   const html = '<!DOCTYPE html>' + render(component);
   return new Response(html, {
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
-  });
-}
-
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
   });
 }
 
@@ -74,12 +71,29 @@ function redirectToLogin(req: Request): Response {
   });
 }
 
+const staticFileCache = new Map<string, { data: Uint8Array; contentType: string }>();
+
 async function serveStaticFile(filePath: string): Promise<Response> {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
   const contentType = CONTENT_TYPES[ext] ?? 'application/octet-stream';
+  const cached = staticFileCache.get(filePath);
+  if (cached) {
+    return new Response(cached.data, {
+      headers: {
+        'Content-Type': cached.contentType,
+        'Cache-Control': 'public, max-age=3600',
+      },
+    });
+  }
   try {
     const data = await Deno.readFile(filePath);
-    return new Response(data, { headers: { 'Content-Type': contentType } });
+    staticFileCache.set(filePath, { data, contentType });
+    return new Response(data, {
+      headers: {
+        'Content-Type': contentType,
+        'Cache-Control': 'public, max-age=3600',
+      },
+    });
   } catch {
     return new Response('Not Found', { status: 404 });
   }
@@ -103,11 +117,12 @@ export function createAdminApp(
     const path = url.pathname;
     if (path.startsWith(`${adminPath}/static/`)) {
       const relativePath = path.slice(`${adminPath}/static`.length);
-      // Prevent path traversal
-      if (relativePath.includes('..')) {
+      // Prevent path traversal: resolve the full path and verify it stays within STATIC_DIR
+      const resolvedPath = resolve(STATIC_DIR, relativePath.replace(/^\//, ''));
+      if (!resolvedPath.startsWith(RESOLVED_STATIC_DIR + '/') && resolvedPath !== RESOLVED_STATIC_DIR) {
         return new Response('Forbidden', { status: 403 });
       }
-      return await serveStaticFile(STATIC_DIR + relativePath);
+      return await serveStaticFile(resolvedPath);
     }
     return await ctx.next();
   });
@@ -145,7 +160,7 @@ export function createAdminApp(
     if (typeof token === 'string' && token === authToken) {
       const next = new URL(ctx.req.url).searchParams.get('next') ??
         `${adminPath}/`;
-      const safeNext = next.startsWith(adminPath) ? next : `${adminPath}/`;
+      const safeNext = (next.startsWith(adminPath + '/') || next === adminPath) ? next : `${adminPath}/`;
       return new Response(null, {
         status: 302,
         headers: {
@@ -234,31 +249,7 @@ export function createAdminApp(
   });
 
   app.get(`${adminPath}/api/health/detail`, (_ctx) => {
-    const conns = state.connectionManager?.getStats();
-    const uptime = state.startTime != null ? Math.floor((Date.now() - state.startTime) / 1000) : null;
-    let memory: Record<string, number> | null = null;
-    try {
-      const mem = Deno.memoryUsage();
-      memory = {
-        rss: mem.rss,
-        heapUsed: mem.heapUsed,
-        heapTotal: mem.heapTotal,
-        external: mem.external,
-      };
-    } catch { /* ignore */ }
-
-    return json({
-      status: state.shutdownManager?.isDraining() ? 'draining' : 'ok',
-      uptime_seconds: uptime,
-      connections: conns ??
-        { active: state.connections.size, max: 0, pressure: 'normal' },
-      upstream: {
-        status: state.upstreamProbe?.getStatus() ?? 'unknown',
-        latency_ms: state.upstreamProbe?.getLatency() ?? null,
-      },
-      memory,
-      shutdown: { draining: state.shutdownManager?.isDraining() ?? false },
-    });
+    return json(getHealthDetail(state));
   });
 
   app.get(`${adminPath}/api/connections`, (_ctx) => {

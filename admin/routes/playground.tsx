@@ -340,6 +340,7 @@ export function PlaygroundPage({ currentPath }: PlaygroundPageProps) {
         </div>
       </div>
 
+      <script src='/admin/static/utils.js'></script>
       <script src='/admin/static/playground.js' type='module'></script>
     </Layout>
   );

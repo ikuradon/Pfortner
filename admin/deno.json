@@ -4,6 +4,7 @@
     "jsxImportSource": "preact"
   },
   "imports": {
+    "@std/path": "jsr:@std/path@^1.1.4",
     "@std/yaml": "jsr:@std/yaml@1.0.5",
     "ajv": "npm:ajv@8.17.1",
     "maxmind": "npm:maxmind@4.3.21",
