@@ -1,11 +1,17 @@
 import { pfortnerInit } from '../pfortner.ts';
-import type { InfraContext, PolicyFactory } from '../plugins/types.ts';
+import type { ConnectionInfo, InfraContext, PolicyFactory } from '../plugins/types.ts';
 import type { PluginRegistry } from '../plugins/registry.ts';
 import type { PfortnerConfig, PipelineEntry } from './loader.ts';
 
 interface ResolvedPipeline {
   factories: PolicyFactory[];
   direction: 'client' | 'server';
+}
+
+export interface RequestHandlerHooks {
+  onConnect?: (connectionInfo: ConnectionInfo) => void;
+  onDisconnect?: (connectionId: string) => void;
+  blacklist?: { pubkeys: Set<string>; ips: Set<string> };
 }
 
 async function resolvePipeline(
@@ -36,6 +42,7 @@ export async function buildRequestHandler(
   config: PfortnerConfig,
   infra: InfraContext,
   registry: PluginRegistry,
+  hooks?: RequestHandlerHooks,
 ): Promise<RequestHandler> {
   const clientPipeline = await resolvePipeline(config.pipelines.client, 'client', registry, infra);
   const serverPipeline = await resolvePipeline(config.pipelines.server, 'server', registry, infra);
@@ -44,6 +51,12 @@ export async function buildRequestHandler(
     const clientIp = config.server.x_forwarded_for
       ? (req.headers.get('X-Forwarded-For') || ('hostname' in conn.remoteAddr ? conn.remoteAddr.hostname : ''))
       : ('hostname' in conn.remoteAddr ? conn.remoteAddr.hostname : '');
+
+    // Runtime blacklist check
+    if (hooks?.blacklist?.ips.has(clientIp)) {
+      return new Response('Forbidden', { status: 403 });
+    }
+
     const instance = pfortnerInit(config.server.upstream_relay, {
       clientIp,
       idleTimeout: config.server.idle_timeout,
@@ -58,6 +71,17 @@ export async function buildRequestHandler(
     instance.registerClientPipeline(clientPolicies);
     instance.registerServerPipeline(serverPolicies);
     infra.metrics.counter('pfortner_connections_total');
+
+    if (hooks?.onConnect) {
+      hooks.onConnect(instance.connectionInfo);
+    }
+    if (hooks?.onDisconnect) {
+      const connectionId = instance.connectionInfo.connectionId;
+      instance.on('clientDisconnect', () => {
+        hooks.onDisconnect!(connectionId);
+      });
+    }
+
     return instance.createSession(req);
   };
 }

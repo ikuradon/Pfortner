@@ -1,4 +1,4 @@
-import type { HttpClient, InfraContext } from '../plugins/types.ts';
+import type { HttpClient, InfraContext, MetricsCollector } from '../plugins/types.ts';
 import { createLogger, type LoggerOptions } from './logger.ts';
 import { createNoopMetrics } from './metrics.ts';
 
@@ -7,6 +7,7 @@ export interface InfraOptions {
   logSink?: (line: string) => void;
   httpTimeout?: number;
   httpUserAgent?: string;
+  metrics?: MetricsCollector;
 }
 
 function createDefaultHttpClient(options: InfraOptions): HttpClient {
@@ -33,5 +34,6 @@ export function buildInfraContext(options: InfraOptions): InfraContext {
     level: options.logging?.level ?? 'info',
     sink: options.logSink,
   });
-  return { logger, metrics: createNoopMetrics(), httpClient: createDefaultHttpClient(options) };
+  const metrics = options.metrics ?? createNoopMetrics();
+  return { logger, metrics, httpClient: createDefaultHttpClient(options) };
 }

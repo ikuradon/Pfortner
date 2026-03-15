@@ -13,6 +13,12 @@ export { extractEvent } from './src/plugins/types.ts';
 export { createPluginRegistry } from './src/plugins/registry.ts';
 export type { PluginRegistry } from './src/plugins/registry.ts';
 export { buildInfraContext } from './src/infra/context.ts';
+export { buildRelayInfo } from './src/config/relay-info.ts';
+export type { RelayInfo } from './src/config/relay-info.ts';
+export { createPrometheusMetrics } from './src/infra/prometheus.ts';
+export type { PrometheusMetrics } from './src/infra/prometheus.ts';
+export { createAdminHandler } from './src/admin/server.ts';
+export type { AdminState } from './src/admin/server.ts';
 
 // Policy plugins
 export { kindFilterPlugin } from './src/policies/KindFilterPolicy.ts';

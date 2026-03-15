@@ -11,6 +11,7 @@
     "jsr:@std/io@~0.225.2": "0.225.3",
     "jsr:@std/log@*": "0.224.14",
     "jsr:@std/log@0.224.14": "0.224.14",
+    "jsr:@std/yaml@1.0.5": "1.0.5",
     "npm:@noble/ciphers@2.1.1": "2.1.1",
     "npm:@noble/curves@2.0.1": "2.0.1",
     "npm:@noble/hashes@2.0.1": "2.0.1",
@@ -57,6 +58,9 @@
         "jsr:@std/fs",
         "jsr:@std/io"
       ]
+    },
+    "@std/yaml@1.0.5": {
+      "integrity": "71ba3d334305ee2149391931508b2c293a8490f94a337eef3a09cade1a2a2742"
     }
   },
   "npm": {
@@ -154,5 +158,10 @@
     "https://deno.land/std@0.224.0/dotenv/mod.ts": "0180eaeedaaf88647318811cdaa418cc64dc51fb08354f91f5f480d0a1309f7d",
     "https://deno.land/std@0.224.0/dotenv/parse.ts": "09977ff88dfd1f24f9973a338f0f91bbdb9307eb5ff6085446e7c423e4c7ba0c",
     "https://deno.land/std@0.224.0/dotenv/stringify.ts": "275da322c409170160440836342eaa7cf012a1d11a7e700d8ca4e7f2f8aa4615"
+  },
+  "workspace": {
+    "dependencies": [
+      "jsr:@std/yaml@1.0.5"
+    ]
   }
 }

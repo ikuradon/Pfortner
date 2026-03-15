@@ -3,6 +3,8 @@ import { loadConfigFromFile } from '../src/config/loader.ts';
 import { buildRelayInfo } from '../src/config/relay-info.ts';
 import { buildRequestHandler } from '../src/config/starter.ts';
 import { buildInfraContext } from '../src/infra/context.ts';
+import { createPrometheusMetrics, type PrometheusMetrics } from '../src/infra/prometheus.ts';
+import { type AdminState, createAdminHandler } from '../src/admin/server.ts';
 import { createPluginRegistry } from '../src/plugins/registry.ts';
 import { dotenv, log, nostrTools } from './deps.ts';
 dotenv.loadSync({ export: true });
@@ -11,19 +13,56 @@ const configPath = Deno.args.find((arg) => arg.endsWith('.yaml') || arg.endsWith
 
 if (configPath) {
   const config = await loadConfigFromFile(configPath);
+
+  let prometheusMetrics: PrometheusMetrics | undefined;
+  if (config.infra?.metrics?.prometheus?.enabled) {
+    prometheusMetrics = createPrometheusMetrics();
+  }
+
   const infra = buildInfraContext({
     logging: config.infra?.metrics?.logging,
     httpTimeout: config.infra?.http?.default_timeout,
     httpUserAgent: config.infra?.http?.user_agent,
+    metrics: prometheusMetrics,
   });
   const registry = createPluginRegistry();
-  const handler = await buildRequestHandler(config, infra, registry);
+
+  const adminState: AdminState = {
+    config,
+    pluginNames: registry.listNames(),
+    connections: new Map(),
+    blacklist: { pubkeys: new Set(), ips: new Set() },
+  };
+
+  const handler = await buildRequestHandler(config, infra, registry, {
+    onConnect: (connectionInfo) => {
+      adminState.connections.set(connectionInfo.connectionId, connectionInfo);
+    },
+    onDisconnect: (connectionId) => {
+      adminState.connections.delete(connectionId);
+    },
+    blacklist: adminState.blacklist,
+  });
 
   infra.logger.info('Pfortner starting in config mode', { config: configPath, port: config.server.port });
+
+  if (config.admin?.enabled && config.admin?.port) {
+    const adminHandler = createAdminHandler(adminState);
+    Deno.serve({ hostname: '[::]', port: config.admin.port }, adminHandler);
+    infra.logger.info('Admin API started', { port: config.admin.port });
+  }
 
   Deno.serve(
     { hostname: '[::]', port: config.server.port },
     (req: Request, conn: Deno.ServeHandlerInfo<Deno.NetAddr>) => {
+      const url = new URL(req.url);
+
+      if (prometheusMetrics && url.pathname === '/metrics') {
+        return new Response(prometheusMetrics.render(), {
+          headers: { 'Content-Type': 'text/plain; version=0.0.4' },
+        });
+      }
+
       if (req.headers.get('accept') === 'application/nostr+json') {
         const info = buildRelayInfo(config);
         return new Response(JSON.stringify(info), {
