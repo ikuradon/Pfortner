@@ -1,0 +1,34 @@
+# bench.scenario.sample.yaml
+# Copy to bench.scenario.yaml and customize
+
+target: "ws://localhost:3000"
+# metrics_url: "http://localhost:3000/metrics"
+
+# auth:
+#   enabled: false
+#   relay_url: "ws://localhost:7777"
+
+scenarios:
+  - name: "warmup"
+    duration: 10
+    connections:
+      target: 10
+      ramp: true
+    events:
+      rate: 5
+      kind: 1
+      content_length: 100
+
+  - name: "steady"
+    duration: 30
+    connections:
+      target: 10
+    events:
+      rate: 20
+      kind: 1
+      content_length: 140
+    requests:
+      rate: 5
+      filters:
+        kinds: [1]
+        limit: 10
