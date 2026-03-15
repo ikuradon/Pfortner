@@ -26,6 +26,11 @@ export { createAdminHandler } from './src/admin/server.ts';
 export type { AdminState } from './src/admin/server.ts';
 export { ConfigManager } from './src/config/manager.ts';
 
+// Admin service
+export { ThroughputTracker } from './src/infra/throughput-tracker.ts';
+export type { ThroughputBucket } from './src/infra/throughput-tracker.ts';
+export type { AdminServiceState } from './src/admin/service.ts';
+
 // Operational hardening
 export { ShutdownManager } from './src/shutdown/manager.ts';
 export { ConnectionManager } from './src/connections/manager.ts';
