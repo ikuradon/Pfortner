@@ -26,6 +26,10 @@ export { createAdminHandler } from './src/admin/server.ts';
 export type { AdminState } from './src/admin/server.ts';
 export { ConfigManager } from './src/config/manager.ts';
 
+// WoT graph builder
+export { buildWotGraph, parseContactList, type QueryFn } from './src/wot/builder.ts';
+export { createRelayQueryFn, parseRelayResponse } from './src/wot/relay-query.ts';
+
 // Policy plugins
 export { kindFilterPlugin } from './src/policies/KindFilterPolicy.ts';
 export { writeGuardPlugin } from './src/policies/WriteGuardPolicy.ts';
