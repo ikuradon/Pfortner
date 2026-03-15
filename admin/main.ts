@@ -13,6 +13,7 @@ import {
   getHealthSimple,
   getThroughputData,
   maskSecrets,
+  simulatePipeline,
 } from '$admin/service.ts';
 
 // Page components
@@ -291,6 +292,35 @@ export function createAdminApp(
   // ─── Config API ────────────────────────────────────────────────────────
   app.get(`${adminPath}/api/config`, (_ctx) => {
     return json(maskSecrets(state.config));
+  });
+
+  // ─── Plugins API ───────────────────────────────────────────────────────
+  app.get(`${adminPath}/api/plugins`, (_ctx) => {
+    return json({ plugins: state.pluginNames });
+  });
+
+  // ─── Playground API ────────────────────────────────────────────────────
+  app.post(`${adminPath}/api/playground/evaluate`, async (ctx) => {
+    try {
+      const body = await ctx.req.json();
+      const message = body.message;
+      const direction = body.direction ?? 'client';
+      const connectionInfo = {
+        clientAuthorized: body.connectionInfo?.authenticated ?? false,
+        clientPubkey: body.connectionInfo?.pubkey ?? '',
+        connectionIpAddr: body.connectionInfo?.clientIp ?? '127.0.0.1',
+      };
+      if (!Array.isArray(message)) {
+        return json({ error: 'message must be an array' }, 400);
+      }
+      const pipeline = direction === 'server'
+        ? (state.config.pipelines?.server ?? [])
+        : (state.config.pipelines?.client ?? []);
+      const result = await simulatePipeline(pipeline, message, connectionInfo);
+      return json(result);
+    } catch (e) {
+      return json({ error: `evaluation failed: ${(e as Error).message}` }, 500);
+    }
   });
 
   // ─── Blacklist API ─────────────────────────────────────────────────────
