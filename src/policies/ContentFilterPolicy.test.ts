@@ -74,3 +74,60 @@ Deno.test('contentFilter banned_words is case-insensitive', async () => {
     'reject',
   );
 });
+
+Deno.test('contentFilter external_api accepts when API returns ok', async () => {
+  const mockInfra = buildInfraContext({});
+  // Override httpClient with mock
+  mockInfra.httpClient = {
+    fetch: async () => new Response(JSON.stringify({ allowed: true }), { status: 200 }),
+  };
+  const factory = await contentFilterPlugin.initialize({
+    external_api: { url: 'http://mock/check', timeout: 1000, on_error: 'reject' },
+  }, mockInfra);
+  const inst = mockInstance();
+  const result = await factory(inst)(['EVENT', makeEvent('hello')], inst.connectionInfo);
+  assertEquals(result.action, 'next');
+});
+
+Deno.test('contentFilter external_api rejects when API returns blocked', async () => {
+  const mockInfra = buildInfraContext({});
+  mockInfra.httpClient = {
+    fetch: async () => new Response(JSON.stringify({ allowed: false }), { status: 200 }),
+  };
+  const factory = await contentFilterPlugin.initialize({
+    external_api: { url: 'http://mock/check', timeout: 1000, on_error: 'accept' },
+  }, mockInfra);
+  const inst = mockInstance();
+  const result = await factory(inst)(['EVENT', makeEvent('hello')], inst.connectionInfo);
+  assertEquals(result.action, 'reject');
+});
+
+Deno.test('contentFilter external_api on_error accept passes on API failure', async () => {
+  const mockInfra = buildInfraContext({});
+  mockInfra.httpClient = {
+    fetch: async () => {
+      throw new Error('network error');
+    },
+  };
+  const factory = await contentFilterPlugin.initialize({
+    external_api: { url: 'http://mock/check', timeout: 1000, on_error: 'accept' },
+  }, mockInfra);
+  const inst = mockInstance();
+  const result = await factory(inst)(['EVENT', makeEvent('hello')], inst.connectionInfo);
+  assertEquals(result.action, 'next');
+});
+
+Deno.test('contentFilter external_api on_error reject rejects on API failure', async () => {
+  const mockInfra = buildInfraContext({});
+  mockInfra.httpClient = {
+    fetch: async () => {
+      throw new Error('network error');
+    },
+  };
+  const factory = await contentFilterPlugin.initialize({
+    external_api: { url: 'http://mock/check', timeout: 1000, on_error: 'reject' },
+  }, mockInfra);
+  const inst = mockInstance();
+  const result = await factory(inst)(['EVENT', makeEvent('hello')], inst.connectionInfo);
+  assertEquals(result.action, 'reject');
+});

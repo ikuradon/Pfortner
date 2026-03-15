@@ -1,4 +1,4 @@
-import type { InfraContext, PolicyFactory, PolicyPlugin } from '../plugins/types.ts';
+import type { HttpClient, InfraContext, PolicyFactory, PolicyPlugin } from '../plugins/types.ts';
 import { extractEvent } from '../plugins/types.ts';
 
 interface ContentFilterConfig {
@@ -20,14 +20,16 @@ export const contentFilterPlugin: PolicyPlugin = {
       apply_to_kinds: { type: 'array', items: { type: 'number' } },
     },
   },
-  initialize(config: unknown, _infra: InfraContext): Promise<PolicyFactory> {
+  initialize(config: unknown, infra: InfraContext): Promise<PolicyFactory> {
     const cfg = config as ContentFilterConfig;
     const lowerWords = (cfg.banned_words ?? []).map((w) => w.toLowerCase());
     const patterns = (cfg.banned_patterns ?? []).map((p) => new RegExp(p, 'i'));
     const kindSet = cfg.apply_to_kinds ? new Set(cfg.apply_to_kinds) : null;
+    const httpClient: HttpClient | undefined = cfg.external_api ? infra.httpClient : undefined;
+    const apiConfig = cfg.external_api;
 
     return Promise.resolve((_instance) => {
-      return (message, _connectionInfo) => {
+      return async (message, _connectionInfo) => {
         const extracted = extractEvent(message);
         if (!extracted) return { message, action: 'next' };
 
@@ -59,6 +61,35 @@ export const contentFilterPlugin: PolicyPlugin = {
               action: 'reject',
               response: JSON.stringify(['OK', event.id, false, 'blocked: prohibited content']),
             };
+          }
+        }
+
+        // External API check
+        if (apiConfig && httpClient) {
+          try {
+            const response = await httpClient.fetch(apiConfig.url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ content: event.content, event_id: event.id, kind: event.kind }),
+              timeout: apiConfig.timeout,
+            });
+            const result = await response.json();
+            if (!result.allowed) {
+              return {
+                message,
+                action: 'reject',
+                response: JSON.stringify(['OK', event.id, false, 'blocked: external moderation']),
+              };
+            }
+          } catch {
+            if (apiConfig.on_error === 'reject') {
+              return {
+                message,
+                action: 'reject',
+                response: JSON.stringify(['OK', event.id, false, 'blocked: moderation service unavailable']),
+              };
+            }
+            // on_error: 'accept' — fall through
           }
         }
 
