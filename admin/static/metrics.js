@@ -19,7 +19,10 @@ function buildSvgChart(data, options) {
   } = options;
 
   if (!data || data.length === 0) {
-    return '<span class="text-muted">No data available</span>';
+    const noData = document.createElement('span');
+    noData.className = 'text-muted';
+    noData.textContent = 'No data available';
+    return noData;
   }
 
   const maxVal = Math.max(
@@ -136,12 +139,7 @@ function renderThroughputChart(buckets) {
     labels: ['Accept', 'Reject'],
   });
 
-  while (container.firstChild) container.removeChild(container.firstChild);
-  if (typeof result === 'string') {
-    container.innerHTML = result;
-  } else {
-    container.appendChild(result);
-  }
+  container.replaceChildren(result);
 }
 
 // ─── Connection Activity Chart ────────────────────────────────────────────────
@@ -175,12 +173,7 @@ function renderConnectionChart(buckets) {
     labels: ['Messages'],
   });
 
-  while (container.firstChild) container.removeChild(container.firstChild);
-  if (typeof result === 'string') {
-    container.innerHTML = result;
-  } else {
-    container.appendChild(result);
-  }
+  container.replaceChildren(result);
 }
 
 // ─── Policy Decisions Table ───────────────────────────────────────────────────

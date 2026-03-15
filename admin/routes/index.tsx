@@ -12,16 +12,6 @@ interface DashboardPageProps {
   };
 }
 
-function formatUptime(seconds: number | null): string {
-  if (seconds === null) return 'unknown';
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
-}
-
 function formatMemory(bytes: number): string {
   return `${Math.round(bytes / 1024 / 1024)} MB`;
 }
@@ -78,7 +68,7 @@ export function DashboardPage({ currentPath, health }: DashboardPageProps) {
           <div class='card-title'>Status</div>
           <div class='card-value'>{statusBadge}</div>
           <div class='card-subtitle'>
-            Uptime: {formatUptime(health.uptime_seconds)}
+            Uptime: {health.uptime_seconds !== null ? `${health.uptime_seconds}s` : 'unknown'}
           </div>
         </div>
         <div class='card'>

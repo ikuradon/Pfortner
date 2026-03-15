@@ -18,16 +18,10 @@ export interface AdminServiceState {
   throughputTracker?: ThroughputTracker;
 }
 
-let cachedMasked: { config: PfortnerConfig; result: unknown } | null = null;
-
 export function maskSecrets(config: PfortnerConfig): unknown {
-  if (cachedMasked && cachedMasked.config === config) {
-    return cachedMasked.result;
-  }
   const masked = JSON.parse(JSON.stringify(config));
   if (masked.admin?.auth_token) masked.admin.auth_token = '***';
   if (masked.infra?.redis?.url) masked.infra.redis.url = '***';
-  cachedMasked = { config, result: masked };
   return masked;
 }
 
@@ -42,7 +36,7 @@ export function getHealthDetail(state: AdminServiceState): Record<string, unknow
   let memory: Record<string, number> | null = null;
   try {
     const mem = Deno.memoryUsage();
-    memory = { rss_mb: Math.round(mem.rss / 1024 / 1024), heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024) };
+    memory = { rss: mem.rss, heapUsed: mem.heapUsed, heapTotal: mem.heapTotal };
   } catch { /* ignore */ }
 
   return {
