@@ -108,8 +108,9 @@ Deno.test('admin POST /reload calls reloadFn', async () => {
   let reloaded = false;
   const state = makeState();
   state.configPath = '/tmp/test.yaml';
-  state.reloadFn = async () => {
+  state.reloadFn = () => {
     reloaded = true;
+    return Promise.resolve();
   };
   // Write a temp file so readTextFile succeeds
   await Deno.writeTextFile('/tmp/test.yaml', 'dummy: true');
@@ -136,8 +137,9 @@ Deno.test('admin POST /shutdown triggers shutdown', async () => {
   const state = makeState();
   state.shutdownManager = {
     isDraining: () => false,
-    initiateShutdown: async () => {
+    initiateShutdown: () => {
       shutdownCalled = true;
+      return Promise.resolve();
     },
     start: () => {},
   } as any;

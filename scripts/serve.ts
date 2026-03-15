@@ -6,6 +6,9 @@ import { createPrometheusMetrics, type PrometheusMetrics } from '../src/infra/pr
 import { type AdminState, createAdminHandler } from '../src/admin/server.ts';
 import { createPluginRegistry } from '../src/plugins/registry.ts';
 import { ConfigManager } from '../src/config/manager.ts';
+import { ConnectionManager } from '../src/connections/manager.ts';
+import { ShutdownManager } from '../src/shutdown/manager.ts';
+import { UpstreamProbe } from '../src/connections/upstream-probe.ts';
 import { dotenv, log, nostrTools } from './deps.ts';
 dotenv.loadSync({ export: true });
 
@@ -57,36 +60,80 @@ if (configPath) {
     pluginNames: registry.listNames(),
     connections: new Map(),
     blacklist: { pubkeys: new Set(), ips: new Set() },
+    startTime: Date.now(),
   };
 
+  // Create ConnectionManager with shared Map reference
+  const connectionManager = new ConnectionManager(adminState.connections, {
+    max: config.server.connections?.max ?? 10000,
+    maxPerIp: config.server.connections?.max_per_ip ?? 50,
+    pressure: {
+      softLimitPercent: config.server.connections?.pressure?.soft_limit_percent ?? 90,
+      authGracePeriod: config.server.connections?.pressure?.auth_grace_period ?? 30,
+    },
+  });
+  adminState.connectionManager = connectionManager;
+
   const releaseMap = new Map<string, () => void>();
+
+  const abortController = new AbortController();
+
+  const shutdownManager = new ShutdownManager(
+    adminState.connections,
+    {
+      drainTimeout: config.server.shutdown?.drain_timeout ?? 30,
+      forceAfter: config.server.shutdown?.force_after ?? 30,
+    },
+    () => {
+      connectionManager.stopPressureCheck();
+      upstreamProbe?.stop();
+      abortController.abort();
+      return Promise.resolve();
+    },
+  );
+  adminState.shutdownManager = shutdownManager;
+  shutdownManager.start();
+
+  // Create UpstreamProbe
+  const upstreamProbe = UpstreamProbe.fromRelayUrl(
+    config.server.upstream_relay,
+    config.server.upstream_raw_url,
+  );
+  if (upstreamProbe) {
+    adminState.upstreamProbe = upstreamProbe;
+    upstreamProbe.start();
+  }
 
   const manager = await ConfigManager.create(
     await Deno.readTextFile(configPath),
     infraWithRedis,
     registry,
     {
-      onConnect: (connectionInfo) => {
-        adminState.connections.set(connectionInfo.connectionId, connectionInfo);
-        releaseMap.set(connectionInfo.connectionId, manager.acquireConnection());
+      onConnect: (managed) => {
+        // Don't add to adminState.connections here — ConnectionManager.register() does it
+        releaseMap.set(managed.info.connectionId, manager.acquireConnection());
       },
       onDisconnect: (connectionId) => {
-        adminState.connections.delete(connectionId);
+        // Don't delete from adminState.connections here — ConnectionManager.unregister() does it
         releaseMap.get(connectionId)?.();
         releaseMap.delete(connectionId);
       },
       blacklist: adminState.blacklist,
+      connectionManager,
+      shutdownManager,
     },
   );
 
   adminState.configPath = configPath;
   adminState.reloadFn = async (yaml: string) => {
+    if (shutdownManager.isDraining()) return;
     await manager.reload(yaml);
     infra.logger.info('Config reloaded', { generation: manager.generation });
   };
 
   try {
     Deno.addSignalListener('SIGHUP', async () => {
+      if (shutdownManager.isDraining()) return;
       infra.logger.info('SIGHUP received, reloading config');
       try {
         const content = await Deno.readTextFile(configPath);
@@ -100,6 +147,9 @@ if (configPath) {
     // SIGHUP not available on this platform
   }
 
+  // Start pressure check
+  connectionManager.startPressureCheck();
+
   infra.logger.info('Pfortner starting in config mode', { config: configPath, port: config.server.port });
 
   if (config.admin?.enabled && config.admin?.port) {
@@ -109,9 +159,18 @@ if (configPath) {
   }
 
   Deno.serve(
-    { hostname: '[::]', port: config.server.port },
+    { hostname: '[::]', port: config.server.port, signal: abortController.signal },
     (req: Request, conn: Deno.ServeHandlerInfo<Deno.NetAddr>) => {
       const url = new URL(req.url);
+
+      // Health check on main port (no auth required)
+      if (url.pathname === '/health') {
+        const stats = connectionManager.getStats();
+        return new Response(
+          JSON.stringify({ status: 'ok', connections: stats.active, pressure: stats.pressure }),
+          { headers: { 'Content-Type': 'application/json' } },
+        );
+      }
 
       if (prometheusMetrics && url.pathname === '/metrics') {
         return new Response(prometheusMetrics.render(), {

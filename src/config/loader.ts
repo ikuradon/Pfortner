@@ -13,6 +13,12 @@ export interface PfortnerConfig {
     upstream_raw_url?: string;
     idle_timeout?: number;
     x_forwarded_for?: boolean;
+    shutdown?: { drain_timeout?: number; force_after?: number };
+    connections?: {
+      max?: number;
+      max_per_ip?: number;
+      pressure?: { soft_limit_percent?: number; auth_grace_period?: number };
+    };
   };
   auth?: {
     enabled?: boolean;
@@ -47,6 +53,13 @@ function validate(config: any): string[] {
   }
   if (config.admin?.enabled && !config.admin?.auth_token) {
     errors.push('admin.auth_token is required when admin.enabled is true');
+  }
+  if (config.server?.connections?.max != null && config.server.connections.max < 1) {
+    errors.push('server.connections.max must be >= 1');
+  }
+  if (config.server?.connections?.pressure?.soft_limit_percent != null) {
+    const pct = config.server.connections.pressure.soft_limit_percent;
+    if (pct < 0 || pct > 100) errors.push('server.connections.pressure.soft_limit_percent must be 0-100');
   }
   // Warnings
   if (config.pipelines) {
