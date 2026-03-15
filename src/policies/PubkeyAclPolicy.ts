@@ -1,0 +1,88 @@
+import type { InfraContext, PolicyFactory, PolicyPlugin } from '../plugins/types.ts';
+import { extractEvent } from '../plugins/types.ts';
+
+interface PubkeyAclConfig {
+  mode: 'whitelist' | 'blacklist';
+  target: 'author' | 'client';
+  pubkeys?: string[];
+  source?: string;
+  refresh_interval?: number;
+}
+
+export const pubkeyAclPlugin: PolicyPlugin = {
+  name: 'pubkey-acl',
+  description: 'Filter EVENTs by pubkey whitelist/blacklist',
+  direction: 'both',
+  configSchema: {
+    type: 'object',
+    properties: {
+      mode: { type: 'string', enum: ['whitelist', 'blacklist'] },
+      target: { type: 'string', enum: ['author', 'client'] },
+      pubkeys: { type: 'array', items: { type: 'string' } },
+      source: { type: 'string' },
+      refresh_interval: { type: 'number' },
+    },
+    required: ['mode', 'target'],
+  },
+  async initialize(config: unknown, infra: InfraContext): Promise<PolicyFactory> {
+    const cfg = config as PubkeyAclConfig;
+    const pubkeySet = new Set<string>(cfg.pubkeys ?? []);
+
+    // Fetch external list if configured
+    if (cfg.source) {
+      try {
+        const response = await infra.httpClient.fetch(cfg.source);
+        const list: string[] = await response.json();
+        for (const pk of list) pubkeySet.add(pk);
+        infra.logger.info('Loaded external pubkey list', { source: cfg.source, count: list.length });
+      } catch (e) {
+        infra.logger.warn('Failed to fetch external pubkey list', { source: cfg.source, error: String(e) });
+      }
+    }
+
+    return (_instance) => {
+      return (message, connectionInfo) => {
+        const extracted = extractEvent(message);
+        if (!extracted) return { message, action: 'next' };
+
+        const event = extracted.event as { id: string; pubkey: string };
+
+        let targetPubkey: string;
+        if (cfg.target === 'client') {
+          targetPubkey = connectionInfo.clientPubkey;
+          if (!targetPubkey) {
+            // Unauthenticated: not in any whitelist, in every blacklist
+            return cfg.mode === 'whitelist'
+              ? {
+                message,
+                action: 'reject',
+                response: JSON.stringify(['OK', event.id, false, 'blocked: not authorized']),
+              }
+              : { message, action: 'next' };
+          }
+        } else {
+          targetPubkey = event.pubkey;
+        }
+
+        const isInList = pubkeySet.has(targetPubkey);
+
+        if (cfg.mode === 'whitelist' && !isInList) {
+          return {
+            message,
+            action: 'reject',
+            response: JSON.stringify(['OK', event.id, false, 'blocked: pubkey not allowed']),
+          };
+        }
+        if (cfg.mode === 'blacklist' && isInList) {
+          return {
+            message,
+            action: 'reject',
+            response: JSON.stringify(['OK', event.id, false, 'blocked: pubkey banned']),
+          };
+        }
+
+        return { message, action: 'next' };
+      };
+    };
+  },
+};
