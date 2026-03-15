@@ -26,6 +26,13 @@ export { createAdminHandler } from './src/admin/server.ts';
 export type { AdminState } from './src/admin/server.ts';
 export { ConfigManager } from './src/config/manager.ts';
 
+// Operational hardening
+export { ShutdownManager } from './src/shutdown/manager.ts';
+export { ConnectionManager } from './src/connections/manager.ts';
+export type { ConnectionOptions, ConnectionStats } from './src/connections/manager.ts';
+export type { ManagedConnection } from './src/connections/types.ts';
+export { UpstreamProbe } from './src/connections/upstream-probe.ts';
+
 // WoT graph builder
 export { buildWotGraph, parseContactList, type QueryFn } from './src/wot/builder.ts';
 export { createRelayQueryFn, parseRelayResponse } from './src/wot/relay-query.ts';

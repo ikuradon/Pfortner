@@ -3,10 +3,21 @@
 
 server:
   port: 3000
-  upstream_relay: "ws://localhost:7777"
+  upstream_relay: 'ws://localhost:7777'
   # upstream_raw_url: "http://localhost:7777"
   idle_timeout: 600
   x_forwarded_for: false
+
+  shutdown:
+    drain_timeout: 30
+    force_after: 30
+
+  connections:
+    max: 10000
+    max_per_ip: 50
+    pressure:
+      soft_limit_percent: 90
+      auth_grace_period: 30
 
 auth:
   enabled: true
