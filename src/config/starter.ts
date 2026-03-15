@@ -1,7 +1,10 @@
 import { pfortnerInit } from '../pfortner.ts';
-import type { ConnectionInfo, InfraContext, PolicyFactory } from '../plugins/types.ts';
+import type { InfraContext, PolicyFactory } from '../plugins/types.ts';
 import type { PluginRegistry } from '../plugins/registry.ts';
 import type { PfortnerConfig, PipelineEntry } from './loader.ts';
+import type { ManagedConnection } from '../connections/types.ts';
+import type { ConnectionManager } from '../connections/manager.ts';
+import type { ShutdownManager } from '../shutdown/manager.ts';
 import AjvModule from 'ajv';
 // deno-lint-ignore no-explicit-any
 const AjvClass = (AjvModule as any).default ?? AjvModule;
@@ -13,9 +16,11 @@ interface ResolvedPipeline {
 }
 
 export interface RequestHandlerHooks {
-  onConnect?: (connectionInfo: ConnectionInfo) => void;
+  onConnect?: (managed: ManagedConnection) => void;
   onDisconnect?: (connectionId: string) => void;
   blacklist?: { pubkeys: Set<string>; ips: Set<string> };
+  connectionManager?: ConnectionManager;
+  shutdownManager?: ShutdownManager;
 }
 
 async function resolvePipeline(
@@ -64,6 +69,19 @@ export async function buildRequestHandler(
       ? (req.headers.get('X-Forwarded-For') || ('hostname' in conn.remoteAddr ? conn.remoteAddr.hostname : ''))
       : ('hostname' in conn.remoteAddr ? conn.remoteAddr.hostname : '');
 
+    // Draining check
+    if (hooks?.shutdownManager?.isDraining()) {
+      return new Response('Service Unavailable', { status: 503 });
+    }
+
+    // Connection limit check
+    if (hooks?.connectionManager) {
+      const result = hooks.connectionManager.canAccept(clientIp);
+      if (!result.allowed) {
+        return new Response(result.reason ?? 'Too Many Requests', { status: result.statusCode ?? 429 });
+      }
+    }
+
     // Runtime blacklist check
     if (hooks?.blacklist?.ips.has(clientIp)) {
       return new Response('Forbidden', { status: 403 });
@@ -84,13 +102,27 @@ export async function buildRequestHandler(
     instance.registerServerPipeline(serverPolicies);
     infra.metrics.counter('pfortner_connections_total');
 
-    if (hooks?.onConnect) {
-      hooks.onConnect(instance.connectionInfo);
+    const managed: ManagedConnection = {
+      info: instance.connectionInfo,
+      clientIp,
+      sendNotice: (msg) => instance.sendMessageToClient(JSON.stringify(['NOTICE', msg])),
+      close: (code) => instance.closeSocket(code),
+      sendAuthChallenge: () => instance.sendAuthMessage(),
+    };
+
+    if (hooks?.connectionManager) {
+      hooks.connectionManager.register(managed);
     }
-    if (hooks?.onDisconnect) {
+    if (hooks?.onConnect) {
+      hooks.onConnect(managed);
+    }
+
+    // Always register disconnect handler if connectionManager OR onDisconnect exists
+    if (hooks?.connectionManager || hooks?.onDisconnect) {
       const connectionId = instance.connectionInfo.connectionId;
       instance.on('clientDisconnect', () => {
-        hooks.onDisconnect!(connectionId);
+        hooks.connectionManager?.unregister(connectionId);
+        hooks.onDisconnect?.(connectionId);
       });
     }
 
