@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact"
+  },
+  "imports": {
+    "@std/yaml": "jsr:@std/yaml@1.0.5",
+    "ajv": "npm:ajv@8.17.1",
+    "maxmind": "npm:maxmind@4.3.21",
+    "redis": "npm:redis@4.7.0",
+    "preact": "npm:preact@^10.25.0",
+    "preact/": "npm:preact@^10.25.0/",
+    "preact/jsx-runtime": "npm:preact@^10.25.0/jsx-runtime",
+    "preact-render-to-string": "npm:preact-render-to-string@^6.5.0",
+    "@fresh/core": "jsr:@fresh/core@^2.2.0",
+    "$admin/": "../src/admin/"
+  }
+}

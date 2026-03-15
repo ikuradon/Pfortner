@@ -14,8 +14,8 @@ export function parseRelayResponse(messages: unknown[][]): Map<string, string[]>
 }
 
 export function createRelayQueryFn(relayUrl: string, timeoutMs = 10000): QueryFn {
-  return async (pubkeys: string[]): Promise<Map<string, string[]>> => {
-    if (pubkeys.length === 0) return new Map();
+  return (pubkeys: string[]): Promise<Map<string, string[]>> => {
+    if (pubkeys.length === 0) return Promise.resolve(new Map());
 
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(relayUrl);

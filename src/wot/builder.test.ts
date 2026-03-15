@@ -29,8 +29,8 @@ Deno.test('parseContactList returns empty for no p-tags', () => {
 });
 
 Deno.test('buildWotGraph depth 0 returns only root pubkeys', async () => {
-  const mockQuery = async (_pubkeys: string[]): Promise<Map<string, string[]>> => {
-    return new Map([['root1', ['a', 'b']], ['root2', ['c']]]);
+  const mockQuery = (_pubkeys: string[]): Promise<Map<string, string[]>> => {
+    return Promise.resolve(new Map([['root1', ['a', 'b']], ['root2', ['c']]]));
   };
   const result = await buildWotGraph(['root1', 'root2'], 0, mockQuery);
   assertEquals(result.has('root1'), true);
@@ -39,14 +39,14 @@ Deno.test('buildWotGraph depth 0 returns only root pubkeys', async () => {
 });
 
 Deno.test('buildWotGraph depth 1 includes direct follows', async () => {
-  const mockQuery = async (pubkeys: string[]): Promise<Map<string, string[]>> => {
+  const mockQuery = (pubkeys: string[]): Promise<Map<string, string[]>> => {
     const result = new Map<string, string[]>();
     for (const pk of pubkeys) {
       if (pk === 'root') result.set('root', ['a', 'b']);
       if (pk === 'a') result.set('a', ['c', 'd']);
       if (pk === 'b') result.set('b', ['e']);
     }
-    return result;
+    return Promise.resolve(result);
   };
   const result = await buildWotGraph(['root'], 1, mockQuery);
   assertEquals(result.has('root'), true);
@@ -56,14 +56,14 @@ Deno.test('buildWotGraph depth 1 includes direct follows', async () => {
 });
 
 Deno.test('buildWotGraph depth 2 follows transitively', async () => {
-  const mockQuery = async (pubkeys: string[]): Promise<Map<string, string[]>> => {
+  const mockQuery = (pubkeys: string[]): Promise<Map<string, string[]>> => {
     const result = new Map<string, string[]>();
     for (const pk of pubkeys) {
       if (pk === 'root') result.set('root', ['a']);
       if (pk === 'a') result.set('a', ['b']);
       if (pk === 'b') result.set('b', ['c']);
     }
-    return result;
+    return Promise.resolve(result);
   };
   const result = await buildWotGraph(['root'], 2, mockQuery);
   assertEquals(result.has('root'), true);
@@ -73,13 +73,13 @@ Deno.test('buildWotGraph depth 2 follows transitively', async () => {
 });
 
 Deno.test('buildWotGraph handles cycles', async () => {
-  const mockQuery = async (pubkeys: string[]): Promise<Map<string, string[]>> => {
+  const mockQuery = (pubkeys: string[]): Promise<Map<string, string[]>> => {
     const result = new Map<string, string[]>();
     for (const pk of pubkeys) {
       if (pk === 'a') result.set('a', ['b']);
       if (pk === 'b') result.set('b', ['a']); // cycle
     }
-    return result;
+    return Promise.resolve(result);
   };
   const result = await buildWotGraph(['a'], 5, mockQuery);
   assertEquals(result.has('a'), true);

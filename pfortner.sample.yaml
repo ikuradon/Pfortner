@@ -26,6 +26,13 @@ auth:
   allowed_time_duration: 600
   allowed_future_time_duration: 60
 
+# Admin UI — served at /admin on the main port
+# admin:
+#   enabled: true
+#   auth_token: 'change-me-secret-token'
+#   path: '/admin'
+#   # port: 9090  # optional: also expose admin API on a separate port
+
 # infra:
 #   metrics:
 #     logging:

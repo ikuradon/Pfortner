@@ -4,6 +4,7 @@ import { buildRelayInfo } from '../src/config/relay-info.ts';
 import { buildInfraContext } from '../src/infra/context.ts';
 import { createPrometheusMetrics, type PrometheusMetrics } from '../src/infra/prometheus.ts';
 import { type AdminState, createAdminHandler } from '../src/admin/server.ts';
+import { createAdminApp } from '../admin/main.ts';
 import { createPluginRegistry } from '../src/plugins/registry.ts';
 import { ConfigManager } from '../src/config/manager.ts';
 import { ConnectionManager } from '../src/connections/manager.ts';
@@ -156,16 +157,30 @@ if (configPath) {
 
   infra.logger.info('Pfortner starting in config mode', { config: configPath, port: config.server.port });
 
+  // Legacy separate admin port (kept for backward compatibility)
   if (config.admin?.enabled && config.admin?.port) {
     const adminHandler = createAdminHandler(adminState);
     Deno.serve({ hostname: '[::]', port: config.admin.port }, adminHandler);
-    infra.logger.info('Admin API started', { port: config.admin.port });
+    infra.logger.info('Admin API (legacy) started', { port: config.admin.port });
+  }
+
+  // Fresh admin UI handler for /admin/* on main port
+  let adminAppHandler: ((req: Request) => Promise<Response>) | undefined;
+  if (config.admin?.enabled) {
+    adminAppHandler = createAdminApp(adminState);
+    const adminUiPath = (config.admin as { path?: string }).path ?? '/admin';
+    infra.logger.info('Admin UI started', { path: adminUiPath });
   }
 
   Deno.serve(
     { hostname: '[::]', port: config.server.port, signal: abortController.signal },
-    (req: Request, conn: Deno.ServeHandlerInfo<Deno.NetAddr>) => {
+    async (req: Request, conn: Deno.ServeHandlerInfo<Deno.NetAddr>) => {
       const url = new URL(req.url);
+
+      // Admin UI: delegate /admin/* to Fresh handler
+      if (adminAppHandler && url.pathname.startsWith('/admin')) {
+        return await adminAppHandler(req);
+      }
 
       // Health check on main port (no auth required)
       if (url.pathname === '/health') {

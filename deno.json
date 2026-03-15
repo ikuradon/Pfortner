@@ -3,7 +3,18 @@
     "@std/yaml": "jsr:@std/yaml@1.0.5",
     "ajv": "npm:ajv@8.17.1",
     "maxmind": "npm:maxmind@4.3.21",
-    "redis": "npm:redis@4.7.0"
+    "redis": "npm:redis@4.7.0",
+    "@fresh/core": "jsr:@fresh/core@^2.2.0",
+    "preact": "npm:preact@^10.25.0",
+    "preact/": "npm:preact@^10.25.0/",
+    "preact/jsx-runtime": "npm:preact@^10.25.0/jsx-runtime",
+    "@preact/signals": "npm:@preact/signals@^2.0.0",
+    "preact-render-to-string": "npm:preact-render-to-string@^6.5.0",
+    "$admin/": "./src/admin/"
+  },
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact"
   },
   "fmt": {
     "include": [
@@ -31,6 +42,7 @@
   },
   "tasks": {
     "dev": "deno run --unstable-net --allow-env --allow-net --allow-read --watch scripts/serve.ts",
+    "dev:admin": "deno task dev",
     "serve": "deno run --unstable-net --allow-env --allow-net --allow-read scripts/serve.ts",
     "serve:config": "deno run --unstable-net --allow-env --allow-net --allow-read scripts/serve.ts pfortner.yaml",
     "test": "deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --unstable-kv src/",
