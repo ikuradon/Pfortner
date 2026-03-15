@@ -9,6 +9,7 @@ const baseCtx: EvalContext = {
   messageType: 'EVENT',
   eventKind: 1,
   eventPubkey: 'author1',
+  hasSearch: false,
 };
 
 Deno.test('simple condition: authenticated matches', () => {
@@ -94,4 +95,9 @@ Deno.test('precedence: and key takes priority over simple fields', () => {
     ),
     true,
   );
+});
+
+Deno.test('simple condition: has_search matches', () => {
+  assertEquals(evaluateCondition({ has_search: true }, { ...baseCtx, hasSearch: true }), true);
+  assertEquals(evaluateCondition({ has_search: true }, { ...baseCtx, hasSearch: false }), false);
 });

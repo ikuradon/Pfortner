@@ -11,6 +11,7 @@ function evaluateSimple(condition: SimpleCondition, ctx: EvalContext): boolean {
   if (condition.event_pubkey !== undefined) {
     if (ctx.eventPubkey === null || condition.event_pubkey !== ctx.eventPubkey) return false;
   }
+  if (condition.has_search !== undefined && condition.has_search !== ctx.hasSearch) return false;
   return true;
 }
 

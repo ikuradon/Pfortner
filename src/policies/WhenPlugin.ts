@@ -1,22 +1,7 @@
 import type { InfraContext, OutputMessage, Policy, PolicyFactory, PolicyPlugin } from '../plugins/types.ts';
-import { extractEvent } from '../plugins/types.ts';
 import { evaluateCondition } from '../conditions/evaluator.ts';
-import type { Condition, EvalContext } from '../conditions/types.ts';
-
-function buildEvalContext(
-  message: unknown[],
-  connectionInfo: { clientAuthorized: boolean; clientPubkey: string; connectionIpAddr: string },
-): EvalContext {
-  const extracted = extractEvent(message);
-  return {
-    authenticated: connectionInfo.clientAuthorized,
-    pubkey: connectionInfo.clientPubkey,
-    clientIp: connectionInfo.connectionIpAddr,
-    messageType: (message[0] as string) ?? '',
-    eventKind: extracted?.event?.kind ?? null,
-    eventPubkey: extracted?.event?.pubkey ?? null,
-  };
-}
+import type { Condition } from '../conditions/types.ts';
+import { buildEvalContext } from '../conditions/context.ts';
 
 async function runSubPipeline(policies: Policy[], message: unknown[], connectionInfo: any): Promise<OutputMessage> {
   for (const policy of policies) {

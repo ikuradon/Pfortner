@@ -7,6 +7,7 @@ export type SimpleCondition = {
   message_type?: 'EVENT' | 'REQ' | 'CLOSE';
   event_kind?: number;
   event_pubkey?: string;
+  has_search?: boolean;
 };
 
 export type Condition =
@@ -22,4 +23,5 @@ export interface EvalContext {
   messageType: string;
   eventKind: number | null;
   eventPubkey: string | null;
+  hasSearch: boolean;
 }
