@@ -1,5 +1,16 @@
 import { assertEquals } from 'jsr:@std/assert@1.0.18';
 import { type AdminState, createAdminHandler } from './server.ts';
+import type { ManagedConnection } from '../connections/types.ts';
+
+function makeManagedConnection(id: string): ManagedConnection {
+  return {
+    info: { connectionId: id, connectionIpAddr: '127.0.0.1', clientAuthorized: false, clientPubkey: '' },
+    clientIp: '127.0.0.1',
+    sendNotice: async () => {},
+    close: () => {},
+    sendAuthChallenge: () => {},
+  };
+}
 
 const makeState = (): AdminState => ({
   config: {
@@ -8,7 +19,7 @@ const makeState = (): AdminState => ({
     pipelines: { client: [{ policy: 'accept' }], server: [{ policy: 'accept' }] },
   },
   pluginNames: ['accept', 'kind-filter', 'write-guard'],
-  connections: new Map(),
+  connections: new Map<string, ManagedConnection>(),
   blacklist: { pubkeys: new Set<string>(), ips: new Set<string>() },
 });
 
@@ -106,4 +117,65 @@ Deno.test('admin POST /reload calls reloadFn', async () => {
   const res = await handler(makeRequest('/reload', 'POST'));
   assertEquals(res.status, 200);
   assertEquals(reloaded, true);
+});
+
+Deno.test('admin GET /health/detail returns detailed health', async () => {
+  const state = makeState();
+  state.startTime = Date.now() - 3600000;
+  const handler = createAdminHandler(state);
+  const res = await handler(makeRequest('/health/detail'));
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(typeof body.uptime_seconds, 'number');
+  assertEquals(typeof body.connections.active, 'number');
+  assertEquals(typeof body.memory, 'object');
+});
+
+Deno.test('admin POST /shutdown triggers shutdown', async () => {
+  let shutdownCalled = false;
+  const state = makeState();
+  state.shutdownManager = {
+    isDraining: () => false,
+    initiateShutdown: async () => {
+      shutdownCalled = true;
+    },
+    start: () => {},
+  } as any;
+  const handler = createAdminHandler(state);
+  const res = await handler(makeRequest('/shutdown', 'POST'));
+  assertEquals(res.status, 200);
+  assertEquals(shutdownCalled, true);
+});
+
+Deno.test('admin DELETE /connections/:id calls close', async () => {
+  const state = makeState();
+  let closed = false;
+  state.connections.set('conn-1', {
+    info: { connectionId: 'conn-1', connectionIpAddr: '127.0.0.1', clientAuthorized: false, clientPubkey: '' },
+    clientIp: '127.0.0.1',
+    sendNotice: async () => {},
+    close: () => {
+      closed = true;
+    },
+    sendAuthChallenge: () => {},
+  });
+  const handler = createAdminHandler(state);
+  const res = await handler(makeRequest('/connections/conn-1', 'DELETE'));
+  assertEquals(res.status, 200);
+  assertEquals(closed, true);
+  const body = await res.json();
+  assertEquals(body.closing, 'conn-1');
+});
+
+Deno.test('admin GET /connections returns info not managed objects', async () => {
+  const state = makeState();
+  state.connections.set('conn-1', makeManagedConnection('conn-1'));
+  const handler = createAdminHandler(state);
+  const res = await handler(makeRequest('/connections'));
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(body.connections.length, 1);
+  assertEquals(body.connections[0].connectionId, 'conn-1');
+  // Should not expose functions
+  assertEquals(typeof body.connections[0].close, 'undefined');
 });

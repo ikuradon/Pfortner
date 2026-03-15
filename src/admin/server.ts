@@ -1,13 +1,20 @@
 import type { PfortnerConfig } from '../config/loader.ts';
-import type { ConnectionInfo } from '../plugins/types.ts';
+import type { ManagedConnection } from '../connections/types.ts';
+import type { ConnectionManager } from '../connections/manager.ts';
+import type { ShutdownManager } from '../shutdown/manager.ts';
+import type { UpstreamProbe } from '../connections/upstream-probe.ts';
 
 export interface AdminState {
   config: PfortnerConfig;
   pluginNames: string[];
-  connections: Map<string, ConnectionInfo>;
+  connections: Map<string, ManagedConnection>;
   blacklist: { pubkeys: Set<string>; ips: Set<string> };
   configPath?: string;
   reloadFn?: (yamlString: string) => Promise<void>;
+  shutdownManager?: ShutdownManager;
+  connectionManager?: ConnectionManager;
+  upstreamProbe?: UpstreamProbe;
+  startTime?: number;
 }
 
 function json(data: unknown, status = 200): Response {
@@ -41,7 +48,34 @@ export function createAdminHandler(state: AdminState): (req: Request) => Promise
 
     // GET /health
     if (method === 'GET' && path === '/health') {
-      return json({ status: 'ok', connections: state.connections.size });
+      const stats = state.connectionManager?.getStats();
+      return json({
+        status: 'ok',
+        connections: stats?.active ?? state.connections.size,
+        pressure: stats?.pressure ?? 'normal',
+      });
+    }
+
+    // GET /health/detail
+    if (method === 'GET' && path === '/health/detail') {
+      const stats = state.connectionManager?.getStats() ?? {
+        active: state.connections.size,
+        authenticated: 0,
+        max: 0,
+        perIpMax: 0,
+        pressure: 'normal' as const,
+      };
+      const uptime = state.startTime != null ? Math.floor((Date.now() - state.startTime) / 1000) : null;
+      return json({
+        status: 'ok',
+        uptime_seconds: uptime,
+        connections: stats,
+        upstream: {
+          status: state.upstreamProbe?.getStatus() ?? 'unknown',
+          latency_ms: state.upstreamProbe?.getLatency() ?? null,
+        },
+        memory: Deno.memoryUsage(),
+      });
     }
 
     // GET /config
@@ -56,15 +90,16 @@ export function createAdminHandler(state: AdminState): (req: Request) => Promise
 
     // GET /connections
     if (method === 'GET' && path === '/connections') {
-      return json({ connections: [...state.connections.values()] });
+      return json({ connections: [...state.connections.values()].map((m) => m.info) });
     }
 
     // DELETE /connections/:id
     if (method === 'DELETE' && path.startsWith('/connections/')) {
       const id = path.slice('/connections/'.length);
-      if (state.connections.has(id)) {
-        state.connections.delete(id);
-        return json({ deleted: id });
+      const managed = state.connections.get(id);
+      if (managed) {
+        managed.close();
+        return json({ closing: id });
       }
       return json({ error: 'connection not found' }, 404);
     }
@@ -115,6 +150,15 @@ export function createAdminHandler(state: AdminState): (req: Request) => Promise
       } catch (e) {
         return json({ error: `reload failed: ${(e as Error).message}` }, 500);
       }
+    }
+
+    // POST /shutdown
+    if (method === 'POST' && path === '/shutdown') {
+      if (state.shutdownManager) {
+        state.shutdownManager.initiateShutdown().catch(console.error);
+        return json({ status: 'shutting down' });
+      }
+      return json({ error: 'shutdown not configured' }, 500);
     }
 
     return json({ error: 'not found' }, 404);
