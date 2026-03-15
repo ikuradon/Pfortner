@@ -13,6 +13,7 @@ export { extractEvent } from './src/plugins/types.ts';
 export { createPluginRegistry } from './src/plugins/registry.ts';
 export type { PluginRegistry } from './src/plugins/registry.ts';
 export { buildInfraContext } from './src/infra/context.ts';
+export { createGeoIpLookup, type GeoIpLookup } from './src/infra/geoip.ts';
 export { createRedisClient } from './src/infra/redis.ts';
 export type { RedisOptions } from './src/infra/redis.ts';
 export { createKvClient } from './src/infra/kv.ts';
