@@ -58,7 +58,7 @@ export const whenPlugin: PolicyPlugin = {
       const thenPolicies = thenFactories.map((f) => f(instance));
       const elsePolicies = elseFactories.map((f) => f(instance));
 
-      return async (message, connectionInfo) => {
+      return (message, connectionInfo) => {
         const ctx = buildEvalContext(message, connectionInfo);
         if (evaluateCondition(cfg.condition, ctx)) {
           return runSubPipeline(thenPolicies, message, connectionInfo);
@@ -66,7 +66,7 @@ export const whenPlugin: PolicyPlugin = {
         if (elsePolicies.length > 0) {
           return runSubPipeline(elsePolicies, message, connectionInfo);
         }
-        return { message, action: 'next' };
+        return Promise.resolve({ message, action: 'next' });
       };
     };
   },

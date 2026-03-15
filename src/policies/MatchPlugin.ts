@@ -68,7 +68,7 @@ export const matchPlugin: PolicyPlugin = {
       }));
       const defaultPolicies = defaultFactories.map((f) => f(instance));
 
-      return async (message, connectionInfo) => {
+      return (message, connectionInfo) => {
         const ctx = buildEvalContext(message, connectionInfo);
         for (const c of casePolicies) {
           if (evaluateCondition(c.condition, ctx)) {
@@ -78,7 +78,7 @@ export const matchPlugin: PolicyPlugin = {
         if (defaultPolicies.length > 0) {
           return runSubPipeline(defaultPolicies, message, connectionInfo);
         }
-        return { message, action: 'next' };
+        return Promise.resolve({ message, action: 'next' });
       };
     };
   },

@@ -18,11 +18,13 @@ const mockInstance = (authorized = false): PfortnerInstance => ({
 function createMockInfra(resolverMap: Record<string, string>): InfraContext {
   const infra = buildInfraContext({});
   infra.currentDirection = 'client';
-  infra.pipelineResolver = async (entries) => {
-    return entries.map((entry): PolicyFactory => {
-      const action = resolverMap[entry.policy] ?? 'next';
-      return (_instance) => (message) => ({ message, action: action as 'accept' | 'reject' | 'next' });
-    });
+  infra.pipelineResolver = (entries) => {
+    return Promise.resolve(
+      entries.map((entry): PolicyFactory => {
+        const action = resolverMap[entry.policy] ?? 'next';
+        return (_instance) => (message) => ({ message, action: action as 'accept' | 'reject' | 'next' });
+      }),
+    );
   };
   return infra;
 }

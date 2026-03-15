@@ -9,6 +9,8 @@ import { spamFilterPlugin } from '../policies/SpamFilterPolicy.ts';
 import { contentFilterPlugin } from '../policies/ContentFilterPolicy.ts';
 import { pubkeyAclPlugin } from '../policies/PubkeyAclPolicy.ts';
 import { ipFilterPlugin } from '../policies/IpFilterPolicy.ts';
+import { whenPlugin } from '../policies/WhenPlugin.ts';
+import { matchPlugin } from '../policies/MatchPlugin.ts';
 
 const acceptPlugin: PolicyPlugin = {
   name: 'accept',
@@ -30,6 +32,8 @@ const BUILTIN_PLUGINS: Map<string, PolicyPlugin> = new Map([
   ['content-filter', contentFilterPlugin],
   ['pubkey-acl', pubkeyAclPlugin],
   ['ip-filter', ipFilterPlugin],
+  ['when', whenPlugin],
+  ['match', matchPlugin],
 ]);
 
 export interface PluginRegistry {

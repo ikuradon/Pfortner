@@ -46,3 +46,7 @@ export { spamFilterPlugin } from './src/policies/SpamFilterPolicy.ts';
 export { contentFilterPlugin } from './src/policies/ContentFilterPolicy.ts';
 export { pubkeyAclPlugin } from './src/policies/PubkeyAclPolicy.ts';
 export { ipFilterPlugin } from './src/policies/IpFilterPolicy.ts';
+export { whenPlugin } from './src/policies/WhenPlugin.ts';
+export { matchPlugin } from './src/policies/MatchPlugin.ts';
+export { evaluateCondition } from './src/conditions/evaluator.ts';
+export type { Condition, EvalContext, SimpleCondition } from './src/conditions/types.ts';
