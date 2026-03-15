@@ -23,7 +23,7 @@ export interface RequestHandlerHooks {
   shutdownManager?: ShutdownManager;
 }
 
-async function resolvePipeline(
+export async function resolvePipeline(
   entries: PipelineEntry[],
   direction: 'client' | 'server',
   registry: PluginRegistry,
@@ -47,7 +47,8 @@ async function resolvePipeline(
         );
       }
     }
-    const factory = await plugin.initialize(entry.config ?? {}, infra);
+    const infraForPlugin: InfraContext = { ...infra, currentDirection: direction };
+    const factory = await plugin.initialize(entry.config ?? {}, infraForPlugin);
     factories.push(factory);
   }
   return { factories, direction };
@@ -61,8 +62,20 @@ export async function buildRequestHandler(
   registry: PluginRegistry,
   hooks?: RequestHandlerHooks,
 ): Promise<RequestHandler> {
-  const clientPipeline = await resolvePipeline(config.pipelines.client, 'client', registry, infra);
-  const serverPipeline = await resolvePipeline(config.pipelines.server, 'server', registry, infra);
+  const infraWithResolver: InfraContext = {
+    ...infra,
+    pipelineResolver: async (entries, direction) => {
+      const resolved = await resolvePipeline(
+        entries as PipelineEntry[],
+        direction,
+        registry,
+        infraWithResolver,
+      );
+      return resolved.factories;
+    },
+  };
+  const clientPipeline = await resolvePipeline(config.pipelines.client, 'client', registry, infraWithResolver);
+  const serverPipeline = await resolvePipeline(config.pipelines.server, 'server', registry, infraWithResolver);
 
   return (req: Request, conn: Deno.ServeHandlerInfo<Deno.NetAddr>) => {
     const clientIp = config.server.x_forwarded_for
