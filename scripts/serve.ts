@@ -36,6 +36,13 @@ if (configPath) {
     infra.logger.info('Connected to Redis', { url: config.infra.redis.url });
   }
 
+  if (!infraWithRedis.redis && config.infra?.kv?.path) {
+    const { createKvClient } = await import('../src/infra/kv.ts');
+    const kvClient = await createKvClient({ path: config.infra.kv.path });
+    infraWithRedis = { ...infraWithRedis, redis: kvClient };
+    infra.logger.info('Using Deno KV as backend', { path: config.infra.kv.path });
+  }
+
   const registry = createPluginRegistry();
 
   if (config.plugins) {
