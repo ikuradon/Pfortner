@@ -77,6 +77,23 @@ export const ipFilterPlugin: PolicyPlugin = {
       }
     }
 
+    // Load GeoIP database if block_countries and geoip_db are configured
+    let geoLookup: ((ip: string) => string | null) | null = null;
+    if (cfg.block_countries?.length && cfg.geoip_db) {
+      try {
+        const { createGeoIpLookup } = await import('../infra/geoip.ts');
+        geoLookup = await createGeoIpLookup(cfg.geoip_db);
+        if (geoLookup) {
+          infra.logger.info('GeoIP database loaded', { path: cfg.geoip_db });
+        } else {
+          infra.logger.warn('GeoIP database not found', { path: cfg.geoip_db });
+        }
+      } catch (e) {
+        infra.logger.warn('Failed to load GeoIP database', { error: String(e) });
+      }
+    }
+    const blockedCountries = new Set(cfg.block_countries ?? []);
+
     return (_instance) => {
       let checked = false;
       let blocked = false;
@@ -95,6 +112,13 @@ export const ipFilterPlugin: PolicyPlugin = {
                 blocked = true;
                 break;
               }
+            }
+          }
+
+          if (!blocked && geoLookup && blockedCountries.size > 0) {
+            const country = geoLookup(ip);
+            if (country && blockedCountries.has(country)) {
+              blocked = true;
             }
           }
         }

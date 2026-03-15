@@ -70,3 +70,10 @@ Deno.test('ipFilter block_tor gracefully handles fetch failure', async () => {
   // Should pass since tor list fetch failed — don't block legitimate users
   assertEquals((await factory(inst)(['EVENT', { id: 'e1' }], inst.connectionInfo)).action, 'next');
 });
+
+Deno.test('ipFilter block_countries without geoip_db silently skips GeoIP', async () => {
+  // When geoip_db is not provided, block_countries should be silently ignored
+  const factory = await ipFilterPlugin.initialize({ block_countries: ['XX'] }, infra);
+  const inst = makeInstance('1.2.3.4');
+  assertEquals((await factory(inst)(['EVENT', { id: 'e1' }], inst.connectionInfo)).action, 'next');
+});
