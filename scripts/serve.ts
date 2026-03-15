@@ -66,6 +66,7 @@ if (configPath) {
     connections: new Map(),
     blacklist: { pubkeys: new Set(), ips: new Set() },
     startTime: Date.now(),
+    metrics: prometheusMetrics,
   };
 
   // Create ConnectionManager with shared Map reference

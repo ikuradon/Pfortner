@@ -4,6 +4,7 @@ import type { ConnectionManager } from '../connections/manager.ts';
 import type { ShutdownManager } from '../shutdown/manager.ts';
 import type { UpstreamProbe } from '../connections/upstream-probe.ts';
 import type { ThroughputTracker } from '../infra/throughput-tracker.ts';
+import type { PrometheusMetrics } from '../infra/prometheus.ts';
 import {
   closeConnection,
   closeConnectionBatch,
@@ -27,6 +28,7 @@ export interface AdminState extends AdminServiceState {
   upstreamProbe?: UpstreamProbe;
   startTime?: number;
   throughputTracker?: ThroughputTracker;
+  metrics?: PrometheusMetrics;
 }
 
 function json(data: unknown, status = 200): Response {

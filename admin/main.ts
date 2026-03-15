@@ -276,6 +276,18 @@ export function createAdminApp(
     return json(getThroughputData(state));
   });
 
+  app.get(`${adminPath}/api/metrics/prometheus`, (_ctx) => {
+    if (!state.metrics) {
+      return new Response('# Prometheus metrics not enabled\n', {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      });
+    }
+    return new Response(state.metrics.render(), {
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  });
+
   // ─── Config API ────────────────────────────────────────────────────────
   app.get(`${adminPath}/api/config`, (_ctx) => {
     return json(maskSecrets(state.config));
