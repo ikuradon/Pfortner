@@ -59,6 +59,13 @@ function validate(config: any): string[] {
     if (hasAuthPolicy && config.auth?.enabled === false) {
       console.warn('Warning: write-guard or kind-filter requires auth, but auth.enabled is false');
     }
+    // Check if any policy uses redis backend but infra.redis is not configured
+    const needsRedis = allEntries.some(
+      (e: any) => e.config?.backend === 'redis' || e.config?.reject_duplicate?.backend === 'redis',
+    );
+    if (needsRedis && !config.infra?.redis?.url) {
+      errors.push('A policy requires backend: redis but infra.redis is not configured');
+    }
   }
   return errors;
 }

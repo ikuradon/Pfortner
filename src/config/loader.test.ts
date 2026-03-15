@@ -92,3 +92,46 @@ server:
     assertEquals((e as Error).message.includes('pipelines'), true);
   }
 });
+
+Deno.test('loadConfigFromString rejects redis backend without infra.redis configured', () => {
+  try {
+    loadConfigFromString(`
+server:
+  port: 3000
+  upstream_relay: "ws://localhost:7777"
+pipelines:
+  client:
+    - policy: rate-limit
+      config:
+        scope: ip
+        window: 60
+        backend: redis
+  server:
+    - policy: accept
+`);
+    throw new Error('should have thrown');
+  } catch (e) {
+    assertEquals((e as Error).message.includes('infra.redis'), true);
+  }
+});
+
+Deno.test('loadConfigFromString accepts redis backend when infra.redis is configured', () => {
+  const config = loadConfigFromString(`
+server:
+  port: 3000
+  upstream_relay: "ws://localhost:7777"
+infra:
+  redis:
+    url: "redis://localhost:6379"
+pipelines:
+  client:
+    - policy: rate-limit
+      config:
+        scope: ip
+        window: 60
+        backend: redis
+  server:
+    - policy: accept
+`);
+  assertEquals(config.infra?.redis?.url, 'redis://localhost:6379');
+});

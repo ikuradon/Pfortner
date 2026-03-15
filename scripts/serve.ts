@@ -25,6 +25,17 @@ if (configPath) {
     httpUserAgent: config.infra?.http?.user_agent,
     metrics: prometheusMetrics,
   });
+  let infraWithRedis = infra;
+  if (config.infra?.redis?.url) {
+    const { createRedisClient } = await import('../src/infra/redis.ts');
+    const redis = await createRedisClient({
+      url: config.infra.redis.url,
+      keyPrefix: config.infra.redis.key_prefix,
+    });
+    infraWithRedis = { ...infra, redis };
+    infra.logger.info('Connected to Redis', { url: config.infra.redis.url });
+  }
+
   const registry = createPluginRegistry();
 
   if (config.plugins) {
@@ -41,7 +52,7 @@ if (configPath) {
     blacklist: { pubkeys: new Set(), ips: new Set() },
   };
 
-  const handler = await buildRequestHandler(config, infra, registry, {
+  const handler = await buildRequestHandler(config, infraWithRedis, registry, {
     onConnect: (connectionInfo) => {
       adminState.connections.set(connectionInfo.connectionId, connectionInfo);
     },
