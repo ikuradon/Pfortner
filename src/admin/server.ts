@@ -6,6 +6,8 @@ export interface AdminState {
   pluginNames: string[];
   connections: Map<string, ConnectionInfo>;
   blacklist: { pubkeys: Set<string>; ips: Set<string> };
+  configPath?: string;
+  reloadFn?: (yamlString: string) => Promise<void>;
 }
 
 function json(data: unknown, status = 200): Response {
@@ -99,6 +101,20 @@ export function createAdminHandler(state: AdminState): (req: Request) => Promise
       const ip = path.slice('/blacklist/ip/'.length);
       state.blacklist.ips.delete(ip);
       return json({ deleted: ip });
+    }
+
+    // POST /reload
+    if (method === 'POST' && path === '/reload') {
+      if (!state.configPath || !state.reloadFn) {
+        return json({ error: 'reload not configured' }, 500);
+      }
+      try {
+        const content = await Deno.readTextFile(state.configPath);
+        await state.reloadFn(content);
+        return json({ status: 'reloaded' });
+      } catch (e) {
+        return json({ error: `reload failed: ${(e as Error).message}` }, 500);
+      }
     }
 
     return json({ error: 'not found' }, 404);

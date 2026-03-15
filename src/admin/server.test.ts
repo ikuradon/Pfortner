@@ -92,3 +92,18 @@ Deno.test('admin returns 404 for unknown path', async () => {
   const res = await handler(makeRequest('/unknown'));
   assertEquals(res.status, 404);
 });
+
+Deno.test('admin POST /reload calls reloadFn', async () => {
+  let reloaded = false;
+  const state = makeState();
+  state.configPath = '/tmp/test.yaml';
+  state.reloadFn = async () => {
+    reloaded = true;
+  };
+  // Write a temp file so readTextFile succeeds
+  await Deno.writeTextFile('/tmp/test.yaml', 'dummy: true');
+  const handler = createAdminHandler(state);
+  const res = await handler(makeRequest('/reload', 'POST'));
+  assertEquals(res.status, 200);
+  assertEquals(reloaded, true);
+});
