@@ -48,12 +48,14 @@ export const spamFilterPlugin: PolicyPlugin = {
       },
     },
   },
-  initialize(config: unknown, _infra: InfraContext): Promise<PolicyFactory> {
+  initialize(config: unknown, infra: InfraContext): Promise<PolicyFactory> {
     const cfg = config as SpamFilterConfig;
     const dupWindowMs = (cfg.reject_duplicate?.window ?? 300) * 1000;
+    const useRedis = cfg.reject_duplicate?.backend === 'redis' && infra.redis != null;
+    const redis = infra.redis;
 
     return Promise.resolve((_instance) => {
-      return (message, _connectionInfo) => {
+      return async (message, _connectionInfo) => {
         if (message[0] !== 'EVENT' || message.length < 2) {
           return { message, action: 'next' };
         }
@@ -91,15 +93,29 @@ export const spamFilterPlugin: PolicyPlugin = {
 
         // Duplicate detection
         if (cfg.reject_duplicate?.enabled) {
-          cleanExpired(dupWindowMs);
-          if (seenEventIds.has(event.id)) {
-            return {
-              message,
-              action: 'reject',
-              response: JSON.stringify(['OK', event.id, false, 'duplicate: already seen']),
-            };
+          if (useRedis && redis) {
+            // Redis path: GET/SET with TTL for duplicate check
+            const existing = await redis.get(`seen:${event.id}`);
+            if (existing) {
+              return {
+                message,
+                action: 'reject',
+                response: JSON.stringify(['OK', event.id, false, 'duplicate: already seen']),
+              };
+            }
+            await redis.set(`seen:${event.id}`, '1', cfg.reject_duplicate.window);
+          } else {
+            // In-memory path (existing code)
+            cleanExpired(dupWindowMs);
+            if (seenEventIds.has(event.id)) {
+              return {
+                message,
+                action: 'reject',
+                response: JSON.stringify(['OK', event.id, false, 'duplicate: already seen']),
+              };
+            }
+            seenEventIds.set(event.id, Date.now());
           }
-          seenEventIds.set(event.id, Date.now());
         }
 
         return { message, action: 'next' };

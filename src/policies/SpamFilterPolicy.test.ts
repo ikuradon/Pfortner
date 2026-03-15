@@ -3,6 +3,8 @@ import { spamFilterPlugin } from './SpamFilterPolicy.ts';
 import { buildInfraContext } from '../infra/context.ts';
 import type { PfortnerInstance } from '../plugins/types.ts';
 
+const REDIS_URL = Deno.env.get('REDIS_URL');
+
 const infra = buildInfraContext({});
 const mockInstance = (): PfortnerInstance => ({
   sendAuthMessage: () => {},
@@ -54,4 +56,25 @@ Deno.test('spamFilter allows different event IDs', async () => {
   const policy = factory(inst);
   assertEquals((await policy(['EVENT', makeEvent({ id: 'a' })], inst.connectionInfo)).action, 'next');
   assertEquals((await policy(['EVENT', makeEvent({ id: 'b' })], inst.connectionInfo)).action, 'next');
+});
+
+Deno.test({
+  name: 'spamFilter with redis duplicate detection',
+  ignore: !REDIS_URL,
+  async fn() {
+    const { createRedisClient } = await import('../infra/redis.ts');
+    const redis = await createRedisClient({ url: REDIS_URL!, keyPrefix: 'test-sf:' });
+    const testInfra = { ...infra, redis };
+
+    const factory = await spamFilterPlugin.initialize({
+      reject_duplicate: { enabled: true, window: 300, backend: 'redis' },
+    }, testInfra);
+    const inst = mockInstance();
+    const policy = factory(inst);
+    assertEquals((await policy(['EVENT', makeEvent({ id: 'redis-dup-1' })], inst.connectionInfo)).action, 'next');
+    assertEquals((await policy(['EVENT', makeEvent({ id: 'redis-dup-1' })], inst.connectionInfo)).action, 'reject');
+
+    await redis.del('seen:redis-dup-1');
+    await redis.close();
+  },
 });
