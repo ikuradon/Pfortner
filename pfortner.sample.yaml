@@ -1,0 +1,35 @@
+# pfortner.sample.yaml
+# Copy to pfortner.yaml and customize
+
+server:
+  port: 3000
+  upstream_relay: "ws://localhost:7777"
+  # upstream_raw_url: "http://localhost:7777"
+  idle_timeout: 600
+  x_forwarded_for: false
+
+auth:
+  enabled: true
+  send_on_connect: true
+  max_attempts: 10
+  allowed_time_duration: 600
+  allowed_future_time_duration: 60
+
+# infra:
+#   metrics:
+#     logging:
+#       format: json
+#       level: info
+
+pipelines:
+  client:
+    - policy: write-guard
+      config:
+        require_auth: false
+    - policy: accept
+
+  server:
+    - policy: protected-event
+      config:
+        require_auth: true
+    - policy: accept
