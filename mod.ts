@@ -23,6 +23,7 @@ export { createPrometheusMetrics } from './src/infra/prometheus.ts';
 export type { PrometheusMetrics } from './src/infra/prometheus.ts';
 export { createAdminHandler } from './src/admin/server.ts';
 export type { AdminState } from './src/admin/server.ts';
+export { ConfigManager } from './src/config/manager.ts';
 
 // Policy plugins
 export { kindFilterPlugin } from './src/policies/KindFilterPolicy.ts';
