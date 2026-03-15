@@ -62,3 +62,50 @@ Deno.test('registry throws for unknown plugin', () => {
     assertEquals((e as Error).message.includes('nonexistent'), true);
   }
 });
+
+Deno.test('registry resolves rate-limit', () => {
+  assertEquals(createPluginRegistry().resolve('rate-limit').name, 'rate-limit');
+});
+Deno.test('registry resolves spam-filter', () => {
+  assertEquals(createPluginRegistry().resolve('spam-filter').name, 'spam-filter');
+});
+Deno.test('registry resolves content-filter', () => {
+  assertEquals(createPluginRegistry().resolve('content-filter').name, 'content-filter');
+});
+Deno.test('registry resolves pubkey-acl', () => {
+  assertEquals(createPluginRegistry().resolve('pubkey-acl').name, 'pubkey-acl');
+});
+Deno.test('registry resolves ip-filter', () => {
+  assertEquals(createPluginRegistry().resolve('ip-filter').name, 'ip-filter');
+});
+Deno.test('registry resolves when', () => {
+  assertEquals(createPluginRegistry().resolve('when').name, 'when');
+});
+Deno.test('registry resolves match', () => {
+  assertEquals(createPluginRegistry().resolve('match').name, 'match');
+});
+Deno.test('registry resolves route', () => {
+  assertEquals(createPluginRegistry().resolve('route').name, 'route');
+});
+
+Deno.test('registry lists all 12 builtin plugins', () => {
+  const names = createPluginRegistry().listNames();
+  const expected = [
+    'accept',
+    'kind-filter',
+    'write-guard',
+    'protected-event',
+    'rate-limit',
+    'spam-filter',
+    'content-filter',
+    'pubkey-acl',
+    'ip-filter',
+    'when',
+    'match',
+    'route',
+  ];
+  assertEquals(names.length, 12);
+  for (const name of expected) {
+    assertEquals(names.includes(name), true);
+  }
+});

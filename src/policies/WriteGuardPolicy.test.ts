@@ -63,6 +63,33 @@ Deno.test('writeGuard allowed_kinds restricts even authed users', async () => {
   assertEquals((await factory(inst)(['EVENT', makeEvent(30023)], inst.connectionInfo)).action, 'reject');
 });
 
+Deno.test('writeGuard read_only_mode takes priority over require_auth', async () => {
+  // read_only_mode: true AND require_auth: true — read_only_mode wins, no auth challenge sent
+  const factory = await writeGuardPlugin.initialize({ read_only_mode: true, require_auth: true }, infra);
+  const inst = mockInstance(false);
+  const result = await factory(inst)(['EVENT', makeEvent()], inst.connectionInfo);
+  assertEquals(result.action, 'reject');
+  // Should not send auth challenge because read_only_mode is checked first
+  assertEquals(inst._authSent, false);
+});
+
+Deno.test('writeGuard empty allowed_kinds: all EVENTs rejected for authenticated users', async () => {
+  const factory = await writeGuardPlugin.initialize({ require_auth: true, allowed_kinds: [] }, infra);
+  const inst = mockInstance(true);
+  assertEquals((await factory(inst)(['EVENT', makeEvent(1)], inst.connectionInfo)).action, 'reject');
+  assertEquals((await factory(inst)(['EVENT', makeEvent(4)], inst.connectionInfo)).action, 'reject');
+  assertEquals((await factory(inst)(['EVENT', makeEvent(30023)], inst.connectionInfo)).action, 'reject');
+});
+
+Deno.test('writeGuard no config (all defaults): all messages pass through', async () => {
+  const factory = await writeGuardPlugin.initialize({}, infra);
+  const inst = mockInstance(false);
+  const policy = factory(inst);
+  assertEquals((await policy(['EVENT', makeEvent()], inst.connectionInfo)).action, 'next');
+  assertEquals((await policy(['REQ', 'sub1', {}], inst.connectionInfo)).action, 'next');
+  assertEquals((await policy(['CLOSE', 'sub1'], inst.connectionInfo)).action, 'next');
+});
+
 Deno.test('writeGuard sends AUTH challenge only once', async () => {
   const factory = await writeGuardPlugin.initialize({ require_auth: true }, infra);
   let authCount = 0;

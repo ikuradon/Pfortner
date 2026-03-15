@@ -84,3 +84,43 @@ Deno.test('kindFilter require_auth_for passes authenticated client', async () =>
   const policy = factory(inst);
   assertEquals((await policy(['EVENT', makeEvent(4)], inst.connectionInfo)).action, 'next');
 });
+
+Deno.test('kindFilter empty kinds + deny mode: all events pass through', async () => {
+  const factory = await kindFilterPlugin.initialize({ mode: 'deny', kinds: [] }, infra);
+  const inst = mockInstance();
+  const policy = factory(inst);
+  assertEquals((await policy(['EVENT', makeEvent(1)], inst.connectionInfo)).action, 'next');
+  assertEquals((await policy(['EVENT', makeEvent(4)], inst.connectionInfo)).action, 'next');
+  assertEquals((await policy(['EVENT', makeEvent(30023)], inst.connectionInfo)).action, 'next');
+});
+
+Deno.test('kindFilter empty kinds + allow mode: all events rejected', async () => {
+  const factory = await kindFilterPlugin.initialize({ mode: 'allow', kinds: [] }, infra);
+  const inst = mockInstance();
+  const policy = factory(inst);
+  assertEquals((await policy(['EVENT', makeEvent(1)], inst.connectionInfo)).action, 'reject');
+  assertEquals((await policy(['EVENT', makeEvent(4)], inst.connectionInfo)).action, 'reject');
+  assertEquals((await policy(['EVENT', makeEvent(30023)], inst.connectionInfo)).action, 'reject');
+});
+
+Deno.test('kindFilter require_auth_for sends AUTH challenge only once for multiple events', async () => {
+  const factory = await kindFilterPlugin.initialize({ mode: 'deny', kinds: [], require_auth_for: [4] }, infra);
+  let authCount = 0;
+  const inst: PfortnerInstance = {
+    sendAuthMessage: () => {
+      authCount++;
+    },
+    sendMessageToClient: async () => {},
+    connectionInfo: {
+      connectionId: 'test',
+      connectionIpAddr: '127.0.0.1',
+      clientAuthorized: false,
+      clientPubkey: '',
+    },
+  };
+  const policy = factory(inst);
+  await policy(['EVENT', makeEvent(4)], inst.connectionInfo);
+  await policy(['EVENT', makeEvent(4)], inst.connectionInfo);
+  await policy(['EVENT', makeEvent(4)], inst.connectionInfo);
+  assertEquals(authCount, 1);
+});

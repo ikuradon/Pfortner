@@ -52,3 +52,30 @@ Deno.test('protectedEvent passes protected event for authenticated client', asyn
   const inst = makeInstance(true);
   assertEquals((await factory(inst)(['EVENT', 'sub1', makeEvent([['-']])], inst.connectionInfo)).action, 'next');
 });
+
+Deno.test('protectedEvent require_auth: false passes all messages including protected events', async () => {
+  const factory = await protectedEventPlugin.initialize({ require_auth: false }, infra);
+  const inst = makeInstance(false);
+  // Even a protected event with '-' tag passes when require_auth is false
+  assertEquals(
+    (await factory(inst)(['EVENT', 'sub1', makeEvent([['-']])], inst.connectionInfo)).action,
+    'next',
+  );
+});
+
+Deno.test('protectedEvent with undefined tags does not crash', async () => {
+  const factory = await protectedEventPlugin.initialize({ require_auth: true }, infra);
+  const inst = makeInstance(false);
+  const eventWithUndefinedTags = {
+    id: 'e1',
+    pubkey: 'pk',
+    kind: 1,
+    created_at: 0,
+    tags: undefined,
+    content: '',
+    sig: '',
+  };
+  // Should not throw; event without tags is not protected
+  const result = await factory(inst)(['EVENT', 'sub1', eventWithUndefinedTags], inst.connectionInfo);
+  assertEquals(result.action, 'next');
+});

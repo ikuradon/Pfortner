@@ -74,3 +74,41 @@ Deno.test('routePlugin configSchema requires upstream and condition', () => {
 Deno.test('routePlugin direction is client', () => {
   assertEquals(routePlugin.direction, 'client');
 });
+
+Deno.test('routePlugin REQ matching condition with mock upstreamPool: subscribe is called, returns reject', async () => {
+  const infra = buildInfraContext({});
+
+  let subscribeCalled = false;
+  const mockPool = {
+    getConnection: (_url: string) =>
+      Promise.resolve({
+        subscribe: (
+          _connectionId: string,
+          _subId: string,
+          _filters: unknown[],
+          _onEvent: unknown,
+          _onEose: unknown,
+          _onClosed: unknown,
+        ) => {
+          subscribeCalled = true;
+        },
+        unsubscribe: (_connectionId: string, _subId: string) => {},
+      }),
+    notifyClientDisconnect: (_clientId: string) => {},
+    closeAll: () => {},
+  };
+
+  const infraWithPool = { ...infra, upstreamPool: mockPool };
+
+  const factory = await routePlugin.initialize({
+    upstream: 'ws://search.example.com',
+    condition: { has_search: true },
+  }, infraWithPool);
+  const inst = mockInstance();
+  const policy = factory(inst);
+
+  // REQ with search field — matches has_search condition
+  const result = await policy(['REQ', 'sub1', { search: 'hello' }], inst.connectionInfo);
+  assertEquals(result.action, 'reject');
+  assertEquals(subscribeCalled, true);
+});

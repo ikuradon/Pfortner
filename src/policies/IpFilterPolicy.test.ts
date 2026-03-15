@@ -71,6 +71,36 @@ Deno.test('ipFilter block_tor gracefully handles fetch failure', async () => {
   assertEquals((await factory(inst)(['EVENT', { id: 'e1' }], inst.connectionInfo)).action, 'next');
 });
 
+Deno.test('ipFilter CIDR /32 matches exact IP only', async () => {
+  const factory = await ipFilterPlugin.initialize({ blacklist: { cidrs: ['192.168.1.100/32'] } }, infra);
+  const instMatch = makeInstance('192.168.1.100');
+  const instNoMatch = makeInstance('192.168.1.101');
+  assertEquals((await factory(instMatch)(['EVENT', { id: 'e1' }], instMatch.connectionInfo)).action, 'reject');
+  assertEquals((await factory(instNoMatch)(['EVENT', { id: 'e1' }], instNoMatch.connectionInfo)).action, 'next');
+});
+
+Deno.test('ipFilter CIDR /0 matches all IPs', async () => {
+  const factory = await ipFilterPlugin.initialize({ blacklist: { cidrs: ['0.0.0.0/0'] } }, infra);
+  const inst1 = makeInstance('1.2.3.4');
+  const inst2 = makeInstance('192.168.1.1');
+  const inst3 = makeInstance('10.0.0.1');
+  assertEquals((await factory(inst1)(['EVENT', { id: 'e1' }], inst1.connectionInfo)).action, 'reject');
+  assertEquals((await factory(inst2)(['EVENT', { id: 'e1' }], inst2.connectionInfo)).action, 'reject');
+  assertEquals((await factory(inst3)(['EVENT', { id: 'e1' }], inst3.connectionInfo)).action, 'reject');
+});
+
+Deno.test('ipFilter multiple CIDRs: match if any matches', async () => {
+  const factory = await ipFilterPlugin.initialize({
+    blacklist: { cidrs: ['10.0.0.0/8', '192.168.0.0/16'] },
+  }, infra);
+  const instMatch1 = makeInstance('10.5.6.7');
+  const instMatch2 = makeInstance('192.168.1.50');
+  const instNoMatch = makeInstance('172.16.0.1');
+  assertEquals((await factory(instMatch1)(['EVENT', { id: 'e1' }], instMatch1.connectionInfo)).action, 'reject');
+  assertEquals((await factory(instMatch2)(['EVENT', { id: 'e1' }], instMatch2.connectionInfo)).action, 'reject');
+  assertEquals((await factory(instNoMatch)(['EVENT', { id: 'e1' }], instNoMatch.connectionInfo)).action, 'next');
+});
+
 Deno.test('ipFilter block_countries without geoip_db silently skips GeoIP', async () => {
   // When geoip_db is not provided, block_countries should be silently ignored
   const factory = await ipFilterPlugin.initialize({ block_countries: ['XX'] }, infra);

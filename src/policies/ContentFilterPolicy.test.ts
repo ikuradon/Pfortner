@@ -115,6 +115,29 @@ Deno.test('contentFilter external_api on_error accept passes on API failure', as
   assertEquals(result.action, 'next');
 });
 
+Deno.test('contentFilter empty banned_words array: all events pass', async () => {
+  const factory = await contentFilterPlugin.initialize({ banned_words: [] }, infra);
+  const inst = mockInstance();
+  assertEquals((await factory(inst)(['EVENT', makeEvent('anything goes here')], inst.connectionInfo)).action, 'next');
+  assertEquals((await factory(inst)(['EVENT', makeEvent('spam scam phish')], inst.connectionInfo)).action, 'next');
+});
+
+Deno.test('contentFilter event.content is empty string: passes word check', async () => {
+  const factory = await contentFilterPlugin.initialize({ banned_words: ['spam'] }, infra);
+  const inst = mockInstance();
+  assertEquals((await factory(inst)(['EVENT', makeEvent('')], inst.connectionInfo)).action, 'next');
+});
+
+Deno.test('contentFilter banned_patterns with invalid regex throws on initialize', async () => {
+  let threw = false;
+  try {
+    await contentFilterPlugin.initialize({ banned_patterns: ['[invalid(regex'] }, infra);
+  } catch {
+    threw = true;
+  }
+  assertEquals(threw, true);
+});
+
 Deno.test('contentFilter external_api on_error reject rejects on API failure', async () => {
   const mockInfra = buildInfraContext({});
   mockInfra.httpClient = {

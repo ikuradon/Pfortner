@@ -78,6 +78,23 @@ Deno.test('pubkeyAcl works in server direction (3-element EVENT)', async () => {
   assertEquals((await factory(inst)(['EVENT', 'sub1', makeEvent('bad-pk')], inst.connectionInfo)).action, 'reject');
 });
 
+Deno.test('pubkeyAcl empty pubkeys + whitelist mode: all events rejected', async () => {
+  const factory = await pubkeyAclPlugin.initialize({ mode: 'whitelist', target: 'author', pubkeys: [] }, infra);
+  const inst = makeInstance();
+  assertEquals((await factory(inst)(['EVENT', makeEvent('any-pk')], inst.connectionInfo)).action, 'reject');
+  assertEquals((await factory(inst)(['EVENT', makeEvent('another-pk')], inst.connectionInfo)).action, 'reject');
+});
+
+Deno.test('pubkeyAcl target: client + blacklist mode + unauthenticated: passes (not in any blacklist)', async () => {
+  const factory = await pubkeyAclPlugin.initialize(
+    { mode: 'blacklist', target: 'client', pubkeys: ['bad-pk'] },
+    infra,
+  );
+  const inst = makeInstance(false); // unauthenticated: clientPubkey is empty
+  // Unauthenticated client in blacklist mode passes (empty pubkey is not in any blacklist)
+  assertEquals((await factory(inst)(['EVENT', makeEvent('any-author')], inst.connectionInfo)).action, 'next');
+});
+
 Deno.test('pubkeyAcl with wot config allows static pubkeys even if relay unreachable', async () => {
   const factory = await pubkeyAclPlugin.initialize(
     {
