@@ -1,5 +1,6 @@
 import { acceptPolicy, pfortnerInit, type Policy } from '../mod.ts';
 import { loadConfigFromFile } from '../src/config/loader.ts';
+import { buildRelayInfo } from '../src/config/relay-info.ts';
 import { buildRequestHandler } from '../src/config/starter.ts';
 import { buildInfraContext } from '../src/infra/context.ts';
 import { createPluginRegistry } from '../src/plugins/registry.ts';
@@ -24,13 +25,7 @@ if (configPath) {
     { hostname: '[::]', port: config.server.port },
     (req: Request, conn: Deno.ServeHandlerInfo<Deno.NetAddr>) => {
       if (req.headers.get('accept') === 'application/nostr+json') {
-        const info = {
-          name: config.relay_info?.name ?? 'Pförtner Proxy',
-          description: config.relay_info?.description ?? '',
-          software: config.relay_info?.software ?? 'pfortner',
-          supported_nips: [1, 42],
-          ...(config.relay_info?.contact ? { contact: config.relay_info.contact } : {}),
-        };
+        const info = buildRelayInfo(config);
         return new Response(JSON.stringify(info), {
           headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
         });
