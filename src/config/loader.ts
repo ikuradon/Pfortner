@@ -37,7 +37,7 @@ export interface PfortnerConfig {
     http?: { default_timeout?: number; user_agent?: string };
   };
   relay_info?: { name?: string; description?: string; contact?: string; software?: string };
-  admin?: { enabled?: boolean; port?: number; auth_token?: string };
+  admin?: { enabled?: boolean; port?: number; path?: string; auth_token?: string };
   plugins?: Array<{ url?: string; path?: string }>;
   pipelines: { client: PipelineEntry[]; server: PipelineEntry[] };
 }
@@ -53,6 +53,11 @@ function validate(config: any): string[] {
   }
   if (config.admin?.enabled && !config.admin?.auth_token) {
     errors.push('admin.auth_token is required when admin.enabled is true');
+  }
+  if (config.admin?.port != null) {
+    console.warn(
+      'Warning: admin.port is deprecated. Admin UI is now served on server.port under admin.path (default: /admin)',
+    );
   }
   if (config.server?.connections?.max != null && config.server.connections.max < 1) {
     errors.push('server.connections.max must be >= 1');

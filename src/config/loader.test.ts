@@ -115,6 +115,26 @@ pipelines:
   }
 });
 
+Deno.test('loadConfigFromString warns on admin.port', () => {
+  // Just verify it doesn't error
+  const config = loadConfigFromString(`
+server:
+  port: 3000
+  upstream_relay: "ws://localhost:7777"
+admin:
+  enabled: true
+  port: 9091
+  auth_token: "test"
+pipelines:
+  client:
+    - policy: accept
+  server:
+    - policy: accept
+`);
+  assertEquals(config.admin?.port, 9091);
+  assertEquals(config.admin?.enabled, true);
+});
+
 Deno.test('loadConfigFromString accepts redis backend when infra.redis is configured', () => {
   const config = loadConfigFromString(`
 server:
