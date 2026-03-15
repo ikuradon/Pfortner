@@ -169,6 +169,47 @@ Deno.test('admin DELETE /connections/:id calls close', async () => {
   assertEquals(body.closing, 'conn-1');
 });
 
+Deno.test('admin POST /connections/disconnect-batch closes multiple', async () => {
+  const state = makeState();
+  let closedCount = 0;
+  state.connections.set('c1', {
+    info: { connectionId: 'c1', connectionIpAddr: '127.0.0.1', clientAuthorized: false, clientPubkey: '' },
+    clientIp: '127.0.0.1',
+    sendNotice: async () => {},
+    close: () => {
+      closedCount++;
+    },
+    sendAuthChallenge: () => {},
+  });
+  state.connections.set('c2', {
+    info: { connectionId: 'c2', connectionIpAddr: '127.0.0.1', clientAuthorized: false, clientPubkey: '' },
+    clientIp: '127.0.0.1',
+    sendNotice: async () => {},
+    close: () => {
+      closedCount++;
+    },
+    sendAuthChallenge: () => {},
+  });
+  const handler = createAdminHandler(state);
+  const res = await handler(
+    makeRequest('/connections/disconnect-batch', 'POST', 'test-token', JSON.stringify({ ids: ['c1', 'c2', 'c3'] })),
+  );
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(body.closed.length, 2);
+  assertEquals(body.notFound, ['c3']);
+  assertEquals(closedCount, 2);
+});
+
+Deno.test('admin GET /metrics/throughput returns data', async () => {
+  const state = makeState();
+  const handler = createAdminHandler(state);
+  const res = await handler(makeRequest('/metrics/throughput'));
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(Array.isArray(body), true);
+});
+
 Deno.test('admin GET /connections returns info not managed objects', async () => {
   const state = makeState();
   state.connections.set('conn-1', makeManagedConnection('conn-1'));
