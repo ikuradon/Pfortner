@@ -68,4 +68,9 @@ export interface InfraContext {
   metrics: MetricsCollector;
   logger: Logger;
   httpClient: HttpClient;
+  currentDirection?: 'client' | 'server';
+  pipelineResolver?: (
+    entries: Array<{ policy: string; config?: Record<string, unknown> }>,
+    direction: 'client' | 'server',
+  ) => Promise<PolicyFactory[]>;
 }
