@@ -3,8 +3,19 @@ import type { ManagedConnection } from '../connections/types.ts';
 import type { ConnectionManager } from '../connections/manager.ts';
 import type { ShutdownManager } from '../shutdown/manager.ts';
 import type { UpstreamProbe } from '../connections/upstream-probe.ts';
+import type { ThroughputTracker } from '../infra/throughput-tracker.ts';
+import {
+  closeConnection,
+  closeConnectionBatch,
+  getConnections,
+  getHealthDetail,
+  getHealthSimple,
+  getThroughputData,
+  maskSecrets,
+} from './service.ts';
+import type { AdminServiceState } from './service.ts';
 
-export interface AdminState {
+export interface AdminState extends AdminServiceState {
   config: PfortnerConfig;
   pluginNames: string[];
   connections: Map<string, ManagedConnection>;
@@ -15,6 +26,7 @@ export interface AdminState {
   connectionManager?: ConnectionManager;
   upstreamProbe?: UpstreamProbe;
   startTime?: number;
+  throughputTracker?: ThroughputTracker;
 }
 
 function json(data: unknown, status = 200): Response {
@@ -22,13 +34,6 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
-}
-
-function maskSecrets(config: PfortnerConfig): unknown {
-  const masked = JSON.parse(JSON.stringify(config));
-  if (masked.admin?.auth_token) masked.admin.auth_token = '***';
-  if (masked.infra?.redis?.url) masked.infra.redis.url = '***';
-  return masked;
 }
 
 export function createAdminHandler(state: AdminState): (req: Request) => Promise<Response> {
@@ -48,9 +53,10 @@ export function createAdminHandler(state: AdminState): (req: Request) => Promise
 
     // GET /health
     if (method === 'GET' && path === '/health') {
+      const health = getHealthSimple(state);
       const stats = state.connectionManager?.getStats();
       return json({
-        status: 'ok',
+        status: health.status,
         connections: stats?.active ?? state.connections.size,
         pressure: stats?.pressure ?? 'normal',
       });
@@ -67,7 +73,7 @@ export function createAdminHandler(state: AdminState): (req: Request) => Promise
       };
       const uptime = state.startTime != null ? Math.floor((Date.now() - state.startTime) / 1000) : null;
       return json({
-        status: 'ok',
+        status: getHealthDetail(state).status,
         uptime_seconds: uptime,
         connections: stats,
         upstream: {
@@ -90,18 +96,32 @@ export function createAdminHandler(state: AdminState): (req: Request) => Promise
 
     // GET /connections
     if (method === 'GET' && path === '/connections') {
-      return json({ connections: [...state.connections.values()].map((m) => m.info) });
+      return json({ connections: getConnections(state) });
     }
 
     // DELETE /connections/:id
     if (method === 'DELETE' && path.startsWith('/connections/')) {
       const id = path.slice('/connections/'.length);
-      const managed = state.connections.get(id);
-      if (managed) {
-        managed.close();
+      const result = closeConnection(state, id);
+      if (result.found) {
         return json({ closing: id });
       }
       return json({ error: 'connection not found' }, 404);
+    }
+
+    // POST /connections/disconnect-batch
+    if (method === 'POST' && path === '/connections/disconnect-batch') {
+      const body = await req.json();
+      if (Array.isArray(body.ids)) {
+        const result = closeConnectionBatch(state, body.ids);
+        return json(result);
+      }
+      return json({ error: 'ids array required' }, 400);
+    }
+
+    // GET /metrics/throughput
+    if (method === 'GET' && path === '/metrics/throughput') {
+      return json(getThroughputData(state));
     }
 
     // POST /blacklist/pubkey
