@@ -41,7 +41,11 @@ export function LoginPage({ error }: LoginPageProps) {
                   autofocus
                 />
               </div>
-              <button type='submit' class='btn btn-primary' style='width:100%;justify-content:center'>
+              <button
+                type='submit'
+                class='btn btn-primary'
+                style='width:100%;justify-content:center'
+              >
                 Sign In
               </button>
             </form>

@@ -1,7 +1,10 @@
 /**
  * Fetch wrapper for admin API calls (client-side, uses cookie auth automatically).
  */
-export async function apiFetch<T = unknown>(path: string, options?: RequestInit): Promise<T> {
+export async function apiFetch<T = unknown>(
+  path: string,
+  options?: RequestInit,
+): Promise<T> {
   const res = await fetch(path, {
     ...options,
     credentials: 'same-origin',

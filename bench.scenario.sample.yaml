@@ -1,7 +1,7 @@
 # bench.scenario.sample.yaml
 # Copy to bench.scenario.yaml and customize
 
-target: "ws://localhost:3000"
+target: 'ws://localhost:3000'
 # metrics_url: "http://localhost:3000/metrics"
 
 # auth:
@@ -9,7 +9,7 @@ target: "ws://localhost:3000"
 #   relay_url: "ws://localhost:7777"
 
 scenarios:
-  - name: "warmup"
+  - name: 'warmup'
     duration: 10
     connections:
       target: 10
@@ -19,7 +19,7 @@ scenarios:
       kind: 1
       content_length: 100
 
-  - name: "steady"
+  - name: 'steady'
     duration: 30
     connections:
       target: 10

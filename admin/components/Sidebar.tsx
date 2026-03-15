@@ -33,7 +33,8 @@ export function Sidebar({ currentPath }: SidebarProps) {
           <a
             key={item.href}
             href={item.href}
-            class={currentPath === item.href || (item.href !== '/admin/' && currentPath.startsWith(item.href))
+            class={currentPath === item.href ||
+                (item.href !== '/admin/' && currentPath.startsWith(item.href))
               ? 'active'
               : ''}
           >
