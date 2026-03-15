@@ -77,3 +77,20 @@ Deno.test('pubkeyAcl works in server direction (3-element EVENT)', async () => {
   const inst = makeInstance();
   assertEquals((await factory(inst)(['EVENT', 'sub1', makeEvent('bad-pk')], inst.connectionInfo)).action, 'reject');
 });
+
+Deno.test('pubkeyAcl with wot config allows static pubkeys even if relay unreachable', async () => {
+  const factory = await pubkeyAclPlugin.initialize(
+    {
+      mode: 'whitelist',
+      target: 'author',
+      pubkeys: ['static-pk'],
+      wot: { enabled: true, root_pubkeys: ['root'], max_depth: 1, relay_url: 'wss://127.0.0.1:19999' },
+    },
+    infra,
+  );
+  const inst = makeInstance();
+  // 'static-pk' should still be allowed (static list always included regardless of WoT failure)
+  assertEquals((await factory(inst)(['EVENT', makeEvent('static-pk')], inst.connectionInfo)).action, 'next');
+  // unknown pubkey should be rejected (whitelist mode)
+  assertEquals((await factory(inst)(['EVENT', makeEvent('unknown-pk')], inst.connectionInfo)).action, 'reject');
+});

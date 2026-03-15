@@ -1,12 +1,20 @@
 import type { InfraContext, PolicyFactory, PolicyPlugin } from '../plugins/types.ts';
 import { extractEvent } from '../plugins/types.ts';
 
+interface WotConfig {
+  enabled: boolean;
+  root_pubkeys: string[];
+  max_depth: number;
+  relay_url?: string;
+}
+
 interface PubkeyAclConfig {
   mode: 'whitelist' | 'blacklist';
   target: 'author' | 'client';
   pubkeys?: string[];
   source?: string;
   refresh_interval?: number;
+  wot?: WotConfig;
 }
 
 export const pubkeyAclPlugin: PolicyPlugin = {
@@ -37,6 +45,21 @@ export const pubkeyAclPlugin: PolicyPlugin = {
         infra.logger.info('Loaded external pubkey list', { source: cfg.source, count: list.length });
       } catch (e) {
         infra.logger.warn('Failed to fetch external pubkey list', { source: cfg.source, error: String(e) });
+      }
+    }
+
+    // Build WoT graph if configured
+    if (cfg.wot?.enabled && cfg.wot.root_pubkeys?.length > 0) {
+      try {
+        const { buildWotGraph } = await import('../wot/builder.ts');
+        const { createRelayQueryFn } = await import('../wot/relay-query.ts');
+        const relayUrl = cfg.wot.relay_url ?? 'wss://relay.damus.io';
+        const queryFn = createRelayQueryFn(relayUrl, 15000);
+        const wotPubkeys = await buildWotGraph(cfg.wot.root_pubkeys, cfg.wot.max_depth, queryFn);
+        for (const pk of wotPubkeys) pubkeySet.add(pk);
+        infra.logger.info('Built WoT graph', { rootCount: cfg.wot.root_pubkeys.length, totalPubkeys: wotPubkeys.size });
+      } catch (e) {
+        infra.logger.warn('Failed to build WoT graph', { error: String(e) });
       }
     }
 
