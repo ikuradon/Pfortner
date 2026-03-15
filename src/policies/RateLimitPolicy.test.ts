@@ -3,6 +3,8 @@ import { rateLimitPlugin } from './RateLimitPolicy.ts';
 import { buildInfraContext } from '../infra/context.ts';
 import type { PfortnerInstance } from '../plugins/types.ts';
 
+const REDIS_URL = Deno.env.get('REDIS_URL');
+
 const infra = buildInfraContext({});
 const makeEvent = (id = 'e1') => ({ id, pubkey: 'pk', kind: 1, created_at: 0, tags: [], content: '', sig: '' });
 
@@ -82,4 +84,30 @@ Deno.test('rateLimit custom reject message', async () => {
   const result = await policy(['EVENT', makeEvent()], inst.connectionInfo);
   assertEquals(result.action, 'reject');
   assertEquals(result.response?.includes('slow down'), true);
+});
+
+Deno.test({
+  name: 'rateLimit with redis backend shares state',
+  ignore: !REDIS_URL,
+  async fn() {
+    const { createRedisClient } = await import('../infra/redis.ts');
+    const redis = await createRedisClient({ url: REDIS_URL!, keyPrefix: 'test-rl:' });
+    const testInfra = { ...infra, redis };
+
+    const factory = await rateLimitPlugin.initialize({
+      scope: 'ip',
+      window: 60,
+      max_events: 2,
+      backend: 'redis',
+    }, testInfra);
+    const inst = mockInstance(false, '99.99.99.99');
+    const policy = factory(inst);
+    assertEquals((await policy(['EVENT', makeEvent('e1')], inst.connectionInfo)).action, 'next');
+    assertEquals((await policy(['EVENT', makeEvent('e2')], inst.connectionInfo)).action, 'next');
+    assertEquals((await policy(['EVENT', makeEvent('e3')], inst.connectionInfo)).action, 'reject');
+
+    // Cleanup
+    await redis.del('events:ip:99.99.99.99', 'requests:ip:99.99.99.99');
+    await redis.close();
+  },
 });

@@ -58,23 +58,57 @@ export const rateLimitPlugin: PolicyPlugin = {
     },
     required: ['scope', 'window'],
   },
-  initialize(config: unknown, _infra: InfraContext): Promise<PolicyFactory> {
+  initialize(config: unknown, infra: InfraContext): Promise<PolicyFactory> {
     const cfg = config as RateLimitConfig;
     const windowMs = cfg.window * 1000;
     const maxEvents = cfg.max_events ?? Infinity;
     const maxRequests = cfg.max_requests ?? Infinity;
     const rejectMsg = cfg.on_reject?.message ?? 'rate-limited: slow down';
+    const useRedis = cfg.backend === 'redis' && infra.redis != null;
+    const redis = infra.redis;
 
     return Promise.resolve((_instance) => {
-      return (message, connectionInfo) => {
+      return async (message, connectionInfo) => {
         const type = message[0];
         if (type !== 'EVENT' && type !== 'REQ') {
           return { message, action: 'next' };
         }
 
         const key = getScopeKey(cfg.scope, connectionInfo);
-        const counters = getCounters(key);
         const now = Date.now();
+
+        if (useRedis && redis) {
+          // Redis sorted set path (sliding window)
+          const eventKey = `events:${key}`;
+          const reqKey = `requests:${key}`;
+
+          if (type === 'EVENT') {
+            await redis.zremrangebyscore(eventKey, 0, now - windowMs);
+            const count = await redis.zcard(eventKey);
+            if (count >= maxEvents) {
+              const eventId = (message[1] as any)?.id ?? '';
+              return { message, action: 'reject', response: JSON.stringify(['OK', eventId, false, rejectMsg]) };
+            }
+            await redis.zadd(eventKey, now, `${now}:${Math.random()}`);
+            await redis.expire(eventKey, cfg.window + 1);
+          } else {
+            await redis.zremrangebyscore(reqKey, 0, now - windowMs);
+            const count = await redis.zcard(reqKey);
+            if (count >= maxRequests) {
+              return {
+                message,
+                action: 'reject',
+                response: JSON.stringify(['CLOSED', message[1] ?? '', rejectMsg]),
+              };
+            }
+            await redis.zadd(reqKey, now, `${now}:${Math.random()}`);
+            await redis.expire(reqKey, cfg.window + 1);
+          }
+          return { message, action: 'next' };
+        }
+
+        // In-memory path (existing code, unchanged)
+        const counters = getCounters(key);
 
         if (type === 'EVENT') {
           const count = countInWindow(counters.events, windowMs, now);
