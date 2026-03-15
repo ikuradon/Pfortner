@@ -20,12 +20,12 @@ export const kindFilterPlugin: PolicyPlugin = {
     },
     required: ['mode', 'kinds'],
   },
-  async initialize(config: unknown, _infra: InfraContext): Promise<PolicyFactory> {
+  initialize(config: unknown, _infra: InfraContext): Promise<PolicyFactory> {
     const cfg = config as KindFilterConfig;
     const kindSet = new Set(cfg.kinds);
     const authKindSet = new Set(cfg.require_auth_for ?? []);
 
-    return (instance) => {
+    return Promise.resolve((instance) => {
       let authChallengeSent = false;
 
       return (message, connectionInfo) => {
@@ -66,6 +66,6 @@ export const kindFilterPlugin: PolicyPlugin = {
 
         return { message, action: 'next' };
       };
-    };
+    });
   },
 };

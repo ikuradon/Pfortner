@@ -18,11 +18,11 @@ export const writeGuardPlugin: PolicyPlugin = {
       read_only_mode: { type: 'boolean' },
     },
   },
-  async initialize(config: unknown, _infra: InfraContext): Promise<PolicyFactory> {
+  initialize(config: unknown, _infra: InfraContext): Promise<PolicyFactory> {
     const cfg = config as WriteGuardConfig;
     const allowedKindSet = cfg.allowed_kinds ? new Set(cfg.allowed_kinds) : null;
 
-    return (instance) => {
+    return Promise.resolve((instance) => {
       let authChallengeSent = false;
 
       return (message, connectionInfo) => {
@@ -53,6 +53,6 @@ export const writeGuardPlugin: PolicyPlugin = {
         }
         return { message, action: 'next' };
       };
-    };
+    });
   },
 };

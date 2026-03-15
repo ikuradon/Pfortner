@@ -13,9 +13,9 @@ export const protectedEventPlugin: PolicyPlugin = {
     properties: { require_auth: { type: 'boolean' } },
     required: ['require_auth'],
   },
-  async initialize(config: unknown, _infra: InfraContext): Promise<PolicyFactory> {
+  initialize(config: unknown, _infra: InfraContext): Promise<PolicyFactory> {
     const cfg = config as ProtectedEventConfig;
-    return (_instance) => {
+    return Promise.resolve((_instance) => {
       return (message, connectionInfo) => {
         if (message[0] !== 'EVENT' || message.length < 3) return { message, action: 'next' };
         if (!cfg.require_auth) return { message, action: 'next' };
@@ -25,6 +25,6 @@ export const protectedEventPlugin: PolicyPlugin = {
         if (!connectionInfo.clientAuthorized) return { message, action: 'reject' };
         return { message, action: 'next' };
       };
-    };
+    });
   },
 };

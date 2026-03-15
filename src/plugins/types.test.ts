@@ -1,5 +1,5 @@
 import { assertEquals } from 'jsr:@std/assert@1.0.18';
-import type { InfraContext, PfortnerInstance, PolicyFactory, PolicyPlugin } from './types.ts';
+import type { PfortnerInstance, PolicyFactory, PolicyPlugin } from './types.ts';
 import { extractEvent } from './types.ts';
 
 Deno.test('extractEvent handles client direction (length 2)', () => {
@@ -27,14 +27,14 @@ Deno.test('PolicyPlugin interface is structurally valid', () => {
     description: 'test plugin',
     direction: 'both',
     configSchema: { type: 'object' },
-    initialize: async (_config, _infra) => {
+    initialize: (_config, _infra) => {
       const factory: PolicyFactory = (instance: PfortnerInstance) => {
         return (message, _connectionInfo) => {
           void instance.connectionInfo;
           return { message, action: 'accept' };
         };
       };
-      return factory;
+      return Promise.resolve(factory);
     },
   };
   assertEquals(mockPlugin.name, 'test');

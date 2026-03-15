@@ -10,8 +10,8 @@ const acceptPlugin: PolicyPlugin = {
   description: 'Accept all messages (pass-through)',
   direction: 'both',
   configSchema: { type: 'object' },
-  async initialize(_config: unknown, _infra: InfraContext): Promise<PolicyFactory> {
-    return (_instance) => acceptPolicy as Policy;
+  initialize(_config: unknown, _infra: InfraContext): Promise<PolicyFactory> {
+    return Promise.resolve((_instance) => acceptPolicy as Policy);
   },
 };
 
