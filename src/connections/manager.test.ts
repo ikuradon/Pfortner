@@ -106,3 +106,65 @@ Deno.test('pressure check sends auth challenge to unauthenticated connections', 
   cm.runPressureCheck(); // manual trigger instead of interval
   assertEquals(challengeSent, true);
 });
+
+Deno.test('runPressureCheck clears challengeSentAt when below soft limit', () => {
+  const conns = new Map<string, ManagedConnection>();
+  let challengeCount = 0;
+  const conn = mockConnection('c1', '1.1.1.1', false);
+  conn.sendAuthChallenge = () => {
+    challengeCount++;
+  };
+  const cm = new ConnectionManager(conns, {
+    max: 10,
+    maxPerIp: 50,
+    pressure: { softLimitPercent: 80, authGracePeriod: 30 },
+  });
+  cm.register(conn);
+  // Add enough connections to exceed soft limit (>8 out of 10)
+  for (let i = 2; i <= 9; i++) cm.register(mockConnection(`c${i}`, `${i}.0.0.1`));
+  // Above soft limit: challenge should be sent
+  cm.runPressureCheck();
+  assertEquals(challengeCount, 1);
+
+  // Remove connections to drop below soft limit
+  for (let i = 2; i <= 9; i++) cm.unregister(`c${i}`);
+  // Below soft limit: challengeSentAt should be cleared
+  cm.runPressureCheck();
+  // Now above soft limit again, challenge should be sent again (counter was cleared)
+  for (let i = 2; i <= 9; i++) cm.register(mockConnection(`c${i}`, `${i}.0.0.1`));
+  cm.runPressureCheck();
+  assertEquals(challengeCount, 2);
+});
+
+Deno.test('runPressureCheck with authenticated connection removes from challengeSentAt', () => {
+  const conns = new Map<string, ManagedConnection>();
+  let challengeCount = 0;
+  // Start as unauthenticated
+  const conn = mockConnection('c1', '1.1.1.1', false);
+  conn.sendAuthChallenge = () => {
+    challengeCount++;
+  };
+  const cm = new ConnectionManager(conns, {
+    max: 2,
+    maxPerIp: 50,
+    pressure: { softLimitPercent: 50, authGracePeriod: 30 },
+  });
+  cm.register(conn);
+  cm.register(mockConnection('c2', '2.2.2.2', false));
+  // Above soft limit: challenge sent
+  cm.runPressureCheck();
+  assertEquals(challengeCount >= 1, true);
+
+  // Simulate connection becoming authenticated
+  conn.info.clientAuthorized = true;
+  // Running again: authenticated connections should have challengeSentAt entry removed
+  cm.runPressureCheck();
+  // No additional challenge should be sent to authenticated connection
+  const prevCount = challengeCount;
+  conn.sendAuthChallenge = () => {
+    challengeCount++;
+  };
+  cm.runPressureCheck();
+  // challengeCount should not increase for the now-authenticated conn
+  assertEquals(challengeCount, prevCount);
+});

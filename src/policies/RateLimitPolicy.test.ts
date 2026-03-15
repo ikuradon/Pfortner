@@ -86,6 +86,49 @@ Deno.test('rateLimit custom reject message', async () => {
   assertEquals(result.response?.includes('slow down'), true);
 });
 
+Deno.test('rateLimit default max_events/max_requests (Infinity) allows all messages', async () => {
+  // When max_events and max_requests are not set, defaults to Infinity
+  const factory = await rateLimitPlugin.initialize({ scope: 'connection', window: 60 }, infra);
+  const inst = mockInstance();
+  const policy = factory(inst);
+  // Send many events and requests without hitting limits
+  for (let i = 0; i < 20; i++) {
+    assertEquals((await policy(['EVENT', makeEvent(`e${i}`)], inst.connectionInfo)).action, 'next');
+    assertEquals((await policy(['REQ', `sub${i}`, {}], inst.connectionInfo)).action, 'next');
+  }
+});
+
+Deno.test('rateLimit destroy clears shared counters', async () => {
+  const factory = await rateLimitPlugin.initialize({ scope: 'ip', window: 60, max_events: 1 }, infra);
+  const inst = mockInstance(false, '10.0.0.1');
+  const policy = factory(inst);
+  assertEquals((await policy(['EVENT', makeEvent('e1')], inst.connectionInfo)).action, 'next');
+  assertEquals((await policy(['EVENT', makeEvent('e2')], inst.connectionInfo)).action, 'reject');
+
+  // After destroy, counters should be cleared
+  await rateLimitPlugin.destroy!();
+
+  const factory2 = await rateLimitPlugin.initialize({ scope: 'ip', window: 60, max_events: 1 }, infra);
+  const inst2 = mockInstance(false, '10.0.0.1');
+  const policy2 = factory2(inst2);
+  // Should be allowed again after counters cleared
+  assertEquals((await policy2(['EVENT', makeEvent('e3')], inst2.connectionInfo)).action, 'next');
+});
+
+Deno.test('rateLimit scope pubkey with authenticated client uses pubkey as key', async () => {
+  // Two authenticated connections with the same pubkey should share limits
+  const factory = await rateLimitPlugin.initialize({ scope: 'pubkey', window: 60, max_events: 2 }, infra);
+  const inst1 = mockInstance(true, '1.1.1.1');
+  const inst2 = mockInstance(true, '2.2.2.2');
+  // Both have clientPubkey = 'pubkey123' (from mockInstance with authorized=true)
+  const policy1 = factory(inst1);
+  const policy2 = factory(inst2);
+  assertEquals((await policy1(['EVENT', makeEvent('e1')], inst1.connectionInfo)).action, 'next');
+  assertEquals((await policy2(['EVENT', makeEvent('e2')], inst2.connectionInfo)).action, 'next');
+  // Third event from either connection sharing same pubkey should be rejected
+  assertEquals((await policy1(['EVENT', makeEvent('e3')], inst1.connectionInfo)).action, 'reject');
+});
+
 Deno.test({
   name: 'rateLimit with redis backend shares state',
   ignore: !REDIS_URL,

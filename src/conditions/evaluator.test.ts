@@ -101,3 +101,17 @@ Deno.test('simple condition: has_search matches', () => {
   assertEquals(evaluateCondition({ has_search: true }, { ...baseCtx, hasSearch: true }), true);
   assertEquals(evaluateCondition({ has_search: true }, { ...baseCtx, hasSearch: false }), false);
 });
+
+Deno.test('and: empty array returns true', () => {
+  // Array.every on empty array = true
+  assertEquals(evaluateCondition({ and: [] } as any, baseCtx), true);
+});
+
+Deno.test('or: empty array returns false', () => {
+  // Array.some on empty array = false
+  assertEquals(evaluateCondition({ or: [] } as any, baseCtx), false);
+});
+
+Deno.test('simple condition: event_pubkey when context eventPubkey is null returns false', () => {
+  assertEquals(evaluateCondition({ event_pubkey: 'author1' }, { ...baseCtx, eventPubkey: null }), false);
+});
