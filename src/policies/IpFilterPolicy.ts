@@ -62,6 +62,21 @@ export const ipFilterPlugin: PolicyPlugin = {
       }
     }
 
+    // Fetch Tor exit node list if block_tor is enabled
+    if (cfg.block_tor) {
+      try {
+        const response = await infra.httpClient.fetch('https://check.torproject.org/torbulkexitlist');
+        const text = await response.text();
+        for (const line of text.split('\n')) {
+          const trimmed = line.trim();
+          if (trimmed && !trimmed.startsWith('#')) blacklistedIps.add(trimmed);
+        }
+        infra.logger.info('Loaded Tor exit node list', { count: blacklistedIps.size });
+      } catch (e) {
+        infra.logger.warn('Failed to fetch Tor exit node list', { error: String(e) });
+      }
+    }
+
     return (_instance) => {
       let checked = false;
       let blocked = false;

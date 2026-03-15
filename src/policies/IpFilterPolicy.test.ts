@@ -49,3 +49,26 @@ Deno.test('ipFilter with empty blacklist passes all', async () => {
   const inst = makeInstance('1.2.3.4');
   assertEquals((await factory(inst)(['EVENT', { id: 'e1' }], inst.connectionInfo)).action, 'next');
 });
+
+Deno.test('ipFilter block_tor adds fetched exit nodes to blacklist', async () => {
+  const mockInfra = buildInfraContext({});
+  mockInfra.httpClient = {
+    fetch: async () => new Response('1.2.3.4\n5.6.7.8\n# comment\n', { status: 200 }),
+  };
+  const factory = await ipFilterPlugin.initialize({ block_tor: true }, mockInfra);
+  const inst = makeInstance('1.2.3.4');
+  assertEquals((await factory(inst)(['EVENT', { id: 'e1' }], inst.connectionInfo)).action, 'reject');
+});
+
+Deno.test('ipFilter block_tor gracefully handles fetch failure', async () => {
+  const mockInfra = buildInfraContext({});
+  mockInfra.httpClient = {
+    fetch: async () => {
+      throw new Error('network error');
+    },
+  };
+  const factory = await ipFilterPlugin.initialize({ block_tor: true }, mockInfra);
+  const inst = makeInstance('1.2.3.4');
+  // Should pass since tor list fetch failed — don't block legitimate users
+  assertEquals((await factory(inst)(['EVENT', { id: 'e1' }], inst.connectionInfo)).action, 'next');
+});
