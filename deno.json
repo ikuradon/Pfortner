@@ -32,6 +32,6 @@
     "dev": "deno run --unstable-net --allow-env --allow-net --allow-read --watch scripts/serve.ts",
     "serve": "deno run --unstable-net --allow-env --allow-net --allow-read scripts/serve.ts",
     "serve:config": "deno run --unstable-net --allow-env --allow-net --allow-read scripts/serve.ts pfortner.yaml",
-    "test": "deno test --allow-env --allow-net --allow-read --allow-write --unstable-net src/"
+    "test": "deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --unstable-kv src/"
   }
 }
