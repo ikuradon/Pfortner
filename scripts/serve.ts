@@ -1,11 +1,11 @@
 import { acceptPolicy, pfortnerInit, type Policy } from '../mod.ts';
 import { loadConfigFromFile } from '../src/config/loader.ts';
 import { buildRelayInfo } from '../src/config/relay-info.ts';
-import { buildRequestHandler } from '../src/config/starter.ts';
 import { buildInfraContext } from '../src/infra/context.ts';
 import { createPrometheusMetrics, type PrometheusMetrics } from '../src/infra/prometheus.ts';
 import { type AdminState, createAdminHandler } from '../src/admin/server.ts';
 import { createPluginRegistry } from '../src/plugins/registry.ts';
+import { ConfigManager } from '../src/config/manager.ts';
 import { dotenv, log, nostrTools } from './deps.ts';
 dotenv.loadSync({ export: true });
 
@@ -59,15 +59,46 @@ if (configPath) {
     blacklist: { pubkeys: new Set(), ips: new Set() },
   };
 
-  const handler = await buildRequestHandler(config, infraWithRedis, registry, {
-    onConnect: (connectionInfo) => {
-      adminState.connections.set(connectionInfo.connectionId, connectionInfo);
+  const releaseMap = new Map<string, () => void>();
+
+  const manager = await ConfigManager.create(
+    await Deno.readTextFile(configPath),
+    infraWithRedis,
+    registry,
+    {
+      onConnect: (connectionInfo) => {
+        adminState.connections.set(connectionInfo.connectionId, connectionInfo);
+        releaseMap.set(connectionInfo.connectionId, manager.acquireConnection());
+      },
+      onDisconnect: (connectionId) => {
+        adminState.connections.delete(connectionId);
+        releaseMap.get(connectionId)?.();
+        releaseMap.delete(connectionId);
+      },
+      blacklist: adminState.blacklist,
     },
-    onDisconnect: (connectionId) => {
-      adminState.connections.delete(connectionId);
-    },
-    blacklist: adminState.blacklist,
-  });
+  );
+
+  adminState.configPath = configPath;
+  adminState.reloadFn = async (yaml: string) => {
+    await manager.reload(yaml);
+    infra.logger.info('Config reloaded', { generation: manager.generation });
+  };
+
+  try {
+    Deno.addSignalListener('SIGHUP', async () => {
+      infra.logger.info('SIGHUP received, reloading config');
+      try {
+        const content = await Deno.readTextFile(configPath);
+        await manager.reload(content);
+        infra.logger.info('Config reloaded via SIGHUP', { generation: manager.generation });
+      } catch (e) {
+        infra.logger.error('Config reload failed', { error: String(e) });
+      }
+    });
+  } catch {
+    // SIGHUP not available on this platform
+  }
 
   infra.logger.info('Pfortner starting in config mode', { config: configPath, port: config.server.port });
 
@@ -97,7 +128,7 @@ if (configPath) {
       if (req.headers.get('upgrade') !== 'websocket') {
         return new Response('Please use a Nostr client to connect.', { status: 400 });
       }
-      return handler(req, conn);
+      return manager.getRequestHandler()(req, conn);
     },
   );
 } else {
