@@ -4,6 +4,11 @@ import { acceptPolicy } from '../policies/AcceptPolicy.ts';
 import { kindFilterPlugin } from '../policies/KindFilterPolicy.ts';
 import { writeGuardPlugin } from '../policies/WriteGuardPolicy.ts';
 import { protectedEventPlugin } from '../policies/ProtectedEventPolicy.ts';
+import { rateLimitPlugin } from '../policies/RateLimitPolicy.ts';
+import { spamFilterPlugin } from '../policies/SpamFilterPolicy.ts';
+import { contentFilterPlugin } from '../policies/ContentFilterPolicy.ts';
+import { pubkeyAclPlugin } from '../policies/PubkeyAclPolicy.ts';
+import { ipFilterPlugin } from '../policies/IpFilterPolicy.ts';
 
 const acceptPlugin: PolicyPlugin = {
   name: 'accept',
@@ -20,6 +25,11 @@ const BUILTIN_PLUGINS: Map<string, PolicyPlugin> = new Map([
   ['kind-filter', kindFilterPlugin],
   ['write-guard', writeGuardPlugin],
   ['protected-event', protectedEventPlugin],
+  ['rate-limit', rateLimitPlugin],
+  ['spam-filter', spamFilterPlugin],
+  ['content-filter', contentFilterPlugin],
+  ['pubkey-acl', pubkeyAclPlugin],
+  ['ip-filter', ipFilterPlugin],
 ]);
 
 export interface PluginRegistry {

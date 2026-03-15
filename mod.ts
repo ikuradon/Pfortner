@@ -18,3 +18,8 @@ export { buildInfraContext } from './src/infra/context.ts';
 export { kindFilterPlugin } from './src/policies/KindFilterPolicy.ts';
 export { writeGuardPlugin } from './src/policies/WriteGuardPolicy.ts';
 export { protectedEventPlugin } from './src/policies/ProtectedEventPolicy.ts';
+export { rateLimitPlugin } from './src/policies/RateLimitPolicy.ts';
+export { spamFilterPlugin } from './src/policies/SpamFilterPolicy.ts';
+export { contentFilterPlugin } from './src/policies/ContentFilterPolicy.ts';
+export { pubkeyAclPlugin } from './src/policies/PubkeyAclPolicy.ts';
+export { ipFilterPlugin } from './src/policies/IpFilterPolicy.ts';
