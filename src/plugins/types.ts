@@ -73,4 +73,9 @@ export interface InfraContext {
     entries: Array<{ policy: string; config?: Record<string, unknown> }>,
     direction: 'client' | 'server',
   ) => Promise<PolicyFactory[]>;
+  upstreamPool?: {
+    getConnection(url: string): Promise<any>;
+    notifyClientDisconnect(clientId: string): void;
+    closeAll(): Promise<void> | void;
+  };
 }
