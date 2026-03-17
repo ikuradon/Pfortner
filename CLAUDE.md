@@ -46,6 +46,8 @@ Configured in `deno.json`: 2-space indent, 120-char line width, semicolons requi
 
 ## Coding Patterns
 
+- npm packages (ajv, maxmind): use `const Mod = (imported as any).default ?? imported` for CJS/ESM compat
+- RateLimitPolicy/SpamFilterPolicy have module-level global state (`sharedCounters`, `seenEventIds`) — call `destroy()` between tests to avoid state leak
 - `initialize()` methods: do NOT use `async` if only returning `Promise.resolve()` — lint `require-await` will fail
 - Client-side JS (`admin/static/*.js`): use `createElement`/`textContent` only, never `innerHTML` (XSS prevention)
 - Static file paths: validate with `resolve()` + `startsWith()`, not string `..` check (path traversal)
@@ -149,3 +151,7 @@ Legacy env-var mode (`.env` from `.env.sample`):
 - `X_FORWARDED_FOR` — whether to forward client IP
 
 YAML config mode (preferred): copy `pfortner.sample.yaml` to `pfortner.yaml`. See spec docs in `docs/superpowers/specs/` for full schema. Run with `deno task serve:config`.
+
+## Documentation
+
+Design specs and implementation plans are in `docs/superpowers/` (gitignored). Key specs: plugin-system, operational-hardening, conditional-pipelines, dynamic-routing, load-testing, admin-ui-c1.
