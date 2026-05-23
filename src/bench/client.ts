@@ -1,9 +1,11 @@
 import type { MetricsCollector } from './metrics.ts';
 
+type TimerHandle = ReturnType<typeof setTimeout>;
+
 export class BenchClient {
   private ws: WebSocket | null = null;
-  private pendingOk = new Map<string, { resolve: () => void; timer: number; startTime: number }>();
-  private pendingEose = new Map<string, { resolve: () => void; timer: number; startTime: number }>();
+  private pendingOk = new Map<string, { resolve: () => void; timer: TimerHandle; startTime: number }>();
+  private pendingEose = new Map<string, { resolve: () => void; timer: TimerHandle; startTime: number }>();
   private authHandler: ((challenge: string) => void) | null = null;
   private _connected = false;
 

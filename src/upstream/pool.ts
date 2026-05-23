@@ -1,6 +1,8 @@
 // src/upstream/pool.ts
 import type { Logger } from '../plugins/types.ts';
 
+type TimerHandle = ReturnType<typeof setTimeout>;
+
 export class UpstreamConnection {
   private ws: WebSocket | null = null;
   private subscriptions = new Map<string, {
@@ -11,9 +13,9 @@ export class UpstreamConnection {
   }>();
   private pendingOk = new Map<
     string,
-    { onOk: (eventId: string, success: boolean, message: string) => void; timer: number }
+    { onOk: (eventId: string, success: boolean, message: string) => void; timer: TimerHandle }
   >();
-  private reconnectTimer: number | null = null;
+  private reconnectTimer: TimerHandle | null = null;
   private reconnectDelay = 1000;
   private _connected = false;
 
