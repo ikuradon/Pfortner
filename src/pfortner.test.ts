@@ -28,6 +28,25 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function waitFor(
+  condition: () => boolean,
+  timeoutMs: number,
+  message: string,
+  intervalMs = 25,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (condition()) {
+      return;
+    }
+    await delay(intervalMs);
+  }
+  if (condition()) {
+    return;
+  }
+  throw new Error(message);
+}
+
 async function createEnv(opts: Record<string, unknown> = {}) {
   // Mock upstream relay
   const relayAc = new AbortController();
@@ -359,6 +378,13 @@ Deno.test({
   sanitizeOps: false,
   fn: async () => {
     let activeUpstreams = 0;
+    let upstreamCloseEvents = 0;
+    let upstreamUpgradeReceived = false;
+    let releaseUpgrade: () => void = () => {};
+    const upgradeGate = new Promise<void>((resolve) => {
+      releaseUpgrade = resolve;
+    });
+
     const relayAc = new AbortController();
     const relayPort = await new Promise<number>((resolve) => {
       Deno.serve({
@@ -369,6 +395,7 @@ Deno.test({
         },
       }, async (req) => {
         if (req.headers.get('upgrade') === 'websocket') {
+          upstreamUpgradeReceived = true;
           const { socket, response } = Deno.upgradeWebSocket(req);
           let opened = false;
           socket.addEventListener('open', () => {
@@ -379,8 +406,9 @@ Deno.test({
             if (opened) {
               activeUpstreams--;
             }
+            upstreamCloseEvents++;
           });
-          await delay(250);
+          await upgradeGate;
           return response;
         }
         return new Response('ok');
@@ -409,11 +437,19 @@ Deno.test({
         ws.onopen = () => resolve();
         ws.onerror = () => reject(new Error('Client WebSocket connection failed'));
       });
-      ws.close();
-      await delay(800);
+      await waitFor(() => upstreamUpgradeReceived, 3000, 'Timed out waiting for upstream upgrade request');
 
+      ws.close();
+      releaseUpgrade();
+
+      await waitFor(
+        () => upstreamCloseEvents > 0 && activeUpstreams === 0,
+        3000,
+        'Timed out waiting for pending upstream to close',
+      );
       assertEquals(activeUpstreams, 0);
     } finally {
+      releaseUpgrade();
       ws.close();
       proxy.closeSocket();
       proxyAc.abort();
@@ -465,7 +501,7 @@ Deno.test({
       ws.onerror = () => resolve();
     });
 
-    await new Promise((r) => setTimeout(r, 500));
+    await waitFor(() => serverErrorFired, 3000, 'Timed out waiting for upstream connection failure');
 
     assertEquals(serverErrorFired, true);
     assertEquals(await clientClosed, true);
@@ -473,6 +509,6 @@ Deno.test({
     ws.close();
     proxy.closeSocket();
     proxyAc.abort();
-    await new Promise((r) => setTimeout(r, 100));
+    await delay(100);
   },
 });
