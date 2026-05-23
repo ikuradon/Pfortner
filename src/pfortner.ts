@@ -314,7 +314,7 @@ export const pfortnerInit = (
     }).catch(() => {
       if (!closeRequested) {
         listeners.serverError.forEach((cb) => cb());
-        closeClientSocket(1011);
+        closeSocket(1011);
       }
     });
 
@@ -333,6 +333,7 @@ export const pfortnerInit = (
         emitServerDisconnect();
         if (!closeRequested) {
           closeClientSocket(1011);
+          clearAllListeners();
         }
       }
     });
@@ -468,7 +469,12 @@ export const pfortnerInit = (
     }
     if (!serverConnected) {
       try {
-        await upstreamSocket.opened;
+        await Promise.race([
+          upstreamSocket.opened,
+          upstreamSocket.closed.then(() => {
+            throw new Error('Server connection closed');
+          }),
+        ]);
       } catch {
         throw new Error('Server connection failed');
       }
@@ -484,6 +490,11 @@ export const pfortnerInit = (
     const socket = clientSocket;
     if (socket == null) return;
 
+    const wasConnected = clientConnected ||
+      socket.readyState === socket.CONNECTING ||
+      socket.readyState === socket.OPEN ||
+      socket.readyState === socket.CLOSING;
+
     if (socket.readyState === socket.CONNECTING || socket.readyState === socket.OPEN) {
       try {
         socket.close(code);
@@ -492,7 +503,9 @@ export const pfortnerInit = (
       }
     }
     clientConnected = false;
-    emitClientDisconnect();
+    if (wasConnected) {
+      emitClientDisconnect();
+    }
   }
 
   function closeServerSocket(): void {
