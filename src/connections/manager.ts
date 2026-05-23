@@ -1,6 +1,8 @@
 // src/connections/manager.ts
 import type { ManagedConnection } from './types.ts';
 
+type IntervalHandle = ReturnType<typeof setInterval>;
+
 export interface ConnectionOptions {
   max: number;
   maxPerIp: number;
@@ -18,7 +20,7 @@ export interface ConnectionStats {
 export class ConnectionManager {
   private ipCounts = new Map<string, number>();
   private challengeSentAt = new Map<string, number>();
-  private pressureInterval: number | null = null;
+  private pressureInterval: IntervalHandle | null = null;
 
   constructor(
     private connections: Map<string, ManagedConnection>,
