@@ -90,7 +90,7 @@ export const pfortnerInit = (
   let serverWritable: WritableStream | null = null;
   let serverWriter: WritableStreamDefaultWriter | null = null;
 
-  let sessionTimer: number | null = null;
+  let sessionTimer: ReturnType<typeof setTimeout> | null = null;
 
   let serverConnected = false;
   let clientConnected = false;
