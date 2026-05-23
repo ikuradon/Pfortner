@@ -84,16 +84,19 @@ export const pfortnerInit = (
     upstreamRawAddress?: string;
   } = {},
 ) => {
-  let clientSocket: WebSocket;
-  let serverSocket: WebSocketStream;
-  let serverReadable: ReadableStream;
-  let serverWritable: WritableStream;
-  let serverWriter: WritableStreamDefaultWriter;
+  let clientSocket: WebSocket | null = null;
+  let serverSocket: WebSocketStream | null = null;
+  let serverReadable: ReadableStream | null = null;
+  let serverWritable: WritableStream | null = null;
+  let serverWriter: WritableStreamDefaultWriter | null = null;
 
   let sessionTimer: number | null = null;
 
   let serverConnected = false;
   let clientConnected = false;
+  let closeRequested = false;
+  let clientDisconnectEmitted = false;
+  let serverDisconnectEmitted = false;
 
   let clientPolicies: Policies<any[]> = [];
   let serverPolicies: Policies<any[]> = [];
@@ -138,6 +141,11 @@ export const pfortnerInit = (
     clientSocket = opts.socket;
 
     clientSocket.addEventListener('open', () => {
+      if (closeRequested || clientDisconnectEmitted) {
+        closeClientSocket();
+        return;
+      }
+
       clientConnected = true;
 
       setIdleTimeout();
@@ -148,6 +156,10 @@ export const pfortnerInit = (
       listeners.clientError.forEach((cb) => cb());
     });
     clientSocket.addEventListener('message', async ({ data: json }) => {
+      if (closeRequested || clientDisconnectEmitted) {
+        return;
+      }
+
       if (typeof json != 'string') {
         sendMessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: non-string message']));
         return;
@@ -207,15 +219,22 @@ export const pfortnerInit = (
     });
     clientSocket.addEventListener('close', () => {
       clientConnected = false;
-      listeners.clientDisconnect.forEach((cb) => cb());
+      emitClientDisconnect();
       closeServerSocket();
+      clearAllListeners();
     });
 
-    serverSocket = new WebSocketStream(upstreamAddress, { headers });
+    const upstreamSocket = new WebSocketStream(upstreamAddress, { headers });
+    serverSocket = upstreamSocket;
 
-    serverSocket.opened.then((webSocketConnection) => {
+    upstreamSocket.opened.then((webSocketConnection) => {
       ({ readable: serverReadable, writable: serverWritable } = webSocketConnection);
       serverWriter = serverWritable.getWriter();
+
+      if (closeRequested) {
+        closeServerSocket();
+        return;
+      }
 
       serverConnected = true;
       setIdleTimeout();
@@ -224,7 +243,9 @@ export const pfortnerInit = (
 
       (async () => {
         try {
-          for await (const json of serverReadable) {
+          const readable = serverReadable;
+          if (readable == null) return;
+          for await (const json of readable) {
             setIdleTimeout();
 
             listeners.serverMsg.forEach((cb) => cb(json));
@@ -285,19 +306,34 @@ export const pfortnerInit = (
             }
           }
         } catch (e) {
-          log.warn(`Server read loop error: ${e}`);
+          if (!closeRequested) {
+            log.warn(`Server read loop error: ${e}`);
+          }
         }
       })();
     }).catch(() => {
-      listeners.serverError.forEach((cb) => cb());
+      if (!closeRequested) {
+        listeners.serverError.forEach((cb) => cb());
+        closeClientSocket(1011);
+      }
     });
 
-    serverSocket.closed.catch((e) => {
-      log.warn(`Server socket closed with error: ${e}`);
+    upstreamSocket.closed.catch((e) => {
+      if (!closeRequested) {
+        log.warn(`Server socket closed with error: ${e}`);
+      }
     }).finally(() => {
-      if (serverConnected) {
-        listeners.serverDisconnect.forEach((cb) => cb());
-        closeClientSocket();
+      const wasConnected = serverConnected;
+      serverConnected = false;
+      serverWriter = null;
+      serverWritable = null;
+      serverReadable = null;
+
+      if (wasConnected) {
+        emitServerDisconnect();
+        if (!closeRequested) {
+          closeClientSocket(1011);
+        }
       }
     });
 
@@ -315,6 +351,18 @@ export const pfortnerInit = (
     (Object.keys(listeners) as (keyof SocketEvent)[]).forEach((key) => {
       listeners[key] = [] as any;
     });
+  }
+
+  function emitClientDisconnect(): void {
+    if (clientDisconnectEmitted) return;
+    clientDisconnectEmitted = true;
+    listeners.clientDisconnect.forEach((cb) => cb());
+  }
+
+  function emitServerDisconnect(): void {
+    if (serverDisconnectEmitted) return;
+    serverDisconnectEmitted = true;
+    listeners.serverDisconnect.forEach((cb) => cb());
   }
 
   function sendAuthMessage(): void {
@@ -396,61 +444,87 @@ export const pfortnerInit = (
   }
 
   async function sendMessageToClient(message: string): Promise<void> {
-    if (clientSocket.readyState === clientSocket.CONNECTING) {
+    const socket = clientSocket;
+    if (socket == null || clientDisconnectEmitted) {
+      return;
+    }
+    if (socket.readyState === socket.CONNECTING) {
       await new Promise<void>((resolve, reject) => {
-        clientSocket.addEventListener('open', () => resolve(), { once: true });
-        clientSocket.addEventListener('error', () => reject(), { once: true });
+        socket.addEventListener('open', () => resolve(), { once: true });
+        socket.addEventListener('error', () => reject(), { once: true });
       });
     }
-    if (clientSocket.readyState === clientSocket.OPEN) {
-      clientSocket.send(message);
+    if (socket.readyState === socket.OPEN && !clientDisconnectEmitted) {
+      socket.send(message);
     } else {
       closeSocket();
     }
   }
 
   async function sendMessageToServer(message: string): Promise<void> {
+    const upstreamSocket = serverSocket;
+    if (upstreamSocket == null) {
+      throw new Error('Server connection not initialized');
+    }
     if (!serverConnected) {
-      await new Promise<void>((resolve, reject) => {
-        const onConnect = () => {
-          off('serverError', onError);
-          off('serverConnect', onConnect);
-          resolve();
-        };
-        const onError = () => {
-          off('serverConnect', onConnect);
-          off('serverError', onError);
-          reject(new Error('Server connection failed'));
-        };
-        on('serverConnect', onConnect);
-        on('serverError', onError);
-      });
+      try {
+        await upstreamSocket.opened;
+      } catch {
+        throw new Error('Server connection failed');
+      }
+    }
+    if (closeRequested || !serverConnected || serverWriter == null) {
+      throw new Error('Server connection closed');
     }
     await serverWriter.write(message);
   }
 
   function closeClientSocket(code = 1000): void {
-    if (clientConnected) {
-      clearIdleTimeout();
-      clientSocket.close(code);
-      clientConnected = false;
+    clearIdleTimeout();
+    const socket = clientSocket;
+    if (socket == null) return;
+
+    if (socket.readyState === socket.CONNECTING || socket.readyState === socket.OPEN) {
+      try {
+        socket.close(code);
+      } catch {
+        // Socket may already be closing or closed
+      }
     }
+    clientConnected = false;
+    emitClientDisconnect();
   }
 
   function closeServerSocket(): void {
-    if (serverConnected) {
-      clearIdleTimeout();
+    closeRequested = true;
+    clearIdleTimeout();
+    const wasConnected = serverConnected;
+
+    if (serverWriter != null) {
       try {
         serverWriter.releaseLock();
       } catch {
         // Writer may already be released
       }
-      serverSocket.close();
-      serverConnected = false;
+      serverWriter = null;
+    }
+
+    if (serverSocket != null) {
+      try {
+        serverSocket.close();
+      } catch {
+        // Socket may already be closing or closed
+      }
+    }
+
+    serverConnected = false;
+    if (wasConnected) {
+      emitServerDisconnect();
     }
   }
 
   function closeSocket(code = 1000): void {
+    closeRequested = true;
     closeClientSocket(code);
     closeServerSocket();
     clearAllListeners();
