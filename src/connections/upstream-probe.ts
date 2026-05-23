@@ -1,8 +1,10 @@
 // src/connections/upstream-probe.ts
+type IntervalHandle = ReturnType<typeof setInterval>;
+
 export class UpstreamProbe {
   private latency: number | null = null;
   private status: 'connected' | 'disconnected' | 'unknown' = 'unknown';
-  private interval: number | null = null;
+  private interval: IntervalHandle | null = null;
 
   constructor(
     private httpUrl: string,
