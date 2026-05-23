@@ -326,6 +326,104 @@ Deno.test({
 });
 
 // =============================
+// 接続ライフサイクル
+// =============================
+
+Deno.test({
+  name: 'closeSocket: emits clientDisconnect exactly once for local closes',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const env = await createEnv();
+    let disconnects = 0;
+    env.proxy.on('clientDisconnect', () => {
+      disconnects++;
+    });
+
+    try {
+      env.proxy.closeSocket();
+      await delay(100);
+      env.proxy.closeSocket();
+      await delay(100);
+
+      assertEquals(disconnects, 1);
+    } finally {
+      await env.cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: 'createSession: closes pending upstream when client disconnects before upstream opens',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    let activeUpstreams = 0;
+    const relayAc = new AbortController();
+    const relayPort = await new Promise<number>((resolve) => {
+      Deno.serve({
+        port: 0,
+        signal: relayAc.signal,
+        onListen({ port }) {
+          resolve(port);
+        },
+      }, async (req) => {
+        if (req.headers.get('upgrade') === 'websocket') {
+          const { socket, response } = Deno.upgradeWebSocket(req);
+          let opened = false;
+          socket.addEventListener('open', () => {
+            opened = true;
+            activeUpstreams++;
+          });
+          socket.addEventListener('close', () => {
+            if (opened) {
+              activeUpstreams--;
+            }
+          });
+          await delay(250);
+          return response;
+        }
+        return new Response('ok');
+      });
+    });
+
+    const proxy = pfortnerInit(`ws://127.0.0.1:${relayPort}`, {
+      sendAuthOnConnect: false,
+      idleTimeout: 10,
+    });
+
+    const proxyAc = new AbortController();
+    const proxyPort = await new Promise<number>((resolve) => {
+      Deno.serve({
+        port: 0,
+        signal: proxyAc.signal,
+        onListen({ port }) {
+          resolve(port);
+        },
+      }, (req) => proxy.createSession(req));
+    });
+
+    const ws = new WebSocket(`ws://127.0.0.1:${proxyPort}`);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        ws.onopen = () => resolve();
+        ws.onerror = () => reject(new Error('Client WebSocket connection failed'));
+      });
+      ws.close();
+      await delay(800);
+
+      assertEquals(activeUpstreams, 0);
+    } finally {
+      ws.close();
+      proxy.closeSocket();
+      proxyAc.abort();
+      relayAc.abort();
+      await delay(100);
+    }
+  },
+});
+
+// =============================
 // upstream 接続失敗
 // =============================
 
@@ -355,6 +453,13 @@ Deno.test({
     });
 
     const ws = new WebSocket(`ws://127.0.0.1:${proxyPort}`);
+    const clientClosed = new Promise<boolean>((resolve) => {
+      const timeout = setTimeout(() => resolve(false), 3000);
+      ws.onclose = () => {
+        clearTimeout(timeout);
+        resolve(true);
+      };
+    });
     await new Promise<void>((resolve) => {
       ws.onopen = () => resolve();
       ws.onerror = () => resolve();
@@ -363,6 +468,7 @@ Deno.test({
     await new Promise((r) => setTimeout(r, 500));
 
     assertEquals(serverErrorFired, true);
+    assertEquals(await clientClosed, true);
 
     ws.close();
     proxy.closeSocket();
