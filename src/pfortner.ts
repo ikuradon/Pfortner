@@ -228,13 +228,13 @@ export const pfortnerInit = (
     serverSocket = upstreamSocket;
 
     upstreamSocket.opened.then((webSocketConnection) => {
-      ({ readable: serverReadable, writable: serverWritable } = webSocketConnection);
-      serverWriter = serverWritable.getWriter();
-
       if (closeRequested) {
-        closeServerSocket();
+        closeUpstreamSocket(upstreamSocket);
         return;
       }
+
+      ({ readable: serverReadable, writable: serverWritable } = webSocketConnection);
+      serverWriter = serverWritable.getWriter();
 
       serverConnected = true;
       setIdleTimeout();
@@ -324,6 +324,9 @@ export const pfortnerInit = (
       }
     }).finally(() => {
       const wasConnected = serverConnected;
+      if (serverSocket === upstreamSocket) {
+        serverSocket = null;
+      }
       serverConnected = false;
       serverWriter = null;
       serverWritable = null;
@@ -332,6 +335,7 @@ export const pfortnerInit = (
       if (wasConnected) {
         emitServerDisconnect();
         if (!closeRequested) {
+          closeRequested = true;
           closeClientSocket(1011);
           clearAllListeners();
         }
@@ -485,6 +489,14 @@ export const pfortnerInit = (
     await serverWriter.write(message);
   }
 
+  function closeUpstreamSocket(socket: WebSocketStream): void {
+    try {
+      socket.close();
+    } catch {
+      // Socket may already be closing or closed
+    }
+  }
+
   function closeClientSocket(code = 1000): void {
     clearIdleTimeout();
     const socket = clientSocket;
@@ -512,6 +524,8 @@ export const pfortnerInit = (
     closeRequested = true;
     clearIdleTimeout();
     const wasConnected = serverConnected;
+    const socket = serverSocket;
+    serverSocket = null;
 
     if (serverWriter != null) {
       try {
@@ -521,13 +535,11 @@ export const pfortnerInit = (
       }
       serverWriter = null;
     }
+    serverWritable = null;
+    serverReadable = null;
 
-    if (serverSocket != null) {
-      try {
-        serverSocket.close();
-      } catch {
-        // Socket may already be closing or closed
-      }
+    if (socket != null) {
+      closeUpstreamSocket(socket);
     }
 
     serverConnected = false;
