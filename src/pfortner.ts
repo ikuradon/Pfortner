@@ -181,40 +181,40 @@ export const pfortnerInit = (
 
       setIdleTimeout();
 
-      listeners.clientMsg.forEach((cb) => cb(json));
-
-      switch (msg[0]) {
-        case 'AUTH': // NIP-42
-          if (msg.length >= 2) {
-            const event = msg[1] as nostrTools.Event;
-            listeners.clientAuth.forEach((cb) => cb(event));
-          }
-          return; // Terminate at proxy (Do not send message to upstream relay.)
-        case 'CLOSE': // NIP-01
-          if (msg.length >= 2) {
-            const subscriptionId = msg[1] as string;
-            listeners.clientClose.forEach((cb) => cb(subscriptionId));
-          }
-          break;
-        case 'EVENT': // NIP-01
-          if (msg.length >= 2) {
-            const event = msg[1] as nostrTools.Event;
-            listeners.clientEvent.forEach((cb) => cb(event));
-          }
-          break;
-        case 'REQ': // NIP-01
-          if (msg.length >= 3) {
-            const subscriptionId = msg[1] as string;
-            const filter = msg[2] as nostrTools.Filter;
-            listeners.clientRequest.forEach((cb) => cb(subscriptionId, filter));
-          }
-          break;
-      }
-
       try {
+        await emit('clientMsg', json);
+
+        switch (msg[0]) {
+          case 'AUTH': // NIP-42
+            if (msg.length >= 2) {
+              const event = msg[1] as nostrTools.Event;
+              await emit('clientAuth', event);
+            }
+            return; // Terminate at proxy (Do not send message to upstream relay.)
+          case 'CLOSE': // NIP-01
+            if (msg.length >= 2) {
+              const subscriptionId = msg[1] as string;
+              await emit('clientClose', subscriptionId);
+            }
+            break;
+          case 'EVENT': // NIP-01
+            if (msg.length >= 2) {
+              const event = msg[1] as nostrTools.Event;
+              await emit('clientEvent', event);
+            }
+            break;
+          case 'REQ': // NIP-01
+            if (msg.length >= 3) {
+              const subscriptionId = msg[1] as string;
+              const filter = msg[2] as nostrTools.Filter;
+              await emit('clientRequest', subscriptionId, filter);
+            }
+            break;
+        }
+
         await runPipeline(clientPolicies, msg, sendMessageToServer);
       } catch (e) {
-        log.error(`Client policy error: ${e} connectionId=${connectionInfo.connectionId}`);
+        log.error(`Client message handling error: ${e} connectionId=${connectionInfo.connectionId}`);
       }
     });
     clientSocket.addEventListener('close', () => {
@@ -356,6 +356,19 @@ export const pfortnerInit = (
     (Object.keys(listeners) as (keyof SocketEvent)[]).forEach((key) => {
       listeners[key] = [] as any;
     });
+  }
+  async function emit<T extends keyof SocketEvent>(
+    type: T,
+    ...args: Parameters<SocketEvent[T]>
+  ): Promise<void> {
+    const callbacks = listeners[type] as Array<(...args: Parameters<SocketEvent[T]>) => void | Promise<void>>;
+    for (const cb of callbacks) {
+      try {
+        await cb(...args);
+      } catch (e) {
+        log.error(`Listener error: ${e} type=${type} connectionId=${connectionInfo.connectionId}`);
+      }
+    }
   }
 
   function emitClientDisconnect(): void {
@@ -588,11 +601,11 @@ export const pfortnerInit = (
       const [policy, options] = toTuple(item);
       const result = await policy(msg, connectionInfo, options);
       if (result.action === 'accept') {
-        sendAccepted(JSON.stringify(result.message));
+        await sendAccepted(JSON.stringify(result.message));
         break;
       } else if (result.action === 'reject') {
         if (result.response != null) {
-          sendMessageToClient(result.response);
+          await sendMessageToClient(result.response);
         }
         break;
       }

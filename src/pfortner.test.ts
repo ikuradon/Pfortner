@@ -169,6 +169,42 @@ Deno.test({
 });
 
 Deno.test({
+  name: 'client message handler: async listener rejection does not skip pipeline',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    let unhandledRejection = false;
+    let policyRan = false;
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      unhandledRejection = true;
+      event.preventDefault();
+    };
+    globalThis.addEventListener('unhandledrejection', onUnhandledRejection);
+
+    const env = await createEnv();
+    try {
+      env.proxy.on('clientMsg', () => Promise.reject(new Error('clientMsg listener rejected')));
+      env.proxy.registerClientPipeline([(_msg) => {
+        policyRan = true;
+        return { message: _msg, action: 'next' };
+      }]);
+
+      env.ws.send(JSON.stringify(['EVENT', { kind: 1 }]));
+      await delay(100);
+
+      assertEquals(unhandledRejection, false);
+      assertEquals(policyRan, true);
+
+      const event = makeAuthEvent(env.challenge, env.upstreamUrl);
+      assertEquals(await sendAuth(env.ws, env.proxy, event), 'success');
+    } finally {
+      globalThis.removeEventListener('unhandledrejection', onUnhandledRejection);
+      await env.cleanup();
+    }
+  },
+});
+
+Deno.test({
   name: 'verifyAuthMessage: replay with same event ID is rejected',
   sanitizeResources: false,
   sanitizeOps: false,
