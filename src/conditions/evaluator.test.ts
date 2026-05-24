@@ -46,8 +46,13 @@ Deno.test('simple condition: multiple fields are implicit AND', () => {
   assertEquals(evaluateCondition({ authenticated: true, message_type: 'REQ' }, baseCtx), false);
 });
 
-Deno.test('simple condition: empty object matches everything', () => {
-  assertEquals(evaluateCondition({}, baseCtx), true);
+Deno.test('simple condition: empty object is invalid and does not match', () => {
+  assertEquals(evaluateCondition({}, baseCtx), false);
+});
+
+Deno.test('simple condition: unknown fields are invalid and do not match', () => {
+  assertEquals(evaluateCondition({ authentciated: true } as any, baseCtx), false);
+  assertEquals(evaluateCondition({ authenticated: true, event_king: 1 } as any, baseCtx), false);
 });
 
 Deno.test('and: all must be true', () => {
@@ -86,14 +91,20 @@ Deno.test('nested: or with and', () => {
   );
 });
 
-Deno.test('precedence: and key takes priority over simple fields', () => {
-  // { and: [...], pubkey: "x" } — and takes precedence, pubkey ignored
+Deno.test('mixed logical and simple fields are invalid', () => {
   assertEquals(
     evaluateCondition(
       { and: [{ authenticated: true }], pubkey: 'wrong' } as any,
       baseCtx,
     ),
-    true,
+    false,
+  );
+});
+
+Deno.test('multiple logical operators at same level are invalid', () => {
+  assertEquals(
+    evaluateCondition({ and: [{ authenticated: true }], or: [{ event_kind: 1 }] } as any, baseCtx),
+    false,
   );
 });
 
@@ -102,14 +113,17 @@ Deno.test('simple condition: has_search matches', () => {
   assertEquals(evaluateCondition({ has_search: true }, { ...baseCtx, hasSearch: false }), false);
 });
 
-Deno.test('and: empty array returns true', () => {
-  // Array.every on empty array = true
-  assertEquals(evaluateCondition({ and: [] } as any, baseCtx), true);
+Deno.test('and: empty array is invalid and does not match', () => {
+  assertEquals(evaluateCondition({ and: [] } as any, baseCtx), false);
 });
 
 Deno.test('or: empty array returns false', () => {
   // Array.some on empty array = false
   assertEquals(evaluateCondition({ or: [] } as any, baseCtx), false);
+});
+
+Deno.test('not: null condition is invalid and does not match', () => {
+  assertEquals(evaluateCondition({ not: null } as any, baseCtx), false);
 });
 
 Deno.test('simple condition: event_pubkey when context eventPubkey is null returns false', () => {

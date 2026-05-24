@@ -2,6 +2,7 @@ import type { InfraContext, OutputMessage, Policy, PolicyFactory, PolicyPlugin }
 import { evaluateCondition } from '../conditions/evaluator.ts';
 import type { Condition } from '../conditions/types.ts';
 import { buildEvalContext } from '../conditions/context.ts';
+import { conditionSchemaRef, withConditionSchema } from '../conditions/schema.ts';
 
 async function runSubPipeline(policies: Policy[], message: unknown[], connectionInfo: any): Promise<OutputMessage> {
   for (const policy of policies) {
@@ -15,15 +16,16 @@ export const whenPlugin: PolicyPlugin = {
   name: 'when',
   description: 'Conditional branching: run then or else pipeline based on condition',
   direction: 'both',
-  configSchema: {
+  configSchema: withConditionSchema({
     type: 'object',
     properties: {
-      condition: { type: 'object' },
+      condition: conditionSchemaRef,
       then: { type: 'array' },
       else: { type: 'array' },
     },
     required: ['condition', 'then'],
-  },
+    additionalProperties: false,
+  }),
   async initialize(config: unknown, infra: InfraContext): Promise<PolicyFactory> {
     const cfg = config as {
       condition: Condition;

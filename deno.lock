@@ -334,6 +334,7 @@
   "workspace": {
     "dependencies": [
       "jsr:@fresh/core@^2.2.0",
+      "jsr:@std/path@1.1.4",
       "jsr:@std/yaml@1.0.5",
       "npm:@preact/signals@2",
       "npm:ajv@8.17.1",

@@ -1,5 +1,45 @@
 import type { Condition, EvalContext, SimpleCondition } from './types.ts';
 
+const simpleConditionKeys = new Set([
+  'authenticated',
+  'pubkey',
+  'client_ip',
+  'message_type',
+  'event_kind',
+  'event_pubkey',
+  'has_search',
+]);
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isValidConditionShape(condition: unknown): condition is Condition {
+  if (!isObject(condition)) return false;
+
+  const keys = Object.keys(condition);
+  const logicalKeys = keys.filter((key) => key === 'and' || key === 'or' || key === 'not');
+
+  if (logicalKeys.length > 1) return false;
+  if (logicalKeys.length === 1) {
+    if (keys.length !== 1) return false;
+
+    if ('and' in condition) {
+      return Array.isArray(condition.and) &&
+        condition.and.length > 0 &&
+        condition.and.every((item) => isValidConditionShape(item));
+    }
+    if ('or' in condition) {
+      return Array.isArray(condition.or) &&
+        condition.or.length > 0 &&
+        condition.or.every((item) => isValidConditionShape(item));
+    }
+    return isValidConditionShape(condition.not);
+  }
+
+  return keys.length > 0 && keys.every((key) => simpleConditionKeys.has(key));
+}
+
 function evaluateSimple(condition: SimpleCondition, ctx: EvalContext): boolean {
   if (condition.authenticated !== undefined && condition.authenticated !== ctx.authenticated) return false;
   if (condition.pubkey !== undefined && condition.pubkey !== ctx.pubkey) return false;
@@ -16,7 +56,8 @@ function evaluateSimple(condition: SimpleCondition, ctx: EvalContext): boolean {
 }
 
 export function evaluateCondition(condition: Condition, ctx: EvalContext): boolean {
-  // Logical operators take precedence: and > or > not > simple
+  if (!isValidConditionShape(condition)) return false;
+
   if ('and' in condition && Array.isArray((condition as any).and)) {
     return ((condition as any).and as Condition[]).every((c) => evaluateCondition(c, ctx));
   }
