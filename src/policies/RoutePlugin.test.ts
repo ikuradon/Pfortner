@@ -8,12 +8,17 @@ import AjvModule from 'ajv';
 // deno-lint-ignore no-explicit-any
 const AjvClass = (AjvModule as any).default ?? AjvModule;
 
-const mockInstance = (): PfortnerInstance & { sentMessages: string[] } => {
+const mockInstance = (): PfortnerInstance & { relayedMessages: unknown[][]; sentMessages: string[] } => {
+  const relayedMessages: unknown[][] = [];
   const sentMessages: string[] = [];
   return {
     sendAuthMessage: () => {},
     sendMessageToClient: (msg) => {
       sentMessages.push(msg);
+      return Promise.resolve();
+    },
+    relayServerMessageToClient: (msg) => {
+      relayedMessages.push(msg);
       return Promise.resolve();
     },
     connectionInfo: {
@@ -22,6 +27,7 @@ const mockInstance = (): PfortnerInstance & { sentMessages: string[] } => {
       clientAuthorized: false,
       clientPubkey: '',
     },
+    relayedMessages,
     sentMessages,
   };
 };
@@ -141,4 +147,55 @@ Deno.test('routePlugin REQ matching condition with mock upstreamPool: subscribe 
   const result = await policy(['REQ', 'sub1', { search: 'hello' }], inst.connectionInfo);
   assertEquals(result.action, 'reject');
   assertEquals(subscribeCalled, true);
+});
+
+Deno.test('routePlugin relays routed upstream responses through server pipeline hook', async () => {
+  const infra = buildInfraContext({});
+
+  let onEvent: ((subId: string, event: unknown) => void) | undefined;
+  let onEose: ((subId: string) => void) | undefined;
+  let onClosed: ((subId: string, message: string) => void) | undefined;
+  const mockPool = {
+    getConnection: (_url: string) =>
+      Promise.resolve({
+        subscribe: (
+          _connectionId: string,
+          _subId: string,
+          _filters: unknown[],
+          eventCallback: (subId: string, event: unknown) => void,
+          eoseCallback: (subId: string) => void,
+          closedCallback: (subId: string, message: string) => void,
+        ) => {
+          onEvent = eventCallback;
+          onEose = eoseCallback;
+          onClosed = closedCallback;
+        },
+        unsubscribe: (_connectionId: string, _subId: string) => {},
+      }),
+    notifyClientDisconnect: (_clientId: string) => {},
+    closeAll: () => {},
+  };
+
+  const factory = await routePlugin.initialize({
+    upstream: 'ws://search.example.com',
+    condition: { has_search: true },
+  }, { ...infra, upstreamPool: mockPool });
+  const inst = mockInstance();
+  const policy = factory(inst);
+
+  const result = await policy(['REQ', 'sub1', { search: 'hello' }], inst.connectionInfo);
+  assertEquals(result.action, 'reject');
+
+  const event = { id: 'e1', kind: 1, tags: [['-']], content: 'secret' };
+  onEvent?.('sub1', event);
+  onEose?.('sub1');
+  onClosed?.('sub1', 'closed: test');
+  await Promise.resolve();
+
+  assertEquals(inst.sentMessages, []);
+  assertEquals(inst.relayedMessages, [
+    ['EVENT', 'sub1', event],
+    ['EOSE', 'sub1'],
+    ['CLOSED', 'sub1', 'closed: test'],
+  ]);
 });

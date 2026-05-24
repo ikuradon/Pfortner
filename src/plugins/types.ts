@@ -6,6 +6,7 @@ export type { ConnectionInfo, OutputMessage, Policy };
 export interface PfortnerInstance {
   sendAuthMessage: () => void;
   sendMessageToClient: (message: string) => Promise<void>;
+  relayServerMessageToClient?: (message: unknown[]) => Promise<void>;
   connectionInfo: ConnectionInfo;
 }
 

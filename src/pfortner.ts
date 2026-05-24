@@ -300,7 +300,7 @@ export const pfortnerInit = (
             }
 
             try {
-              await runPipeline(serverPolicies, msg, sendMessageToClient);
+              await relayServerMessageToClient(msg);
             } catch (e) {
               log.error(`Server policy error: ${e}`);
             }
@@ -592,6 +592,10 @@ export const pfortnerInit = (
     return typeof item === 'function' ? [item] : item;
   }
 
+  async function relayServerMessageToClient(message: unknown[]): Promise<void> {
+    await runPipeline(serverPolicies, message, sendMessageToClient);
+  }
+
   async function runPipeline(
     policies: Policies<any[]>,
     msg: unknown[],
@@ -620,6 +624,7 @@ export const pfortnerInit = (
     sendAuthMessage,
     sendMessageToClient,
     sendMessageToServer,
+    relayServerMessageToClient,
 
     on,
     off,
