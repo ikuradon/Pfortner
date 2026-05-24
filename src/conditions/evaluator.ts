@@ -1,14 +1,7 @@
 import type { Condition, EvalContext, SimpleCondition } from './types.ts';
+import { simpleConditionKeys } from './schema.ts';
 
-const simpleConditionKeys = new Set([
-  'authenticated',
-  'pubkey',
-  'client_ip',
-  'message_type',
-  'event_kind',
-  'event_pubkey',
-  'has_search',
-]);
+const simpleConditionKeySet = new Set(simpleConditionKeys);
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -37,7 +30,7 @@ function isValidConditionShape(condition: unknown): condition is Condition {
     return isValidConditionShape(condition.not);
   }
 
-  return keys.length > 0 && keys.every((key) => simpleConditionKeys.has(key));
+  return keys.length > 0 && keys.every((key) => simpleConditionKeySet.has(key));
 }
 
 function evaluateSimple(condition: SimpleCondition, ctx: EvalContext): boolean {
@@ -64,7 +57,7 @@ export function evaluateCondition(condition: Condition, ctx: EvalContext): boole
   if ('or' in condition && Array.isArray((condition as any).or)) {
     return ((condition as any).or as Condition[]).some((c) => evaluateCondition(c, ctx));
   }
-  if ('not' in condition && typeof (condition as any).not === 'object') {
+  if ('not' in condition && isObject((condition as any).not)) {
     return !evaluateCondition((condition as any).not as Condition, ctx);
   }
   return evaluateSimple(condition as SimpleCondition, ctx);

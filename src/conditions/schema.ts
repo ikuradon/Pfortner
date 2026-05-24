@@ -8,7 +8,7 @@ const simpleConditionProperties = {
   has_search: { type: 'boolean' },
 };
 
-const simpleConditionKeys = Object.keys(simpleConditionProperties);
+export const simpleConditionKeys = Object.keys(simpleConditionProperties);
 
 export const conditionSchemaDefinition: Record<string, unknown> = {
   type: 'object',
