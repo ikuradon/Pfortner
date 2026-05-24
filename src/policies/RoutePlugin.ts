@@ -3,6 +3,7 @@ import type { InfraContext, PolicyFactory, PolicyPlugin } from '../plugins/types
 import { buildEvalContext } from '../conditions/context.ts';
 import { evaluateCondition } from '../conditions/evaluator.ts';
 import type { Condition } from '../conditions/types.ts';
+import { conditionSchemaRef, withConditionSchema } from '../conditions/schema.ts';
 
 interface RouteConfig {
   upstream: string;
@@ -13,14 +14,15 @@ export const routePlugin: PolicyPlugin = {
   name: 'route',
   description: 'Route matching REQ messages to an alternative upstream relay',
   direction: 'client',
-  configSchema: {
+  configSchema: withConditionSchema({
     type: 'object',
     properties: {
       upstream: { type: 'string' },
-      condition: { type: 'object' },
+      condition: conditionSchemaRef,
     },
     required: ['upstream', 'condition'],
-  },
+    additionalProperties: false,
+  }),
   initialize(config: unknown, infra: InfraContext): Promise<PolicyFactory> {
     const cfg = config as RouteConfig;
 

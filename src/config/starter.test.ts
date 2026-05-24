@@ -27,6 +27,33 @@ pipelines:
   }
 });
 
+Deno.test('buildRequestHandler rejects invalid conditional policy config', async () => {
+  const config = loadConfigFromString(`
+server:
+  port: 3000
+  upstream_relay: "ws://localhost:7777"
+pipelines:
+  client:
+    - policy: when
+      config:
+        condition:
+          authenticated: true
+          or:
+            - event_kind: 4
+        then:
+          - policy: accept
+    - policy: accept
+  server:
+    - policy: accept
+`);
+  try {
+    await buildRequestHandler(config, buildInfraContext({}), createPluginRegistry());
+    throw new Error('should have thrown');
+  } catch (e) {
+    assertEquals((e as Error).message.includes('validation'), true);
+  }
+});
+
 Deno.test('buildRequestHandler creates a function', async () => {
   const config = loadConfigFromString(`
 server:

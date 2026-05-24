@@ -2,6 +2,7 @@ import type { InfraContext, OutputMessage, Policy, PolicyFactory, PolicyPlugin }
 import { evaluateCondition } from '../conditions/evaluator.ts';
 import type { Condition } from '../conditions/types.ts';
 import { buildEvalContext } from '../conditions/context.ts';
+import { conditionSchemaRef, withConditionSchema } from '../conditions/schema.ts';
 
 async function runSubPipeline(policies: Policy[], message: unknown[], connectionInfo: any): Promise<OutputMessage> {
   for (const policy of policies) {
@@ -20,14 +21,26 @@ export const matchPlugin: PolicyPlugin = {
   name: 'match',
   description: 'Multi-way conditional branching: first matching case wins',
   direction: 'both',
-  configSchema: {
+  configSchema: withConditionSchema({
     type: 'object',
     properties: {
-      cases: { type: 'array' },
+      cases: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            condition: conditionSchemaRef,
+            pipeline: { type: 'array' },
+          },
+          required: ['condition', 'pipeline'],
+          additionalProperties: false,
+        },
+      },
       default: { type: 'array' },
     },
     required: ['cases'],
-  },
+    additionalProperties: false,
+  }),
   async initialize(config: unknown, infra: InfraContext): Promise<PolicyFactory> {
     const cfg = config as {
       cases: MatchCase[];

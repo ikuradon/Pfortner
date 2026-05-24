@@ -2,6 +2,10 @@ import { assertEquals } from 'jsr:@std/assert@1.0.18';
 import { whenPlugin } from './WhenPlugin.ts';
 import { buildInfraContext } from '../infra/context.ts';
 import type { InfraContext, PfortnerInstance, PolicyFactory } from '../plugins/types.ts';
+import AjvModule from 'ajv';
+
+// deno-lint-ignore no-explicit-any
+const AjvClass = (AjvModule as any).default ?? AjvModule;
 
 const mockInstance = (authorized = false): PfortnerInstance => ({
   sendAuthMessage: () => {},
@@ -90,4 +94,43 @@ Deno.test('when: condition with event_kind', async () => {
   const policy = factory(inst);
   assertEquals((await policy(['EVENT', { id: 'e1', kind: 4 }], inst.connectionInfo)).action, 'reject');
   assertEquals((await policy(['EVENT', { id: 'e1', kind: 1 }], inst.connectionInfo)).action, 'accept');
+});
+
+Deno.test('when: mixed auth and logical condition does not bypass to then pipeline', async () => {
+  const infra = createMockInfra({ accept: 'accept', reject: 'reject' });
+  const factory = await whenPlugin.initialize({
+    condition: { authenticated: true, or: [{ event_kind: 4 }, { event_kind: 1059 }] },
+    then: [{ policy: 'accept' }],
+    else: [{ policy: 'reject' }],
+  }, infra);
+  const inst = mockInstance(false);
+  const policy = factory(inst);
+  const result = await policy(['EVENT', { id: 'e1', kind: 4 }], inst.connectionInfo);
+  assertEquals(result.action, 'reject');
+});
+
+Deno.test('when: configSchema rejects invalid condition shapes', () => {
+  const validate = new AjvClass({ allErrors: true }).compile(whenPlugin.configSchema);
+
+  assertEquals(
+    validate({
+      condition: { authenticated: true, or: [{ event_kind: 4 }] },
+      then: [{ policy: 'accept' }],
+    }),
+    false,
+  );
+  assertEquals(
+    validate({
+      condition: {},
+      then: [{ policy: 'accept' }],
+    }),
+    false,
+  );
+  assertEquals(
+    validate({
+      condition: { event_king: 4 },
+      then: [{ policy: 'accept' }],
+    }),
+    false,
+  );
 });

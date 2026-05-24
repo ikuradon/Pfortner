@@ -3,6 +3,10 @@ import { assertEquals } from 'jsr:@std/assert@1.0.18';
 import { routePlugin } from './RoutePlugin.ts';
 import { buildInfraContext } from '../infra/context.ts';
 import type { InfraContext, PfortnerInstance } from '../plugins/types.ts';
+import AjvModule from 'ajv';
+
+// deno-lint-ignore no-explicit-any
+const AjvClass = (AjvModule as any).default ?? AjvModule;
 
 const mockInstance = (): PfortnerInstance & { sentMessages: string[] } => {
   const sentMessages: string[] = [];
@@ -69,6 +73,32 @@ Deno.test('routePlugin passes CLOSE for untracked subId with next', async () => 
 
 Deno.test('routePlugin configSchema requires upstream and condition', () => {
   assertEquals(routePlugin.configSchema.required, ['upstream', 'condition']);
+});
+
+Deno.test('routePlugin configSchema rejects invalid condition shapes', () => {
+  const validate = new AjvClass({ allErrors: true }).compile(routePlugin.configSchema);
+
+  assertEquals(
+    validate({
+      upstream: 'ws://search.example.com',
+      condition: { authenticated: true, or: [{ has_search: true }] },
+    }),
+    false,
+  );
+  assertEquals(
+    validate({
+      upstream: 'ws://search.example.com',
+      condition: {},
+    }),
+    false,
+  );
+  assertEquals(
+    validate({
+      upstream: 'ws://search.example.com',
+      condition: { serach: true },
+    }),
+    false,
+  );
 });
 
 Deno.test('routePlugin direction is client', () => {
