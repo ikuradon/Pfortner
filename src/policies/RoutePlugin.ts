@@ -59,6 +59,20 @@ export const routePlugin: PolicyPlugin = {
           try {
             const conn = await infra.upstreamPool?.getConnection(cfg.upstream);
             if (!conn) return { message, action: 'next' }; // no pool available
+            const relayServerMessageToClient = instance.relayServerMessageToClient;
+            if (!relayServerMessageToClient) {
+              infra.logger.warn('Route plugin requires server relay pipeline hook', { upstream: cfg.upstream });
+              return { message, action: 'next' };
+            }
+
+            const relayRoutedMessage = (routedMessage: unknown[]) => {
+              void relayServerMessageToClient(routedMessage).catch((e) => {
+                infra.logger.warn('Failed to relay routed upstream message', {
+                  upstream: cfg.upstream,
+                  error: String(e),
+                });
+              });
+            };
 
             routedSubIds.add(subId);
             conn.subscribe(
@@ -66,13 +80,13 @@ export const routePlugin: PolicyPlugin = {
               subId,
               filters,
               (origSubId: string, event: unknown) => {
-                instance.sendMessageToClient(JSON.stringify(['EVENT', origSubId, event]));
+                relayRoutedMessage(['EVENT', origSubId, event]);
               },
               (origSubId: string) => {
-                instance.sendMessageToClient(JSON.stringify(['EOSE', origSubId]));
+                relayRoutedMessage(['EOSE', origSubId]);
               },
               (origSubId: string, closedMsg: string) => {
-                instance.sendMessageToClient(JSON.stringify(['CLOSED', origSubId, closedMsg]));
+                relayRoutedMessage(['CLOSED', origSubId, closedMsg]);
                 routedSubIds.delete(origSubId);
               },
             );
