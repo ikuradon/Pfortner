@@ -5,6 +5,7 @@ import type { PfortnerConfig, PipelineEntry } from './loader.ts';
 import type { ManagedConnection } from '../connections/types.ts';
 import type { ConnectionManager } from '../connections/manager.ts';
 import type { ShutdownManager } from '../shutdown/manager.ts';
+import { remoteHostnameFromConn, selectClientIp } from '../net/client-ip.ts';
 import AjvModule from 'ajv';
 // deno-lint-ignore no-explicit-any
 const AjvClass = (AjvModule as any).default ?? AjvModule;
@@ -78,9 +79,10 @@ export async function buildRequestHandler(
   const serverPipeline = await resolvePipeline(config.pipelines.server, 'server', registry, infraWithResolver);
 
   return (req: Request, conn: Deno.ServeHandlerInfo<Deno.NetAddr>) => {
-    const clientIp = config.server.x_forwarded_for
-      ? (req.headers.get('X-Forwarded-For') || ('hostname' in conn.remoteAddr ? conn.remoteAddr.hostname : ''))
-      : ('hostname' in conn.remoteAddr ? conn.remoteAddr.hostname : '');
+    const clientIp = selectClientIp(req, {
+      remoteHostname: remoteHostnameFromConn(conn),
+      trustForwardedFor: config.server.x_forwarded_for === true,
+    });
 
     // Draining check
     if (hooks?.shutdownManager?.isDraining()) {
