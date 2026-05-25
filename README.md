@@ -199,6 +199,9 @@ Creates a proxy instance.
 - `sendMessageToClient(message)` — Send a message directly to the client
 - `sendMessageToServer(message)` — Send a message directly to the upstream relay
 
+Each `pfortnerInit()` result is a per-connection proxy instance. Call `createSession(req)` only once for that
+instance; create a new `pfortnerInit()` instance for each incoming WebSocket client.
+
 ### Event Types
 
 Subscribe to these events using `pfortner.on(event, handler)`:
