@@ -25,6 +25,15 @@ Deno.test('selectClientIp uses X-Forwarded-For only when explicitly trusted', ()
   assertEquals(result, '198.51.100.10');
 });
 
+Deno.test('selectClientIp falls back to remoteHostname when trusted but X-Forwarded-For is absent', () => {
+  const result = selectClientIp(new Request('http://localhost/'), {
+    remoteHostname: '203.0.113.77',
+    trustForwardedFor: true,
+  });
+
+  assertEquals(result, '203.0.113.77');
+});
+
 Deno.test('selectClientIp returns empty string when no peer IP is available', () => {
   const result = selectClientIp(new Request('http://localhost/'), {
     remoteHostname: '',
