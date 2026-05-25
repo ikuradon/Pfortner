@@ -2,8 +2,12 @@ import { assertEquals } from 'jsr:@std/assert@1.0.18';
 import { parseRelayResponse } from './relay-query.ts';
 import { nostrTools } from '../deps.ts';
 
-function makeContactListEvent(pubkeySk: Uint8Array, tags: string[][]): nostrTools.VerifiedEvent {
-  return nostrTools.finalizeEvent({ kind: 3, content: '', created_at: 0, tags }, pubkeySk);
+function makeContactListEvent(
+  pubkeySk: Uint8Array,
+  tags: string[][],
+  createdAt = 0,
+): nostrTools.VerifiedEvent {
+  return nostrTools.finalizeEvent({ kind: 3, content: '', created_at: createdAt, tags }, pubkeySk);
 }
 
 Deno.test('parseRelayResponse extracts contact lists from EVENT messages', () => {
@@ -51,4 +55,17 @@ Deno.test('parseRelayResponse ignores malformed EVENT payloads', () => {
 
   const result = parseRelayResponse(messages, 'sub1', new Set([validEvent.pubkey]));
   assertEquals(result, new Map([[validEvent.pubkey, ['trusted-follow']]]));
+});
+
+Deno.test('parseRelayResponse keeps the newest contact list for duplicate pubkeys', () => {
+  const sk = nostrTools.generateSecretKey();
+  const newerEvent = makeContactListEvent(sk, [['p', 'newer-follow']], 2);
+  const olderEvent = makeContactListEvent(sk, [['p', 'older-follow']], 1);
+  const messages = [
+    ['EVENT', 'sub1', newerEvent],
+    ['EVENT', 'sub1', olderEvent],
+  ];
+
+  const result = parseRelayResponse(messages, 'sub1', new Set([newerEvent.pubkey]));
+  assertEquals(result.get(newerEvent.pubkey), ['newer-follow']);
 });

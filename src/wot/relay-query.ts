@@ -20,6 +20,7 @@ export function parseRelayResponse(
   expectedAuthors: Set<string>,
 ): Map<string, string[]> {
   const result = new Map<string, string[]>();
+  const createdAtByPubkey = new Map<string, number>();
   for (const msg of messages) {
     if (msg[0] !== 'EVENT' || msg.length < 3 || msg[1] !== subId) {
       continue;
@@ -33,7 +34,11 @@ export function parseRelayResponse(
       nostrTools.validateEvent(event) &&
       nostrTools.verifyEvent(event)
     ) {
-      result.set(event.pubkey, parseContactList(event));
+      const storedCreatedAt = createdAtByPubkey.get(event.pubkey) ?? -1;
+      if (event.created_at > storedCreatedAt) {
+        createdAtByPubkey.set(event.pubkey, event.created_at);
+        result.set(event.pubkey, parseContactList(event));
+      }
     }
   }
   return result;
