@@ -10,8 +10,8 @@ export function buildEvalContext(
   let hasSearch = false;
   if (message[0] === 'REQ') {
     for (let i = 2; i < message.length; i++) {
-      const filter = message[i] as Record<string, unknown>;
-      if (filter && 'search' in filter) {
+      const filter = message[i] as unknown;
+      if (typeof filter === 'object' && filter !== null && 'search' in filter) {
         hasSearch = true;
         break;
       }
