@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals, assertThrows } from 'jsr:@std/assert@1.0.18';
 import { buildRequestHandler } from './starter.ts';
 import { loadConfigFromString } from './loader.ts';
 import { buildInfraContext } from '../infra/context.ts';
@@ -138,4 +138,51 @@ pipelines:
   const conn = { remoteAddr: { hostname: '127.0.0.1', port: 12345, transport: 'tcp' as const } };
   const response = handler(req, conn as any);
   assertEquals(response.status, 429);
+});
+
+Deno.test('buildRequestHandler does not register state when websocket upgrade fails', async () => {
+  const config = loadConfigFromString(`
+server:
+  port: 3000
+  upstream_relay: "ws://localhost:7777"
+pipelines:
+  client:
+    - policy: accept
+  server:
+    - policy: accept
+`);
+  const events: string[] = [];
+  const mockConnectionManager = {
+    canAccept: (_ip: string) => ({ allowed: true }),
+    register: () => events.push('register'),
+    unregister: () => events.push('unregister'),
+    getStats: () => ({ active: 0, authenticated: 0, max: 10, perIpMax: 3, pressure: 'normal' as const }),
+  };
+  const metrics = {
+    counters: new Map<string, number>(),
+    gauges: new Map<string, number>(),
+    counter(name: string) {
+      events.push(`counter:${name}`);
+      this.counters.set(name, (this.counters.get(name) ?? 0) + 1);
+    },
+    gauge(name: string, value: number) {
+      this.gauges.set(name, value);
+    },
+    histogram(_name: string, _value: number, _labels?: Record<string, string>) {},
+  };
+  const handler = await buildRequestHandler(config, buildInfraContext({ metrics }), createPluginRegistry(), {
+    connectionManager: mockConnectionManager as any,
+    onConnect: () => events.push('onConnect'),
+    onDisconnect: () => events.push('onDisconnect'),
+  });
+  const req = new Request('http://localhost/', {
+    headers: {
+      upgrade: 'websocket',
+      connection: 'Upgrade',
+    },
+  });
+  const conn = { remoteAddr: { hostname: '127.0.0.1', port: 12345, transport: 'tcp' as const } };
+
+  assertThrows(() => handler(req, conn as any));
+  assertEquals(events, []);
 });
