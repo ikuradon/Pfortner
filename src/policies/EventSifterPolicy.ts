@@ -1,5 +1,6 @@
 import { type Policy } from '../../mod.ts';
 import { nostrTools } from '../deps.ts';
+import { extractEvent } from '../plugins/types.ts';
 
 type sourceType = 'IP4' | 'IP6' | 'Import' | 'Stream' | 'Sync';
 
@@ -45,11 +46,12 @@ export const eventSifterPolicy: Policy<ESPolicies<unknown[]>> = async (
   connectionInfo,
   esPolicies,
 ) => {
-  if (message[0] !== 'EVENT' || message.length !== 3) {
+  const extracted = extractEvent(message);
+  if (!extracted) {
     return { message, action: 'next' };
   }
 
-  const event = message[2] as nostrTools.Event;
+  const event = extracted.event as nostrTools.Event;
   const msg: ESInputMessage = {
     type: 'new',
     event,
@@ -61,6 +63,10 @@ export const eventSifterPolicy: Policy<ESPolicies<unknown[]>> = async (
   for (const item of esPolicies as (ESPolicy | ESPolicyTuple)[]) {
     const [policy, opts] = toTuple(item);
     const result = await policy(msg, opts);
+    if (result.action === 'shadowReject') {
+      const response = message.length === 2 ? JSON.stringify(['OK', event.id, true, '']) : undefined;
+      return { message, action: 'reject', response };
+    }
     if (result.action !== 'accept') {
       return { message, action: 'reject', response: JSON.stringify(['OK', event.id, false, result.msg]) };
     }

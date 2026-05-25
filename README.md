@@ -136,7 +136,7 @@ pfortner.registerServerPipeline([
 ### Built-in Policies
 
 - **acceptPolicy** — Pass-through policy that accepts all messages
-- **eventSifterPolicy** — Filter relay→client EVENT messages by kind (allow/deny lists)
+- **eventSifterPolicy** — Filter client→relay and relay→client EVENT messages by kind (allow/deny lists)
 
 ## Docker Usage
 
