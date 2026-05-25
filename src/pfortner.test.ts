@@ -205,14 +205,23 @@ Deno.test({
       );
       const kindFilter = factory(env.proxy);
       env.proxy.registerClientPipeline([kindFilter, acceptPolicy]);
+      const clientMessages: string[] = [];
+      env.ws.onmessage = ({ data }) => {
+        clientMessages.push(data as string);
+      };
 
       const forbiddenEvent = { id: 'forbidden', pubkey: 'pk', kind: 4, created_at: 0, tags: [], content: '', sig: '' };
       const allowedDummyEvent = { id: 'allowed', pubkey: 'pk', kind: 1, created_at: 0, tags: [], content: '', sig: '' };
 
       env.ws.send(JSON.stringify(['EVENT', forbiddenEvent, allowedDummyEvent]));
-      await delay(100);
+      await waitFor(
+        () => clientMessages.includes(JSON.stringify(['NOTICE', 'ERROR: bad msg: invalid EVENT message'])),
+        1000,
+        'client did not receive invalid EVENT NOTICE',
+      );
 
       assertEquals(env.upstreamMessages, []);
+      assertEquals(clientMessages, [JSON.stringify(['NOTICE', 'ERROR: bad msg: invalid EVENT message'])]);
     } finally {
       await env.cleanup();
     }
