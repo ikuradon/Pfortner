@@ -420,6 +420,70 @@ Deno.test({
 // =============================
 
 Deno.test({
+  name: 'createSession: emits clientDisconnect when upstream fails after client socket already closed',
+  fn: async () => {
+    const originalUpgradeWebSocket = Object.getOwnPropertyDescriptor(Deno, 'upgradeWebSocket');
+    const originalWebSocketStream = Object.getOwnPropertyDescriptor(globalThis, 'WebSocketStream');
+    let resolveClosed: (() => void) | undefined;
+
+    const clientSocket = {
+      CONNECTING: 0,
+      OPEN: 1,
+      CLOSING: 2,
+      CLOSED: 3,
+      readyState: 3,
+      addEventListener: () => {},
+      close: () => {},
+      send: () => {},
+    };
+
+    Object.defineProperty(Deno, 'upgradeWebSocket', {
+      configurable: true,
+      value: () => ({
+        socket: clientSocket,
+        response: new Response('upgrade accepted'),
+      }),
+    });
+    Object.defineProperty(globalThis, 'WebSocketStream', {
+      configurable: true,
+      value: class {
+        opened = Promise.reject(new Error('upstream failed'));
+        closed = new Promise<void>((resolve) => {
+          resolveClosed = resolve;
+        });
+        close() {
+          resolveClosed?.();
+        }
+      },
+    });
+
+    try {
+      const proxy = pfortnerInit('ws://127.0.0.1:1', {
+        sendAuthOnConnect: false,
+      });
+      let disconnects = 0;
+      proxy.on('clientDisconnect', () => {
+        disconnects++;
+      });
+
+      proxy.createSession(new Request('http://localhost'));
+      await waitFor(() => disconnects === 1, 1000, 'Timed out waiting for clientDisconnect');
+
+      assertEquals(disconnects, 1);
+    } finally {
+      if (originalUpgradeWebSocket) {
+        Object.defineProperty(Deno, 'upgradeWebSocket', originalUpgradeWebSocket);
+      }
+      if (originalWebSocketStream) {
+        Object.defineProperty(globalThis, 'WebSocketStream', originalWebSocketStream);
+      } else {
+        delete (globalThis as Record<string, unknown>).WebSocketStream;
+      }
+    }
+  },
+});
+
+Deno.test({
   name: 'closeSocket: emits clientDisconnect exactly once for local closes',
   sanitizeResources: false,
   sanitizeOps: false,

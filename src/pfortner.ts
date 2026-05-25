@@ -93,7 +93,6 @@ export const pfortnerInit = (
   let sessionTimer: ReturnType<typeof setTimeout> | null = null;
 
   let serverConnected = false;
-  let clientConnected = false;
   let closeRequested = false;
   let clientDisconnectEmitted = false;
   let serverDisconnectEmitted = false;
@@ -151,8 +150,6 @@ export const pfortnerInit = (
         closeClientSocket();
         return;
       }
-
-      clientConnected = true;
 
       setIdleTimeout();
 
@@ -224,7 +221,6 @@ export const pfortnerInit = (
       }
     });
     clientSocket.addEventListener('close', () => {
-      clientConnected = false;
       emitClientDisconnect();
       closeServerSocket();
       clearAllListeners();
@@ -521,11 +517,6 @@ export const pfortnerInit = (
     const socket = clientSocket;
     if (socket == null) return;
 
-    const wasConnected = clientConnected ||
-      socket.readyState === socket.CONNECTING ||
-      socket.readyState === socket.OPEN ||
-      socket.readyState === socket.CLOSING;
-
     if (socket.readyState === socket.CONNECTING || socket.readyState === socket.OPEN) {
       try {
         socket.close(code);
@@ -533,10 +524,7 @@ export const pfortnerInit = (
         // Socket may already be closing or closed
       }
     }
-    clientConnected = false;
-    if (wasConnected) {
-      emitClientDisconnect();
-    }
+    emitClientDisconnect();
   }
 
   function closeServerSocket(): void {
