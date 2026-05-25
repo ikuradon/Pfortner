@@ -84,6 +84,18 @@ Deno.test('kv expire applies to sorted set members', async () => {
   await client.close();
 });
 
+Deno.test('kv slidingWindowAdd stores zset expiry in the same format as expire', async () => {
+  const client = await createKvClient({ path: ':memory:' });
+
+  assertEquals(await client.slidingWindowAdd('events:conn:attacker', 0, 10, Date.now(), 'member-1', 0.05), true);
+  await client.zadd('events:conn:attacker', Date.now(), 'member-2');
+  assertEquals(await client.zcard('events:conn:attacker'), 2);
+  await new Promise((r) => setTimeout(r, 100));
+
+  assertEquals(await client.zcard('events:conn:attacker'), 0);
+  await client.close();
+});
+
 Deno.test('kv incr preserves an existing TTL', async () => {
   const client = await createKvClient({ path: ':memory:' });
 
