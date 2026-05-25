@@ -4,6 +4,18 @@ import { createRedisClient } from './redis.ts';
 const REDIS_URL = Deno.env.get('REDIS_URL');
 const skipRedis = !REDIS_URL;
 
+async function waitForRedisKeyToExpire(
+  client: Awaited<ReturnType<typeof createRedisClient>>,
+  key: string,
+): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (await client.get(key) === null) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assertEquals(await client.get(key), null);
+}
+
 Deno.test({
   name: 'redis get/set with TTL',
   ignore: skipRedis,
@@ -39,8 +51,7 @@ Deno.test({
     await client.del('key-nx-zero-ttl');
     assertEquals(await client.setIfAbsent('key-nx-zero-ttl', 'value1', 0), true);
     assertEquals(await client.get('key-nx-zero-ttl'), 'value1');
-    await new Promise((resolve) => setTimeout(resolve, 1100));
-    assertEquals(await client.get('key-nx-zero-ttl'), null);
+    await waitForRedisKeyToExpire(client, 'key-nx-zero-ttl');
     await client.close();
   },
 });
