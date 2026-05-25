@@ -11,6 +11,7 @@ import { ConnectionManager } from '../src/connections/manager.ts';
 import { ShutdownManager } from '../src/shutdown/manager.ts';
 import { UpstreamProbe } from '../src/connections/upstream-probe.ts';
 import { remoteHostnameFromConn, selectClientIp } from '../src/net/client-ip.ts';
+import { redactUrlCredentials } from '../src/infra/redaction.ts';
 import { dotenv, log, nostrTools } from './deps.ts';
 dotenv.loadSync({ export: true });
 
@@ -38,7 +39,7 @@ if (configPath) {
       keyPrefix: config.infra.redis.key_prefix,
     });
     infraWithRedis = { ...infra, redis };
-    infra.logger.info('Connected to Redis', { url: config.infra.redis.url });
+    infra.logger.info('Connected to Redis', { url: redactUrlCredentials(config.infra.redis.url) });
   }
 
   if (!infraWithRedis.redis && config.infra?.kv?.path) {
