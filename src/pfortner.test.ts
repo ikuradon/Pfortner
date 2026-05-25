@@ -317,6 +317,102 @@ Deno.test({
 });
 
 Deno.test({
+  name: 'server message handler: blacklisted authenticated client is closed before relay',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const pubkeyBlacklist = new Set<string>();
+    let upstreamSocket: WebSocket | null = null;
+
+    const relayAc = new AbortController();
+    const relayPort = await new Promise<number>((resolve) => {
+      Deno.serve({
+        port: 0,
+        signal: relayAc.signal,
+        onListen({ port }) {
+          resolve(port);
+        },
+      }, (req) => {
+        if (req.headers.get('upgrade') === 'websocket') {
+          const { socket, response } = Deno.upgradeWebSocket(req);
+          socket.addEventListener('open', () => {
+            upstreamSocket = socket;
+          });
+          return response;
+        }
+        return new Response('ok');
+      });
+    });
+
+    const upstreamUrl = `ws://127.0.0.1:${relayPort}`;
+    const proxy = pfortnerInit(upstreamUrl, {
+      sendAuthOnConnect: true,
+      upstreamRawAddress: upstreamUrl,
+      pubkeyBlacklist,
+    });
+    proxy.registerClientPipeline([(msg) => ({ message: msg, action: 'accept' })]);
+    proxy.registerServerPipeline([(msg) => ({ message: msg, action: 'accept' })]);
+
+    const proxyAc = new AbortController();
+    const proxyPort = await new Promise<number>((resolve) => {
+      Deno.serve({
+        port: 0,
+        signal: proxyAc.signal,
+        onListen({ port }) {
+          resolve(port);
+        },
+      }, (req) => proxy.createSession(req));
+    });
+
+    const messages: string[] = [];
+    let closeCode: number | null = null;
+    const { ws, challenge } = await new Promise<{ ws: WebSocket; challenge: string }>((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${proxyPort}`);
+      ws.onmessage = ({ data }) => {
+        const text = data as string;
+        try {
+          const msg = JSON.parse(text);
+          if (msg[0] === 'AUTH') {
+            resolve({ ws, challenge: msg[1] });
+            return;
+          }
+        } catch { /* ignore */ }
+        messages.push(text);
+      };
+      ws.onclose = (event) => {
+        closeCode = event.code;
+      };
+      ws.onerror = () => reject(new Error('Client WebSocket connection failed'));
+      setTimeout(() => reject(new Error('Timeout waiting for AUTH challenge')), 5000);
+    });
+
+    try {
+      const authEvent = makeAuthEvent(challenge, upstreamUrl);
+      assertEquals(await sendAuth(ws, proxy, authEvent), 'success');
+      await waitFor(() => upstreamSocket != null, 3000, 'Timed out waiting for upstream socket');
+
+      pubkeyBlacklist.add(pk);
+      const relayEvent = nostrTools.finalizeEvent({
+        kind: 1,
+        created_at: currUnixtime(),
+        tags: [],
+        content: 'server event',
+      }, nostrTools.generateSecretKey());
+      upstreamSocket!.send(JSON.stringify(['EVENT', 'sub1', relayEvent]));
+
+      await waitFor(() => closeCode === 1008, 3000, 'Timed out waiting for blacklisted client close');
+      assertEquals(messages, []);
+    } finally {
+      ws.close();
+      proxy.closeSocket();
+      proxyAc.abort();
+      relayAc.abort();
+      await delay(100);
+    }
+  },
+});
+
+Deno.test({
   name: 'verifyAuthMessage: replay with same event ID is rejected',
   sanitizeResources: false,
   sanitizeOps: false,

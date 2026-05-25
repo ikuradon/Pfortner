@@ -24,6 +24,8 @@ type SocketEvent = {
   serverNotice: (message: string) => void | Promise<void>;
 };
 
+const POLICY_VIOLATION_CLOSE_CODE = 1008;
+
 const newListeners = (): { [TK in keyof SocketEvent]: SocketEvent[TK][] } => ({
   authSuccess: [],
   authFailed: [],
@@ -139,6 +141,10 @@ export const pfortnerInit = (
     }
     return false;
   }
+
+  function closeBlacklistedConnection(): void {
+    closeSocket(POLICY_VIOLATION_CLOSE_CODE);
+  }
   let authAttemptCount = 0;
 
   const headers: HeadersInit = {};
@@ -205,7 +211,8 @@ export const pfortnerInit = (
 
       try {
         if (isBlacklistedClientMessage(msg)) {
-          sendMessageToClient(JSON.stringify(['NOTICE', 'ERROR: blocked: pubkey banned']));
+          await sendMessageToClient(JSON.stringify(['NOTICE', 'ERROR: blocked: pubkey banned']));
+          closeBlacklistedConnection();
           return;
         }
 
@@ -287,6 +294,11 @@ export const pfortnerInit = (
             } catch (e) {
               log.warn(`Failed to parse server message: ${e}`);
               continue;
+            }
+
+            if (isBlacklistedPubkey(connectionInfo.clientPubkey)) {
+              closeBlacklistedConnection();
+              return;
             }
 
             switch (msg[0]) {
@@ -480,6 +492,7 @@ export const pfortnerInit = (
             `AUTH blocked: pubkey blacklisted pubkey=${event.pubkey} connectionId=${connectionInfo.connectionId}`,
           );
           listeners.authFailed.forEach((cb) => cb());
+          closeBlacklistedConnection();
           return;
         }
         // Record used event ID to prevent replay
