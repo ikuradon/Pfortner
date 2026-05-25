@@ -32,6 +32,20 @@ Deno.test({
 });
 
 Deno.test({
+  name: 'redis setIfAbsent treats zero TTL as expiring',
+  ignore: skipRedis,
+  async fn() {
+    const client = await createRedisClient({ url: REDIS_URL!, keyPrefix: 'test:' });
+    await client.del('key-nx-zero-ttl');
+    assertEquals(await client.setIfAbsent('key-nx-zero-ttl', 'value1', 0), true);
+    assertEquals(await client.get('key-nx-zero-ttl'), 'value1');
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    assertEquals(await client.get('key-nx-zero-ttl'), null);
+    await client.close();
+  },
+});
+
+Deno.test({
   name: 'redis incr',
   ignore: skipRedis,
   async fn() {
