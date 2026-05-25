@@ -72,5 +72,7 @@ export const eventSifterPolicy: Policy<ESPolicies<unknown[]>> = async (
     }
   }
 
-  return { message, action: 'accept' };
+  // Client-to-relay EVENT writes must keep flowing so downstream enforcement
+  // policies such as auth, read-only mode, and rate limits can still run.
+  return { message, action: message.length === 2 ? 'next' : 'accept' };
 };

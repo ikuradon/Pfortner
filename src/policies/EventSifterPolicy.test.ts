@@ -1,5 +1,9 @@
 import { assertEquals, assertRejects } from 'jsr:@std/assert@1.0.18';
 import { eventSifterPolicy } from './EventSifterPolicy.ts';
+import { writeGuardPlugin } from './WriteGuardPolicy.ts';
+import { buildInfraContext } from '../infra/context.ts';
+import type { ConnectionInfo, OutputMessage } from '../pfortner.ts';
+import type { PfortnerInstance } from '../plugins/types.ts';
 
 const connectionInfo = {
   connectionId: 'test-id',
@@ -19,6 +23,26 @@ const makeEvent = (overrides = {}) => ({
   ...overrides,
 });
 
+type TestPolicy = (
+  message: unknown[],
+  connectionInfo: ConnectionInfo,
+  options?: any,
+) => Promise<OutputMessage> | OutputMessage;
+
+async function runPolicyPipeline(
+  policies: (TestPolicy | [TestPolicy, unknown])[],
+  message: unknown[],
+): Promise<OutputMessage> {
+  for (const item of policies) {
+    const [policy, options] = typeof item === 'function' ? [item, undefined] : item;
+    const result = await policy(message, connectionInfo, options);
+    if (result.action !== 'next') {
+      return result;
+    }
+  }
+  return { message, action: 'next' };
+}
+
 Deno.test('eventSifterPolicy passes non-EVENT messages through', async () => {
   const message = ['NOTICE', 'hello'];
   const result = await eventSifterPolicy(message, connectionInfo, []);
@@ -36,23 +60,40 @@ Deno.test('eventSifterPolicy rejects client EVENT when ES policy rejects', async
   assertEquals(result.response, JSON.stringify(['OK', 'event-id', false, 'blocked']));
 });
 
-Deno.test('eventSifterPolicy accepts client EVENT when all ES policies accept', async () => {
+Deno.test('eventSifterPolicy returns next for client EVENT when all ES policies accept', async () => {
   const event = makeEvent();
   const message = ['EVENT', event];
   const acceptAll = () => ({ id: event.id, action: 'accept' as const, msg: '' });
 
   const result = await eventSifterPolicy(message, connectionInfo, [acceptAll]);
-  assertEquals(result.action, 'accept');
+  assertEquals(result.action, 'next');
   assertEquals(result.message, message);
 });
 
-Deno.test('eventSifterPolicy accepts client EVENT with no ES policies', async () => {
+Deno.test('eventSifterPolicy returns next for client EVENT with no ES policies', async () => {
   const event = makeEvent();
   const message = ['EVENT', event];
 
   const result = await eventSifterPolicy(message, connectionInfo, []);
-  assertEquals(result.action, 'accept');
+  assertEquals(result.action, 'next');
   assertEquals(result.message, message);
+});
+
+Deno.test('eventSifterPolicy lets downstream client EVENT enforcement run after accept', async () => {
+  const event = makeEvent();
+  const message = ['EVENT', event];
+  const factory = await writeGuardPlugin.initialize({ read_only_mode: true }, buildInfraContext({}));
+  const instance: PfortnerInstance = {
+    sendAuthMessage: () => {},
+    sendMessageToClient: async () => {},
+    connectionInfo,
+  };
+  const writeGuard = factory(instance);
+
+  const result = await runPolicyPipeline([[eventSifterPolicy, []], writeGuard], message);
+
+  assertEquals(result.action, 'reject');
+  assertEquals(result.response, JSON.stringify(['OK', 'event-id', false, 'blocked: relay is in read-only mode']));
 });
 
 Deno.test('eventSifterPolicy passes REQ messages through', async () => {
