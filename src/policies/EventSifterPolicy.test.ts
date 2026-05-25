@@ -29,7 +29,10 @@ type TestPolicy = (
   options?: any,
 ) => Promise<OutputMessage> | OutputMessage;
 
-async function runPolicyPipeline(policies: (TestPolicy | [TestPolicy, unknown])[], message: unknown[]): Promise<OutputMessage> {
+async function runPolicyPipeline(
+  policies: (TestPolicy | [TestPolicy, unknown])[],
+  message: unknown[],
+): Promise<OutputMessage> {
   for (const item of policies) {
     const [policy, options] = typeof item === 'function' ? [item, undefined] : item;
     const result = await policy(message, connectionInfo, options);
