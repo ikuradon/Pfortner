@@ -214,7 +214,7 @@ Deno.test('rateLimit memory backend does not track message types without limits'
 Deno.test('rateLimit memory backend isolates counters between policy instances', async () => {
   await rateLimitPlugin.destroy!();
   const originalNow = Date.now;
-  let now = 3_000_000;
+  const now = 3_000_000;
   Date.now = () => now;
   try {
     const longFactory = await rateLimitPlugin.initialize({ scope: 'ip', window: 60, max_events: 2 }, infra);
