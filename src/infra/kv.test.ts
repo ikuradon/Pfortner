@@ -36,6 +36,48 @@ Deno.test('kv set with TTL expires', async () => {
   await client.close();
 });
 
+Deno.test('kv sweeps expired TTL data keys during unrelated operations', async () => {
+  const path = `/private/tmp/pfortner-kv-test-${crypto.randomUUID()}`;
+  const client = await createKvClient({ path });
+
+  await client.set('seen:unique-event', '1', 0.05);
+  await new Promise((r) => setTimeout(r, 100));
+  await client.set('seen:another-event', '1', 10);
+  await client.close();
+
+  const kv = await Deno.openKv(path);
+  const expired = await kv.get(['data', 'seen:unique-event']);
+  const active = await kv.get(['data', 'seen:another-event']);
+  assertEquals(expired.value, null);
+  assertEquals(active.value != null, true);
+  kv.close();
+});
+
+Deno.test('kv expire applies to sorted set members', async () => {
+  const client = await createKvClient({ path: ':memory:' });
+
+  await client.zadd('events:conn:attacker', Date.now(), 'member-1');
+  assertEquals(await client.zcard('events:conn:attacker'), 1);
+  await client.expire('events:conn:attacker', 0.05);
+  await new Promise((r) => setTimeout(r, 100));
+
+  assertEquals(await client.zcard('events:conn:attacker'), 0);
+  await client.close();
+});
+
+Deno.test('kv incr preserves an existing TTL', async () => {
+  const client = await createKvClient({ path: ':memory:' });
+
+  assertEquals(await client.incr('counter-with-ttl'), 1);
+  await client.expire('counter-with-ttl', 0.08);
+  await new Promise((r) => setTimeout(r, 30));
+  assertEquals(await client.incr('counter-with-ttl'), 2);
+  await new Promise((r) => setTimeout(r, 70));
+
+  assertEquals(await client.get('counter-with-ttl'), null);
+  await client.close();
+});
+
 Deno.test('kv zadd/zcard/zremrangebyscore', async () => {
   const client = await createKvClient({ path: ':memory:' });
   await client.zadd('zset', 100, 'a');
