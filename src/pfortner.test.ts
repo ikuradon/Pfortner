@@ -149,6 +149,15 @@ function sendAuth(
 }
 
 Deno.test({
+  name: 'pfortnerInit: leaves connectionIpAddr empty when clientIp is absent',
+  fn: () => {
+    const proxy = pfortnerInit('ws://127.0.0.1:1');
+
+    assertEquals(proxy.connectionInfo.connectionIpAddr, '');
+  },
+});
+
+Deno.test({
   name: 'createSession: rejects a second WebSocket on the same proxy instance',
   sanitizeResources: false,
   sanitizeOps: false,

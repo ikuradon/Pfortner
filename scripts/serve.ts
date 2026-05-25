@@ -10,6 +10,7 @@ import { ConfigManager } from '../src/config/manager.ts';
 import { ConnectionManager } from '../src/connections/manager.ts';
 import { ShutdownManager } from '../src/shutdown/manager.ts';
 import { UpstreamProbe } from '../src/connections/upstream-probe.ts';
+import { remoteHostnameFromConn, selectClientIp } from '../src/net/client-ip.ts';
 import { dotenv, log, nostrTools } from './deps.ts';
 dotenv.loadSync({ export: true });
 
@@ -318,8 +319,10 @@ if (configPath) {
         return new Response('Please use a Nostr client to connect.', { status: 400 });
       }
 
-      const clientIp = req.headers.get('X-Forwarded-For') ||
-        ('hostname' in conn.remoteAddr ? conn.remoteAddr.hostname : '');
+      const clientIp = selectClientIp(req, {
+        remoteHostname: remoteHostnameFromConn(conn),
+        trustForwardedFor: false,
+      });
 
       const stash = new Map<string, nostrTools.Event[]>();
 
