@@ -1,5 +1,5 @@
 import { assertEquals } from 'jsr:@std/assert@1.0.18';
-import { rateLimitPlugin } from './RateLimitPolicy.ts';
+import { __testing, rateLimitPlugin } from './RateLimitPolicy.ts';
 import { buildInfraContext } from '../infra/context.ts';
 import type { PfortnerInstance } from '../plugins/types.ts';
 
@@ -139,6 +139,76 @@ Deno.test('rateLimit scope pubkey with authenticated client uses pubkey as key',
   assertEquals((await policy2(['EVENT', makeEvent('e2')], inst2.connectionInfo)).action, 'next');
   // Third event from either connection sharing same pubkey should be rejected
   assertEquals((await policy1(['EVENT', makeEvent('e3')], inst1.connectionInfo)).action, 'reject');
+});
+
+Deno.test('rateLimit memory backend evicts expired ip scope counters', async () => {
+  await rateLimitPlugin.destroy!();
+  const originalNow = Date.now;
+  let now = 1_000_000;
+  Date.now = () => now;
+  try {
+    const factory = await rateLimitPlugin.initialize({ scope: 'ip', window: 1, max_events: 1 }, infra);
+    for (let i = 0; i < 5; i++) {
+      const inst = mockInstance(false, `10.0.0.${i}`);
+      const policy = factory(inst);
+      assertEquals((await policy(['EVENT', makeEvent(`ip-${i}`)], inst.connectionInfo)).action, 'next');
+    }
+    assertEquals(__testing.sharedCounterCount(), 5);
+
+    now += 1_001;
+    const fresh = mockInstance(false, '10.0.0.99');
+    const freshPolicy = factory(fresh);
+    assertEquals((await freshPolicy(['EVENT', makeEvent('fresh-ip')], fresh.connectionInfo)).action, 'next');
+
+    assertEquals(__testing.sharedCounterCount(), 1);
+  } finally {
+    Date.now = originalNow;
+    await rateLimitPlugin.destroy!();
+  }
+});
+
+Deno.test('rateLimit memory backend evicts expired authenticated pubkey scope counters', async () => {
+  await rateLimitPlugin.destroy!();
+  const originalNow = Date.now;
+  let now = 2_000_000;
+  Date.now = () => now;
+  try {
+    const factory = await rateLimitPlugin.initialize({ scope: 'pubkey', window: 1, max_events: 1 }, infra);
+    for (let i = 0; i < 5; i++) {
+      const inst = mockInstance(true, '10.0.0.1', `conn-pk-${i}`);
+      inst.connectionInfo.clientPubkey = `pk-${i}`;
+      const policy = factory(inst);
+      assertEquals((await policy(['EVENT', makeEvent(`pubkey-${i}`)], inst.connectionInfo)).action, 'next');
+    }
+    assertEquals(__testing.sharedCounterCount(), 5);
+
+    now += 1_001;
+    const fresh = mockInstance(true, '10.0.0.1', 'conn-pk-fresh');
+    fresh.connectionInfo.clientPubkey = 'pk-fresh';
+    const freshPolicy = factory(fresh);
+    assertEquals((await freshPolicy(['EVENT', makeEvent('fresh-pubkey')], fresh.connectionInfo)).action, 'next');
+
+    assertEquals(__testing.sharedCounterCount(), 1);
+  } finally {
+    Date.now = originalNow;
+    await rateLimitPlugin.destroy!();
+  }
+});
+
+Deno.test('rateLimit memory backend does not track message types without limits', async () => {
+  await rateLimitPlugin.destroy!();
+  try {
+    const factory = await rateLimitPlugin.initialize({ scope: 'ip', window: 60, max_events: 1 }, infra);
+    const inst = mockInstance(false, '10.0.0.200');
+    const policy = factory(inst);
+    for (let i = 0; i < 5; i++) {
+      assertEquals((await policy(['REQ', `sub-${i}`, {}], inst.connectionInfo)).action, 'next');
+    }
+
+    assertEquals(__testing.sharedCountersForKey('ip:10.0.0.200'), undefined);
+  } finally {
+    await rateLimitPlugin.destroy!();
+  }
 });
 
 Deno.test({

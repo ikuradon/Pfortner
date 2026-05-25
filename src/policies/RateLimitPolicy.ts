@@ -10,16 +10,50 @@ interface RateLimitConfig {
   on_reject?: { message: string };
 }
 
+interface Counters {
+  events: number[];
+  requests: number[];
+  expiresAt: number;
+}
+
 // Shared sliding window counters (across connections for ip/pubkey scopes)
-const sharedCounters = new Map<string, { events: number[]; requests: number[] }>();
+const sharedCounters = new Map<string, Counters>();
+let nextSharedPruneAt = 0;
+
+export const __testing = {
+  sharedCounterCount(): number {
+    return sharedCounters.size;
+  },
+  sharedCountersForKey(key: string): { events: number; requests: number } | undefined {
+    const counters = sharedCounters.get(key);
+    if (!counters) return undefined;
+    return { events: counters.events.length, requests: counters.requests.length };
+  },
+};
 
 function getCounters(key: string) {
   let c = sharedCounters.get(key);
   if (!c) {
-    c = { events: [], requests: [] };
+    c = { events: [], requests: [], expiresAt: 0 };
     sharedCounters.set(key, c);
   }
   return c;
+}
+
+function maybePruneSharedCounters(windowMs: number, now: number): void {
+  if (now < nextSharedPruneAt) return;
+  nextSharedPruneAt = now + Math.min(Math.max(windowMs, 1000), 60_000);
+
+  for (const [key, counters] of sharedCounters) {
+    if (counters.expiresAt > now) continue;
+    countInWindow(counters.events, windowMs, now);
+    countInWindow(counters.requests, windowMs, now);
+    if (counters.events.length === 0 && counters.requests.length === 0) {
+      sharedCounters.delete(key);
+    } else {
+      counters.expiresAt = now + windowMs;
+    }
+  }
 }
 
 function countInWindow(timestamps: number[], windowMs: number, now: number): number {
@@ -69,7 +103,7 @@ export const rateLimitPlugin: PolicyPlugin = {
 
     return Promise.resolve((_instance) => {
       const connectionCounters = cfg.scope === 'connection'
-        ? { events: [] as number[], requests: [] as number[] }
+        ? { events: [] as number[], requests: [] as number[], expiresAt: 0 }
         : null;
 
       return async (message, connectionInfo) => {
@@ -111,9 +145,14 @@ export const rateLimitPlugin: PolicyPlugin = {
           return { message, action: 'next' };
         }
 
-        const counters = connectionCounters ?? getCounters(key);
-
         if (type === 'EVENT') {
+          if (connectionCounters == null) {
+            maybePruneSharedCounters(windowMs, now);
+          }
+          if (maxEvents === Infinity) {
+            return { message, action: 'next' };
+          }
+          const counters = connectionCounters ?? getCounters(key);
           const count = countInWindow(counters.events, windowMs, now);
           if (count >= maxEvents) {
             const eventId = (message[1] as any)?.id ?? '';
@@ -124,7 +163,15 @@ export const rateLimitPlugin: PolicyPlugin = {
             };
           }
           counters.events.push(now);
+          counters.expiresAt = now + windowMs;
         } else {
+          if (connectionCounters == null) {
+            maybePruneSharedCounters(windowMs, now);
+          }
+          if (maxRequests === Infinity) {
+            return { message, action: 'next' };
+          }
+          const counters = connectionCounters ?? getCounters(key);
           const count = countInWindow(counters.requests, windowMs, now);
           if (count >= maxRequests) {
             return {
@@ -134,6 +181,7 @@ export const rateLimitPlugin: PolicyPlugin = {
             };
           }
           counters.requests.push(now);
+          counters.expiresAt = now + windowMs;
         }
 
         return { message, action: 'next' };
@@ -142,6 +190,7 @@ export const rateLimitPlugin: PolicyPlugin = {
   },
   destroy(): Promise<void> {
     sharedCounters.clear();
+    nextSharedPruneAt = 0;
     return Promise.resolve();
   },
 };
