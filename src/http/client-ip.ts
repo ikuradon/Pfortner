@@ -5,7 +5,7 @@ export function resolveClientIp(
 ): string {
   if (trustForwardedFor) {
     const forwardedFor = req.headers.get('X-Forwarded-For');
-    if (forwardedFor) return forwardedFor;
+    if (forwardedFor) return forwardedFor.split(',')[0].trim();
   }
 
   return 'hostname' in conn.remoteAddr ? conn.remoteAddr.hostname : '';
