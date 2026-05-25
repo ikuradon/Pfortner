@@ -133,7 +133,7 @@ if (configPath) {
   adminState.configPath = configPath;
   adminState.reloadFn = async (yaml: string) => {
     if (shutdownManager.isDraining()) return;
-    await manager.reload(yaml);
+    adminState.config = await manager.reload(yaml);
     infra.logger.info('Config reloaded', { generation: manager.generation });
   };
 
@@ -143,7 +143,7 @@ if (configPath) {
       infra.logger.info('SIGHUP received, reloading config');
       try {
         const content = await Deno.readTextFile(configPath);
-        await manager.reload(content);
+        adminState.config = await manager.reload(content);
         infra.logger.info('Config reloaded via SIGHUP', { generation: manager.generation });
       } catch (e) {
         infra.logger.error('Config reload failed', { error: String(e) });
