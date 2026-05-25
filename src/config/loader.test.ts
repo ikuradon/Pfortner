@@ -211,6 +211,7 @@ admin:
   enabled: true
   port: 9091
   auth_token: "test"
+  trust_proxy: true
 pipelines:
   client:
     - policy: accept
@@ -219,6 +220,7 @@ pipelines:
 `);
   assertEquals(config.admin?.port, 9091);
   assertEquals(config.admin?.enabled, true);
+  assertEquals(config.admin?.trust_proxy, true);
 });
 
 Deno.test('loadConfigFromString accepts redis backend when infra.redis is configured', () => {
