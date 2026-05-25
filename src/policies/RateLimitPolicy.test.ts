@@ -64,6 +64,18 @@ Deno.test('rateLimit scope ip shares limits across connections from same IP', as
   assertEquals((await policy1(['EVENT', makeEvent('e3')], inst1.connectionInfo)).action, 'reject');
 });
 
+Deno.test('rateLimit scope connection keeps counters per policy instance', async () => {
+  const factory = await rateLimitPlugin.initialize({ scope: 'connection', window: 60, max_events: 1 }, infra);
+  const inst1 = mockInstance();
+  const inst2 = mockInstance();
+  const policy1 = factory(inst1);
+  const policy2 = factory(inst2);
+
+  assertEquals((await policy1(['EVENT', makeEvent('e1')], inst1.connectionInfo)).action, 'next');
+  assertEquals((await policy1(['EVENT', makeEvent('e2')], inst1.connectionInfo)).action, 'reject');
+  assertEquals((await policy2(['EVENT', makeEvent('e3')], inst2.connectionInfo)).action, 'next');
+});
+
 Deno.test('rateLimit scope pubkey falls back to ip when unauthenticated', async () => {
   const factory = await rateLimitPlugin.initialize({ scope: 'pubkey', window: 60, max_events: 1 }, infra);
   const inst = mockInstance(false, '5.6.7.8');
