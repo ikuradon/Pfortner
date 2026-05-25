@@ -113,7 +113,6 @@ export async function buildRequestHandler(
     const serverPolicies = serverPipeline.factories.map((factory) => factory(instance));
     instance.registerClientPipeline(clientPolicies);
     instance.registerServerPipeline(serverPolicies);
-    infra.metrics.counter('pfortner_connections_total');
 
     const managed: ManagedConnection = {
       info: instance.connectionInfo,
@@ -122,13 +121,6 @@ export async function buildRequestHandler(
       close: (code) => instance.closeSocket(code),
       sendAuthChallenge: () => instance.sendAuthMessage(),
     };
-
-    if (hooks?.connectionManager) {
-      hooks.connectionManager.register(managed);
-    }
-    if (hooks?.onConnect) {
-      hooks.onConnect(managed);
-    }
 
     // Always register disconnect handler if connectionManager OR onDisconnect OR upstreamPool exists
     if (hooks?.connectionManager || hooks?.onDisconnect || infra.upstreamPool) {
@@ -140,6 +132,16 @@ export async function buildRequestHandler(
       });
     }
 
-    return instance.createSession(req);
+    const response = instance.createSession(req);
+
+    infra.metrics.counter('pfortner_connections_total');
+    if (hooks?.connectionManager) {
+      hooks.connectionManager.register(managed);
+    }
+    if (hooks?.onConnect) {
+      hooks.onConnect(managed);
+    }
+
+    return response;
   };
 }
