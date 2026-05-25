@@ -63,6 +63,10 @@ export const eventSifterPolicy: Policy<ESPolicies<unknown[]>> = async (
   for (const item of esPolicies as (ESPolicy | ESPolicyTuple)[]) {
     const [policy, opts] = toTuple(item);
     const result = await policy(msg, opts);
+    if (result.action === 'shadowReject') {
+      const response = message.length === 2 ? JSON.stringify(['OK', event.id, true, '']) : undefined;
+      return { message, action: 'reject', response };
+    }
     if (result.action !== 'accept') {
       return { message, action: 'reject', response: JSON.stringify(['OK', event.id, false, result.msg]) };
     }
