@@ -468,6 +468,45 @@ Deno.test({
 });
 
 Deno.test({
+  name: 'server relay hook: blacklisted authenticated client is closed before routed relay',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const pubkeyBlacklist = new Set<string>();
+    const env = await createEnv({ pubkeyBlacklist });
+    try {
+      const authEvent = makeAuthEvent(env.challenge, env.upstreamUrl);
+      assertEquals(await sendAuth(env.ws, env.proxy, authEvent), 'success');
+      env.proxy.registerServerPipeline([(msg) => ({ message: msg, action: 'accept' })]);
+
+      const messages: string[] = [];
+      let closeCode: number | null = null;
+      env.ws.onmessage = ({ data }) => {
+        messages.push(data as string);
+      };
+      env.ws.onclose = (event) => {
+        closeCode = event.code;
+      };
+
+      pubkeyBlacklist.add(pk);
+      const routedEvent = nostrTools.finalizeEvent({
+        kind: 1,
+        created_at: currUnixtime(),
+        tags: [],
+        content: 'routed event',
+      }, nostrTools.generateSecretKey());
+
+      await env.proxy.relayServerMessageToClient(['EVENT', 'sub1', routedEvent]);
+
+      await waitFor(() => closeCode === 1008, 3000, 'Timed out waiting for blacklisted routed relay close');
+      assertEquals(messages, []);
+    } finally {
+      await env.cleanup();
+    }
+  },
+});
+
+Deno.test({
   name: 'verifyAuthMessage: replay with same event ID is rejected',
   sanitizeResources: false,
   sanitizeOps: false,
