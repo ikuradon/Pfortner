@@ -1,17 +1,54 @@
 import { assertEquals } from 'jsr:@std/assert@1.0.18';
 import { parseRelayResponse } from './relay-query.ts';
+import { nostrTools } from '../deps.ts';
+
+function makeContactListEvent(pubkeySk: Uint8Array, tags: string[][]): nostrTools.VerifiedEvent {
+  return nostrTools.finalizeEvent({ kind: 3, content: '', created_at: 0, tags }, pubkeySk);
+}
 
 Deno.test('parseRelayResponse extracts contact lists from EVENT messages', () => {
+  const sk1 = nostrTools.generateSecretKey();
+  const sk2 = nostrTools.generateSecretKey();
+  const event1 = makeContactListEvent(sk1, [['p', 'a'], ['p', 'b']]);
+  const event2 = makeContactListEvent(sk2, [['p', 'c']]);
+
   const messages = [
-    [
-      'EVENT',
-      'sub1',
-      { pubkey: 'pk1', kind: 3, tags: [['p', 'a'], ['p', 'b']], id: 'e1', created_at: 0, content: '', sig: '' },
-    ],
-    ['EVENT', 'sub1', { pubkey: 'pk2', kind: 3, tags: [['p', 'c']], id: 'e2', created_at: 0, content: '', sig: '' }],
+    ['EVENT', 'sub1', event1],
+    ['EVENT', 'sub1', event2],
     ['EOSE', 'sub1'],
   ];
-  const result = parseRelayResponse(messages);
-  assertEquals(result.get('pk1'), ['a', 'b']);
-  assertEquals(result.get('pk2'), ['c']);
+
+  const result = parseRelayResponse(messages, 'sub1', new Set([event1.pubkey, event2.pubkey]));
+  assertEquals(result.get(event1.pubkey), ['a', 'b']);
+  assertEquals(result.get(event2.pubkey), ['c']);
+});
+
+Deno.test('parseRelayResponse ignores forged or unsolicited EVENT messages', () => {
+  const sk = nostrTools.generateSecretKey();
+  const validEvent = makeContactListEvent(sk, [['p', 'trusted-follow']]);
+  const forgedEvent = { ...validEvent, sig: '0'.repeat(128) };
+
+  const messages = [
+    ['EVENT', 'other-sub', validEvent],
+    ['EVENT', 'sub1', { ...validEvent, pubkey: nostrTools.getPublicKey(nostrTools.generateSecretKey()) }],
+    ['EVENT', 'sub1', forgedEvent],
+    ['EVENT', 'sub1', validEvent],
+  ];
+
+  const result = parseRelayResponse(messages, 'sub1', new Set([validEvent.pubkey]));
+  assertEquals(result.size, 1);
+  assertEquals(result.get(validEvent.pubkey), ['trusted-follow']);
+});
+
+Deno.test('parseRelayResponse ignores malformed EVENT payloads', () => {
+  const sk = nostrTools.generateSecretKey();
+  const validEvent = makeContactListEvent(sk, [['p', 'trusted-follow']]);
+  const messages = [
+    ['EVENT', 'sub1', null],
+    ['EVENT', 'sub1', { pubkey: validEvent.pubkey, kind: 3, tags: 'not-tags' }],
+    ['EVENT', 'sub1', validEvent],
+  ];
+
+  const result = parseRelayResponse(messages, 'sub1', new Set([validEvent.pubkey]));
+  assertEquals(result, new Map([[validEvent.pubkey, ['trusted-follow']]]));
 });

@@ -1,13 +1,39 @@
 import { parseContactList, type QueryFn } from './builder.ts';
+import { nostrTools } from '../deps.ts';
 
-export function parseRelayResponse(messages: unknown[][]): Map<string, string[]> {
+function isContactListEvent(event: unknown): event is nostrTools.Event & { tags: string[][] } {
+  if (typeof event !== 'object' || event === null) return false;
+  const candidate = event as Record<string, unknown>;
+  return typeof candidate.id === 'string' &&
+    typeof candidate.pubkey === 'string' &&
+    typeof candidate.kind === 'number' &&
+    typeof candidate.created_at === 'number' &&
+    typeof candidate.content === 'string' &&
+    typeof candidate.sig === 'string' &&
+    Array.isArray(candidate.tags) &&
+    candidate.tags.every((tag) => Array.isArray(tag) && tag.every((item) => typeof item === 'string'));
+}
+
+export function parseRelayResponse(
+  messages: unknown[][],
+  subId: string,
+  expectedAuthors: Set<string>,
+): Map<string, string[]> {
   const result = new Map<string, string[]>();
   for (const msg of messages) {
-    if (msg[0] === 'EVENT' && msg.length >= 3) {
-      const event = msg[2] as { pubkey: string; kind: number; tags: string[][] };
-      if (event.kind === 3) {
-        result.set(event.pubkey, parseContactList(event));
-      }
+    if (msg[0] !== 'EVENT' || msg.length < 3 || msg[1] !== subId) {
+      continue;
+    }
+
+    const event = msg[2];
+    if (
+      isContactListEvent(event) &&
+      event.kind === 3 &&
+      expectedAuthors.has(event.pubkey) &&
+      nostrTools.validateEvent(event) &&
+      nostrTools.verifyEvent(event)
+    ) {
+      result.set(event.pubkey, parseContactList(event));
     }
   }
   return result;
@@ -21,9 +47,10 @@ export function createRelayQueryFn(relayUrl: string, timeoutMs = 10000): QueryFn
       const ws = new WebSocket(relayUrl);
       const messages: unknown[][] = [];
       const subId = `wot-${crypto.randomUUID().slice(0, 8)}`;
+      const expectedAuthors = new Set(pubkeys);
       const timer = setTimeout(() => {
         ws.close();
-        resolve(parseRelayResponse(messages));
+        resolve(parseRelayResponse(messages, subId, expectedAuthors));
       }, timeoutMs);
 
       ws.addEventListener('open', () => {
@@ -40,7 +67,7 @@ export function createRelayQueryFn(relayUrl: string, timeoutMs = 10000): QueryFn
               clearTimeout(timer);
               ws.send(JSON.stringify(['CLOSE', subId]));
               ws.close();
-              resolve(parseRelayResponse(messages));
+              resolve(parseRelayResponse(messages, subId, expectedAuthors));
             }
           }
         } catch {
