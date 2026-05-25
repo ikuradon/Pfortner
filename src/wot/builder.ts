@@ -22,7 +22,8 @@ export async function buildWotGraph(
     const contactLists = await queryFn([...frontier]);
     const nextFrontier = new Set<string>();
 
-    for (const [_pubkey, follows] of contactLists) {
+    for (const [pubkey, follows] of contactLists) {
+      if (!frontier.has(pubkey)) continue;
       for (const follow of follows) {
         if (!visited.has(follow)) {
           visited.add(follow);

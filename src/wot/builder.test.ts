@@ -55,6 +55,17 @@ Deno.test('buildWotGraph depth 1 includes direct follows', async () => {
   assertEquals(result.has('c'), false); // depth 2, not reached
 });
 
+Deno.test('buildWotGraph ignores contact lists for pubkeys outside the requested frontier', async () => {
+  const mockQuery = (_pubkeys: string[]): Promise<Map<string, string[]>> => {
+    return Promise.resolve(new Map([['unrequested-author', ['attacker']]]));
+  };
+
+  const result = await buildWotGraph(['root'], 1, mockQuery);
+  assertEquals(result.has('root'), true);
+  assertEquals(result.has('attacker'), false);
+  assertEquals(result.size, 1);
+});
+
 Deno.test('buildWotGraph depth 2 follows transitively', async () => {
   const mockQuery = (pubkeys: string[]): Promise<Map<string, string[]>> => {
     const result = new Map<string, string[]>();
