@@ -93,7 +93,6 @@ export const pfortnerInit = (
   let sessionTimer: ReturnType<typeof setTimeout> | null = null;
 
   let serverConnected = false;
-  let clientConnected = false;
   let closeRequested = false;
   let clientDisconnectEmitted = false;
   let serverDisconnectEmitted = false;
@@ -103,7 +102,7 @@ export const pfortnerInit = (
 
   const connectionInfo: ConnectionInfo = {
     connectionId: crypto.randomUUID(),
-    connectionIpAddr: options.clientIp || '127.0.0.1',
+    connectionIpAddr: options.clientIp ?? '',
     clientAuthorized: false,
     clientPubkey: '',
   };
@@ -126,7 +125,7 @@ export const pfortnerInit = (
   let authAttemptCount = 0;
 
   const headers: HeadersInit = {};
-  if (options.clientIp != null) {
+  if (options.clientIp) {
     headers['X-Forwarded-For'] = options.clientIp;
   }
   const listeners = newListeners();
@@ -151,8 +150,6 @@ export const pfortnerInit = (
         closeClientSocket();
         return;
       }
-
-      clientConnected = true;
 
       setIdleTimeout();
 
@@ -204,7 +201,11 @@ export const pfortnerInit = (
             }
             break;
           case 'EVENT': // NIP-01
-            if (msg.length >= 2) {
+            if (msg.length !== 2) {
+              sendMessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: invalid EVENT message']));
+              return;
+            }
+            {
               const event = msg[1] as nostrTools.Event;
               await emit('clientEvent', event);
             }
@@ -224,7 +225,6 @@ export const pfortnerInit = (
       }
     });
     clientSocket.addEventListener('close', () => {
-      clientConnected = false;
       emitClientDisconnect();
       closeServerSocket();
       clearAllListeners();
@@ -521,11 +521,6 @@ export const pfortnerInit = (
     const socket = clientSocket;
     if (socket == null) return;
 
-    const wasConnected = clientConnected ||
-      socket.readyState === socket.CONNECTING ||
-      socket.readyState === socket.OPEN ||
-      socket.readyState === socket.CLOSING;
-
     if (socket.readyState === socket.CONNECTING || socket.readyState === socket.OPEN) {
       try {
         socket.close(code);
@@ -533,10 +528,7 @@ export const pfortnerInit = (
         // Socket may already be closing or closed
       }
     }
-    clientConnected = false;
-    if (wasConnected) {
-      emitClientDisconnect();
-    }
+    emitClientDisconnect();
   }
 
   function closeServerSocket(): void {

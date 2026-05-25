@@ -27,6 +27,26 @@ Deno.test('ConfigManager reload increments generation', async () => {
   assertEquals(manager.generation, 1);
 });
 
+Deno.test('ConfigManager reload returns the parsed replacement config', async () => {
+  const manager = await ConfigManager.create(YAML, buildInfraContext({}), createPluginRegistry());
+  const reloaded = await manager.reload(`
+server:
+  port: 3001
+  upstream_relay: "ws://localhost:8888"
+admin:
+  enabled: true
+  auth_token: "rotated-token"
+pipelines:
+  client:
+    - policy: accept
+  server:
+    - policy: accept
+`);
+
+  assertEquals(reloaded.admin?.auth_token, 'rotated-token');
+  assertEquals(reloaded.server.port, 3001);
+});
+
 Deno.test('ConfigManager tracks active connections', async () => {
   const manager = await ConfigManager.create(YAML, buildInfraContext({}), createPluginRegistry());
   assertEquals(manager.activeConnections, 0);

@@ -1,6 +1,7 @@
 import { assertEquals } from 'jsr:@std/assert@1.0.18';
 import { spamFilterPlugin } from './SpamFilterPolicy.ts';
 import { buildInfraContext } from '../infra/context.ts';
+import { nostrTools } from '../deps.ts';
 import type { PfortnerInstance, RedisClient } from '../plugins/types.ts';
 
 const REDIS_URL = Deno.env.get('REDIS_URL');
@@ -72,10 +73,24 @@ class MockRedis implements RedisClient {
   zcard(): Promise<number> {
     return Promise.resolve(0);
   }
+  slidingWindowAdd(): Promise<boolean> {
+    return Promise.resolve(true);
+  }
   close(): Promise<void> {
     return Promise.resolve();
   }
 }
+
+const signingKey = nostrTools.generateSecretKey();
+const makeSignedEvent = (overrides: Record<string, unknown> = {}) =>
+  nostrTools.finalizeEvent({
+    kind: 1,
+    created_at: 1,
+    tags: [],
+    content: 'hello',
+    ...overrides,
+  }, signingKey);
+const clearSpamFilterState = () => spamFilterPlugin.destroy?.() ?? Promise.resolve();
 
 Deno.test('spamFilter passes non-EVENT messages', async () => {
   const factory = await spamFilterPlugin.initialize({ max_content_length: 10 }, infra);
@@ -97,19 +112,85 @@ Deno.test('spamFilter passes content within limit', async () => {
 });
 
 Deno.test('spamFilter rejects duplicate event ID', async () => {
+  await clearSpamFilterState();
   const factory = await spamFilterPlugin.initialize({ reject_duplicate: { enabled: true, window: 300 } }, infra);
   const inst = mockInstance();
   const policy = factory(inst);
-  assertEquals((await policy(['EVENT', makeEvent({ id: 'dup1' })], inst.connectionInfo)).action, 'next');
-  assertEquals((await policy(['EVENT', makeEvent({ id: 'dup1' })], inst.connectionInfo)).action, 'reject');
+  const event = makeSignedEvent({ content: 'dup1' });
+  assertEquals((await policy(['EVENT', event], inst.connectionInfo)).action, 'next');
+  assertEquals((await policy(['EVENT', event], inst.connectionInfo)).action, 'reject');
 });
 
 Deno.test('spamFilter allows different event IDs', async () => {
+  await clearSpamFilterState();
   const factory = await spamFilterPlugin.initialize({ reject_duplicate: { enabled: true, window: 300 } }, infra);
   const inst = mockInstance();
   const policy = factory(inst);
-  assertEquals((await policy(['EVENT', makeEvent({ id: 'a' })], inst.connectionInfo)).action, 'next');
-  assertEquals((await policy(['EVENT', makeEvent({ id: 'b' })], inst.connectionInfo)).action, 'next');
+  assertEquals((await policy(['EVENT', makeSignedEvent({ content: 'a' })], inst.connectionInfo)).action, 'next');
+  assertEquals((await policy(['EVENT', makeSignedEvent({ content: 'b' })], inst.connectionInfo)).action, 'next');
+});
+
+Deno.test('spamFilter does not cache invalid duplicate event IDs', async () => {
+  await clearSpamFilterState();
+  const factory = await spamFilterPlugin.initialize({ reject_duplicate: { enabled: true, window: 300 } }, infra);
+  const inst = mockInstance();
+  const policy = factory(inst);
+  const validEvent = makeSignedEvent({ content: 'legitimate event' });
+  const forgedEvent = { ...validEvent, content: 'tampered after signing' };
+
+  assertEquals((await policy(['EVENT', forgedEvent], inst.connectionInfo)).action, 'reject');
+  assertEquals((await policy(['EVENT', validEvent], inst.connectionInfo)).action, 'next');
+});
+
+Deno.test('spamFilter rejects malformed duplicate events without throwing', async () => {
+  await clearSpamFilterState();
+  const factory = await spamFilterPlugin.initialize({ reject_duplicate: { enabled: true, window: 300 } }, infra);
+  const inst = mockInstance();
+  const policy = factory(inst);
+
+  assertEquals((await policy(['EVENT', null], inst.connectionInfo)).action, 'reject');
+});
+
+Deno.test('spamFilter duplicate cache evicts oldest IDs when max_cache_size is reached', async () => {
+  await clearSpamFilterState();
+  const factory = await spamFilterPlugin.initialize({
+    reject_duplicate: { enabled: true, window: 300, max_cache_size: 2 },
+  }, infra);
+  const inst = mockInstance();
+  const policy = factory(inst);
+  const first = makeSignedEvent({ content: 'first' });
+  const second = makeSignedEvent({ content: 'second' });
+  const third = makeSignedEvent({ content: 'third' });
+
+  assertEquals((await policy(['EVENT', first], inst.connectionInfo)).action, 'next');
+  assertEquals((await policy(['EVENT', second], inst.connectionInfo)).action, 'next');
+  assertEquals((await policy(['EVENT', third], inst.connectionInfo)).action, 'next');
+  assertEquals((await policy(['EVENT', first], inst.connectionInfo)).action, 'next');
+  assertEquals((await policy(['EVENT', third], inst.connectionInfo)).action, 'reject');
+});
+
+Deno.test('spamFilter duplicate cleanup does not assume monotonic wall clock', async () => {
+  await clearSpamFilterState();
+  const originalNow = Date.now;
+  const factory = await spamFilterPlugin.initialize({
+    reject_duplicate: { enabled: true, window: 10, max_cache_size: 10 },
+  }, infra);
+  const inst = mockInstance();
+  const policy = factory(inst);
+  const first = makeSignedEvent({ content: 'clock-first' });
+  const second = makeSignedEvent({ content: 'clock-second' });
+
+  try {
+    Date.now = () => 100_000;
+    assertEquals((await policy(['EVENT', first], inst.connectionInfo)).action, 'next');
+    Date.now = () => 50_000;
+    assertEquals((await policy(['EVENT', second], inst.connectionInfo)).action, 'next');
+    Date.now = () => 90_000;
+    assertEquals((await policy(['EVENT', second], inst.connectionInfo)).action, 'next');
+  } finally {
+    Date.now = originalNow;
+    await clearSpamFilterState();
+  }
 });
 
 Deno.test('spamFilter min_pow 0 passes all events regardless of PoW', async () => {
@@ -149,9 +230,10 @@ Deno.test('spamFilter reject_duplicate enabled false skips duplicate check', asy
   const factory = await spamFilterPlugin.initialize({ reject_duplicate: { enabled: false, window: 300 } }, infra);
   const inst = mockInstance();
   const policy = factory(inst);
-  assertEquals((await policy(['EVENT', makeEvent({ id: 'nodupcheck' })], inst.connectionInfo)).action, 'next');
+  const event = makeEvent({ id: 'nodupcheck' });
+  assertEquals((await policy(['EVENT', event], inst.connectionInfo)).action, 'next');
   // Same ID again should pass because duplicate check is disabled
-  assertEquals((await policy(['EVENT', makeEvent({ id: 'nodupcheck' })], inst.connectionInfo)).action, 'next');
+  assertEquals((await policy(['EVENT', event], inst.connectionInfo)).action, 'next');
 });
 
 Deno.test('spamFilter redis duplicate detection rejects concurrent duplicate event IDs', async () => {
@@ -164,10 +246,13 @@ Deno.test('spamFilter redis duplicate detection rejects concurrent duplicate eve
   const policy = factory(inst);
 
   const results = await Promise.all(
-    Array.from(
-      { length: concurrent },
-      () => policy(['EVENT', makeEvent({ id: 'redis-concurrent-dup' })], inst.connectionInfo),
-    ),
+    (() => {
+      const event = makeSignedEvent({ content: 'redis-concurrent-dup' });
+      return Array.from(
+        { length: concurrent },
+        () => policy(['EVENT', event], inst.connectionInfo),
+      );
+    })(),
   );
 
   assertEquals(results.map((result) => result.action), ['next', 'reject', 'reject', 'reject', 'reject']);
@@ -179,8 +264,9 @@ Deno.test('spamFilter redis duplicate detection uses default window when omitted
     reject_duplicate: { enabled: true, backend: 'redis' },
   }, { ...infra, redis });
   const inst = mockInstance();
+  const event = makeSignedEvent({ content: 'redis-default-window' });
 
-  await factory(inst)(['EVENT', makeEvent({ id: 'redis-default-window' })], inst.connectionInfo);
+  await factory(inst)(['EVENT', event], inst.connectionInfo);
 
   assertEquals(redis.setCalls[0]?.ttl, 300);
 });
@@ -198,10 +284,11 @@ Deno.test({
     }, testInfra);
     const inst = mockInstance();
     const policy = factory(inst);
-    assertEquals((await policy(['EVENT', makeEvent({ id: 'redis-dup-1' })], inst.connectionInfo)).action, 'next');
-    assertEquals((await policy(['EVENT', makeEvent({ id: 'redis-dup-1' })], inst.connectionInfo)).action, 'reject');
+    const event = makeSignedEvent({ content: 'redis-dup-1' });
+    assertEquals((await policy(['EVENT', event], inst.connectionInfo)).action, 'next');
+    assertEquals((await policy(['EVENT', event], inst.connectionInfo)).action, 'reject');
 
-    await redis.del('seen:redis-dup-1');
+    await redis.del(`seen:${event.id}`);
     await redis.close();
   },
 });

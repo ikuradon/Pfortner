@@ -49,6 +49,22 @@ Deno.test('admin rejects wrong token', async () => {
   assertEquals(res.status, 401);
 });
 
+Deno.test('admin auth uses updated state config token', async () => {
+  const state = makeState();
+  const handler = createAdminHandler(state);
+
+  state.config = {
+    ...state.config,
+    admin: { enabled: true, port: 9091, auth_token: 'rotated-token' },
+  };
+
+  const oldRes = await handler(makeRequest('/health'));
+  const newRes = await handler(makeRequest('/health', 'GET', 'rotated-token'));
+
+  assertEquals(oldRes.status, 401);
+  assertEquals(newRes.status, 200);
+});
+
 Deno.test('admin GET /config returns masked config', async () => {
   const handler = createAdminHandler(makeState());
   const res = await handler(makeRequest('/config'));

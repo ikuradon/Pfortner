@@ -26,10 +26,32 @@ Deno.test('eventSifterPolicy passes non-EVENT messages through', async () => {
   assertEquals(result.message, message);
 });
 
-Deno.test('eventSifterPolicy passes EVENT with wrong length (2 elements)', async () => {
-  const message = ['EVENT', makeEvent()];
+Deno.test('eventSifterPolicy rejects client EVENT when ES policy rejects', async () => {
+  const event = makeEvent();
+  const message = ['EVENT', event];
+  const rejectAll = () => ({ id: event.id, action: 'reject' as const, msg: 'blocked' });
+
+  const result = await eventSifterPolicy(message, connectionInfo, [rejectAll]);
+  assertEquals(result.action, 'reject');
+  assertEquals(result.response, JSON.stringify(['OK', 'event-id', false, 'blocked']));
+});
+
+Deno.test('eventSifterPolicy accepts client EVENT when all ES policies accept', async () => {
+  const event = makeEvent();
+  const message = ['EVENT', event];
+  const acceptAll = () => ({ id: event.id, action: 'accept' as const, msg: '' });
+
+  const result = await eventSifterPolicy(message, connectionInfo, [acceptAll]);
+  assertEquals(result.action, 'accept');
+  assertEquals(result.message, message);
+});
+
+Deno.test('eventSifterPolicy accepts client EVENT with no ES policies', async () => {
+  const event = makeEvent();
+  const message = ['EVENT', event];
+
   const result = await eventSifterPolicy(message, connectionInfo, []);
-  assertEquals(result.action, 'next');
+  assertEquals(result.action, 'accept');
   assertEquals(result.message, message);
 });
 
@@ -67,7 +89,17 @@ Deno.test('eventSifterPolicy rejects EVENT when ES policy shadowRejects', async 
 
   const result = await eventSifterPolicy(message, connectionInfo, [shadowReject]);
   assertEquals(result.action, 'reject');
-  assertEquals(result.response, JSON.stringify(['OK', 'event-id', false, 'shadow']));
+  assertEquals(result.response, undefined);
+});
+
+Deno.test('eventSifterPolicy shadow rejects client EVENT with accepted OK response', async () => {
+  const event = makeEvent();
+  const message = ['EVENT', event];
+  const shadowReject = () => ({ id: event.id, action: 'shadowReject' as const, msg: 'shadow' });
+
+  const result = await eventSifterPolicy(message, connectionInfo, [shadowReject]);
+  assertEquals(result.action, 'reject');
+  assertEquals(result.response, JSON.stringify(['OK', 'event-id', true, '']));
 });
 
 Deno.test('eventSifterPolicy stops pipeline at first non-accept ES policy', async () => {

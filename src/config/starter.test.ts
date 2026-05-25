@@ -57,6 +57,46 @@ pipelines:
   }
 });
 
+Deno.test('buildRequestHandler rejects missing protected-event config', async () => {
+  const config = loadConfigFromString(`
+server:
+  port: 3000
+  upstream_relay: "ws://localhost:7777"
+pipelines:
+  client:
+    - policy: accept
+  server:
+    - policy: protected-event
+    - policy: accept
+`);
+  try {
+    await buildRequestHandler(config, buildInfraContext({}), createPluginRegistry());
+    throw new Error('should have thrown');
+  } catch (e) {
+    assertEquals((e as Error).message.includes('validation'), true);
+  }
+});
+
+Deno.test('buildRequestHandler rejects missing kind-filter config', async () => {
+  const config = loadConfigFromString(`
+server:
+  port: 3000
+  upstream_relay: "ws://localhost:7777"
+pipelines:
+  client:
+    - policy: kind-filter
+    - policy: accept
+  server:
+    - policy: accept
+`);
+  try {
+    await buildRequestHandler(config, buildInfraContext({}), createPluginRegistry());
+    throw new Error('should have thrown');
+  } catch (e) {
+    assertEquals((e as Error).message.includes('validation'), true);
+  }
+});
+
 Deno.test('buildRequestHandler creates a function', async () => {
   const config = loadConfigFromString(`
 server:

@@ -61,6 +61,14 @@ export interface RedisClient {
   zadd(key: string, score: number, member: string): Promise<number>;
   zremrangebyscore(key: string, min: number, max: number): Promise<number>;
   zcard(key: string): Promise<number>;
+  slidingWindowAdd(
+    key: string,
+    windowStart: number,
+    limit: number,
+    score: number,
+    member: string,
+    ttl: number,
+  ): Promise<boolean>;
   close(): Promise<void>;
 }
 

@@ -42,6 +42,25 @@ function getScopeKey(scope: string, connectionInfo: ConnectionInfo): string {
   }
 }
 
+async function allowRedisHit(
+  redis: NonNullable<InfraContext['redis']>,
+  key: string,
+  now: number,
+  windowMs: number,
+  limit: number,
+  ttl: number,
+): Promise<boolean> {
+  const member = `${now}:${Math.random()}`;
+  const redisTtl = Math.max(1, Math.ceil(ttl));
+  if (!Number.isFinite(limit)) {
+    await redis.zremrangebyscore(key, 0, now - windowMs);
+    await redis.zadd(key, now, member);
+    await redis.expire(key, redisTtl);
+    return true;
+  }
+  return await redis.slidingWindowAdd(key, now - windowMs, limit, now, member, redisTtl);
+}
+
 export const rateLimitPlugin: PolicyPlugin = {
   name: 'rate-limit',
   description: 'Rate limit EVENT and REQ messages by connection, IP, or pubkey',
@@ -87,26 +106,20 @@ export const rateLimitPlugin: PolicyPlugin = {
           const reqKey = `requests:${key}`;
 
           if (type === 'EVENT') {
-            await redis.zremrangebyscore(eventKey, 0, now - windowMs);
-            const count = await redis.zcard(eventKey);
-            if (count >= maxEvents) {
+            const allowed = await allowRedisHit(redis, eventKey, now, windowMs, maxEvents, cfg.window + 1);
+            if (!allowed) {
               const eventId = (message[1] as any)?.id ?? '';
               return { message, action: 'reject', response: JSON.stringify(['OK', eventId, false, rejectMsg]) };
             }
-            await redis.zadd(eventKey, now, `${now}:${Math.random()}`);
-            await redis.expire(eventKey, cfg.window + 1);
           } else {
-            await redis.zremrangebyscore(reqKey, 0, now - windowMs);
-            const count = await redis.zcard(reqKey);
-            if (count >= maxRequests) {
+            const allowed = await allowRedisHit(redis, reqKey, now, windowMs, maxRequests, cfg.window + 1);
+            if (!allowed) {
               return {
                 message,
                 action: 'reject',
                 response: JSON.stringify(['CLOSED', message[1] ?? '', rejectMsg]),
               };
             }
-            await redis.zadd(reqKey, now, `${now}:${Math.random()}`);
-            await redis.expire(reqKey, cfg.window + 1);
           }
           return { message, action: 'next' };
         }
