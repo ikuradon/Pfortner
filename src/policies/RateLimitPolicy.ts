@@ -10,16 +10,49 @@ interface RateLimitConfig {
   on_reject?: { message: string };
 }
 
-// Shared sliding window counters (across connections for ip/pubkey scopes)
-const sharedCounters = new Map<string, { events: number[]; requests: number[] }>();
+interface Counters {
+  events: number[];
+  requests: number[];
+  expiresAt: number;
+  windowMs: number;
+}
 
-function getCounters(key: string) {
+// Shared sliding window counters (across connections for ip/pubkey scopes)
+const sharedCounters = new Map<string, Counters>();
+const nextPruneByNamespace = new Map<string, number>();
+let nextMemoryPolicyId = 0;
+
+export const __testing = {
+  sharedCounterCount(): number {
+    return sharedCounters.size;
+  },
+};
+
+function getCounters(key: string, windowMs: number) {
   let c = sharedCounters.get(key);
   if (!c) {
-    c = { events: [], requests: [] };
+    c = { events: [], requests: [], expiresAt: 0, windowMs };
     sharedCounters.set(key, c);
   }
   return c;
+}
+
+function maybePruneSharedCounters(namespace: string, windowMs: number, now: number): void {
+  const nextPruneAt = nextPruneByNamespace.get(namespace) ?? 0;
+  if (now < nextPruneAt) return;
+  nextPruneByNamespace.set(namespace, now + Math.min(Math.max(windowMs, 1000), 60_000));
+
+  for (const [key, counters] of sharedCounters) {
+    if (!key.startsWith(namespace)) continue;
+    if (counters.expiresAt > now) continue;
+    countInWindow(counters.events, counters.windowMs, now);
+    countInWindow(counters.requests, counters.windowMs, now);
+    if (counters.events.length === 0 && counters.requests.length === 0) {
+      sharedCounters.delete(key);
+    } else {
+      counters.expiresAt = now + counters.windowMs;
+    }
+  }
 }
 
 function countInWindow(timestamps: number[], windowMs: number, now: number): number {
@@ -85,10 +118,11 @@ export const rateLimitPlugin: PolicyPlugin = {
     const rejectMsg = cfg.on_reject?.message ?? 'rate-limited: slow down';
     const useRedis = cfg.backend === 'redis' && infra.redis != null;
     const redis = infra.redis;
+    const memoryNamespace = `policy:${nextMemoryPolicyId++}:`;
 
     return Promise.resolve((_instance) => {
       const connectionCounters = cfg.scope === 'connection'
-        ? { events: [] as number[], requests: [] as number[] }
+        ? { events: [] as number[], requests: [] as number[], expiresAt: 0, windowMs }
         : null;
 
       return async (message, connectionInfo) => {
@@ -124,9 +158,17 @@ export const rateLimitPlugin: PolicyPlugin = {
           return { message, action: 'next' };
         }
 
-        const counters = connectionCounters ?? getCounters(key);
+        if (connectionCounters == null) {
+          maybePruneSharedCounters(memoryNamespace, windowMs, now);
+        }
+
+        const counterKey = `${memoryNamespace}${key}`;
 
         if (type === 'EVENT') {
+          if (maxEvents === Infinity) {
+            return { message, action: 'next' };
+          }
+          const counters = connectionCounters ?? getCounters(counterKey, windowMs);
           const count = countInWindow(counters.events, windowMs, now);
           if (count >= maxEvents) {
             const eventId = (message[1] as any)?.id ?? '';
@@ -137,7 +179,12 @@ export const rateLimitPlugin: PolicyPlugin = {
             };
           }
           counters.events.push(now);
+          counters.expiresAt = now + windowMs;
         } else {
+          if (maxRequests === Infinity) {
+            return { message, action: 'next' };
+          }
+          const counters = connectionCounters ?? getCounters(counterKey, windowMs);
           const count = countInWindow(counters.requests, windowMs, now);
           if (count >= maxRequests) {
             return {
@@ -147,6 +194,7 @@ export const rateLimitPlugin: PolicyPlugin = {
             };
           }
           counters.requests.push(now);
+          counters.expiresAt = now + windowMs;
         }
 
         return { message, action: 'next' };
@@ -155,6 +203,8 @@ export const rateLimitPlugin: PolicyPlugin = {
   },
   destroy(): Promise<void> {
     sharedCounters.clear();
+    nextPruneByNamespace.clear();
+    nextMemoryPolicyId = 0;
     return Promise.resolve();
   },
 };
