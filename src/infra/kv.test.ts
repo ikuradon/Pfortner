@@ -91,7 +91,7 @@ Deno.test('kv incr preserves an existing TTL', async () => {
   await client.expire('counter-with-ttl', 0.5);
   await new Promise((r) => setTimeout(r, 50));
   assertEquals(await client.incr('counter-with-ttl'), 2);
-  await new Promise((r) => setTimeout(r, 500));
+  await new Promise((r) => setTimeout(r, 460));
 
   assertEquals(await client.get('counter-with-ttl'), null);
   await client.close();
