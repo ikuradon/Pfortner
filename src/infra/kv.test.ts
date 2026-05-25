@@ -37,7 +37,8 @@ Deno.test('kv set with TTL expires', async () => {
 });
 
 Deno.test('kv sweeps expired TTL data keys during unrelated operations', async () => {
-  const path = `/private/tmp/pfortner-kv-test-${crypto.randomUUID()}`;
+  const dir = await Deno.makeTempDir({ prefix: 'pfortner-kv-test-' });
+  const path = `${dir}/kv.db`;
   const client = await createKvClient({ path });
 
   await client.set('seen:unique-event', '1', 0.05);
@@ -50,6 +51,24 @@ Deno.test('kv sweeps expired TTL data keys during unrelated operations', async (
   const active = await kv.get(['data', 'seen:another-event']);
   assertEquals(expired.value, null);
   assertEquals(active.value != null, true);
+  kv.close();
+});
+
+Deno.test('kv del removes expiry index entries', async () => {
+  const dir = await Deno.makeTempDir({ prefix: 'pfortner-kv-test-' });
+  const path = `${dir}/kv.db`;
+  const client = await createKvClient({ path });
+
+  await client.set('ttl-key', 'value', 10);
+  await client.zadd('ttl-zset', 1, 'member-1');
+  await client.expire('ttl-zset', 10);
+  await client.del('ttl-key', 'ttl-zset');
+  await client.close();
+
+  const kv = await Deno.openKv(path);
+  let indexCount = 0;
+  for await (const _entry of kv.list({ prefix: ['expires'] })) indexCount++;
+  assertEquals(indexCount, 0);
   kv.close();
 });
 

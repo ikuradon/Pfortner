@@ -45,11 +45,19 @@ export async function createKvClient(options: KvOptions = {}): Promise<RedisClie
     return typeof value === 'number' ? { score: value } : value;
   }
 
-  async function addExpiryIndex(index: ExpiryIndex): Promise<void> {
-    const key = index.namespace === 'data'
+  function expiryIndexKey(index: ExpiryIndex): Deno.KvKey {
+    return index.namespace === 'data'
       ? ['expires', index.expiresAt, 'data', index.key]
       : ['expires', index.expiresAt, 'zset', index.key, index.member ?? ''];
+  }
+
+  async function addExpiryIndex(index: ExpiryIndex): Promise<void> {
+    const key = expiryIndexKey(index);
     await kv.set(key, index);
+  }
+
+  async function deleteExpiryIndex(index: ExpiryIndex): Promise<void> {
+    await kv.delete(expiryIndexKey(index));
   }
 
   async function cleanupExpired(limit = 1000): Promise<void> {
@@ -195,6 +203,9 @@ export async function createKvClient(options: KvOptions = {}): Promise<RedisClie
         const entry = await kv.get<KvEntry>(['data', key]);
         if (entry.value != null) {
           await kv.delete(['data', key]);
+          if (entry.value.expiresAt != null) {
+            await deleteExpiryIndex({ namespace: 'data', key, expiresAt: entry.value.expiresAt });
+          }
           deleted++;
         }
         // set member を削除する
@@ -203,9 +214,18 @@ export async function createKvClient(options: KvOptions = {}): Promise<RedisClie
           await kv.delete(setEntry.key);
         }
         // sorted set member を削除する
-        const ziter = kv.list({ prefix: ['zset', key] });
+        const ziter = kv.list<number | ZsetEntry>({ prefix: ['zset', key] });
         for await (const zEntry of ziter) {
           await kv.delete(zEntry.key);
+          const parsed = parseZsetEntry(zEntry.value);
+          if (parsed.expiresAt != null) {
+            await deleteExpiryIndex({
+              namespace: 'zset',
+              key,
+              member: String(zEntry.key[2]),
+              expiresAt: parsed.expiresAt,
+            });
+          }
         }
         await kv.delete(['zset-expiry', key]);
       }
