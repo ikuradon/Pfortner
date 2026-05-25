@@ -632,6 +632,10 @@ export const pfortnerInit = (
   }
 
   async function relayServerMessageToClient(message: unknown[]): Promise<void> {
+    if (isBlacklistedPubkey(connectionInfo.clientPubkey)) {
+      closeBlacklistedConnection();
+      return;
+    }
     await runPipeline(serverPolicies, message, sendMessageToClient);
   }
 
