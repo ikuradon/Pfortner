@@ -68,6 +68,10 @@ export const rateLimitPlugin: PolicyPlugin = {
     const redis = infra.redis;
 
     return Promise.resolve((_instance) => {
+      const connectionCounters = cfg.scope === 'connection'
+        ? { events: [] as number[], requests: [] as number[] }
+        : null;
+
       return async (message, connectionInfo) => {
         const type = message[0];
         if (type !== 'EVENT' && type !== 'REQ') {
@@ -107,8 +111,7 @@ export const rateLimitPlugin: PolicyPlugin = {
           return { message, action: 'next' };
         }
 
-        // In-memory path (existing code, unchanged)
-        const counters = getCounters(key);
+        const counters = connectionCounters ?? getCounters(key);
 
         if (type === 'EVENT') {
           const count = countInWindow(counters.events, windowMs, now);
