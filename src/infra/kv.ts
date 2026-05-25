@@ -81,6 +81,13 @@ export async function createKvClient(options: KvOptions = {}): Promise<RedisClie
     await kv.delete(expiryIndexKey(index));
   }
 
+  async function deleteZsetMember(key: string, member: string, entry: ZsetEntry): Promise<void> {
+    if (entry.expiresAt != null) {
+      await deleteExpiryIndex({ namespace: 'zset', key, member, expiresAt: entry.expiresAt });
+    }
+    await kv.delete(['zset', key, member]);
+  }
+
   async function cleanupExpired(limit = 1000): Promise<void> {
     const now = Date.now();
     let checked = 0;
@@ -191,6 +198,9 @@ export async function createKvClient(options: KvOptions = {}): Promise<RedisClie
         hasZsetMembers = true;
         const parsed = parseZsetEntry(zEntry.value);
         const member = String(zEntry.key[2]);
+        if (parsed.expiresAt != null && parsed.expiresAt !== expiresAt) {
+          await deleteExpiryIndex({ namespace: 'zset', key, member, expiresAt: parsed.expiresAt });
+        }
         const newEntry: ZsetEntry = { score: parsed.score, expiresAt };
         await kv.set(zEntry.key, newEntry, { expireIn: ttlToExpireIn(ttl) });
         await addExpiryIndex({ namespace: 'zset', key, member, expiresAt });
@@ -237,16 +247,8 @@ export async function createKvClient(options: KvOptions = {}): Promise<RedisClie
         // sorted set member を削除する
         const ziter = kv.list<number | ZsetEntry>({ prefix: ['zset', key] });
         for await (const zEntry of ziter) {
-          await kv.delete(zEntry.key);
           const parsed = parseZsetEntry(zEntry.value);
-          if (parsed.expiresAt != null) {
-            await deleteExpiryIndex({
-              namespace: 'zset',
-              key,
-              member: String(zEntry.key[2]),
-              expiresAt: parsed.expiresAt,
-            });
-          }
+          await deleteZsetMember(key, String(zEntry.key[2]), parsed);
         }
         await kv.delete(['zset-expiry', key]);
       }
@@ -261,6 +263,10 @@ export async function createKvClient(options: KvOptions = {}): Promise<RedisClie
         entry.expiresAt = current.expiresAt;
       } else {
         entry.expiresAt = await getZsetExpiresAt(key);
+      }
+
+      if (current?.expiresAt != null && current.expiresAt !== entry.expiresAt) {
+        await deleteExpiryIndex({ namespace: 'zset', key, member, expiresAt: current.expiresAt });
       }
 
       const expireIn = entry.expiresAt == null ? undefined : remainingExpireIn(entry.expiresAt);
@@ -278,12 +284,13 @@ export async function createKvClient(options: KvOptions = {}): Promise<RedisClie
       const iter = kv.list<number | ZsetEntry>({ prefix: ['zset', key] });
       for await (const entry of iter) {
         const parsed = parseZsetEntry(entry.value);
+        const member = String(entry.key[2]);
         if (isExpired(parsed.expiresAt)) {
-          await kv.delete(entry.key);
+          await deleteZsetMember(key, member, parsed);
           continue;
         }
         if (parsed.score >= min && parsed.score <= max) {
-          await kv.delete(entry.key);
+          await deleteZsetMember(key, member, parsed);
           removed++;
         }
       }
@@ -296,7 +303,7 @@ export async function createKvClient(options: KvOptions = {}): Promise<RedisClie
       for await (const entry of iter) {
         const parsed = parseZsetEntry(entry.value);
         if (isExpired(parsed.expiresAt)) {
-          await kv.delete(entry.key);
+          await deleteZsetMember(key, String(entry.key[2]), parsed);
           continue;
         }
         count++;
@@ -318,7 +325,7 @@ export async function createKvClient(options: KvOptions = {}): Promise<RedisClie
         for await (const entry of iter) {
           const parsed = parseZsetEntry(entry.value);
           if (isExpired(parsed.expiresAt) || parsed.score <= windowStart) {
-            await kv.delete(entry.key);
+            await deleteZsetMember(key, String(entry.key[2]), parsed);
             continue;
           }
           count++;
