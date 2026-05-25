@@ -35,7 +35,7 @@ function createAtomicRedis(ttls: number[] = []) {
     incr() {
       return Promise.resolve(0);
     },
-    expire() {
+    expire(_key: string, _ttl: number) {
       return Promise.resolve();
     },
     sadd() {
@@ -151,6 +151,50 @@ Deno.test('rateLimit redis backend passes integer TTL for fractional windows', a
 
   assertEquals((await policy(['EVENT', makeEvent('fractional-window')], inst.connectionInfo)).action, 'next');
   assertEquals(ttls, [2]);
+});
+
+Deno.test('rateLimit redis backend does not write counters for unlimited limits', async () => {
+  const redis = createAtomicRedis();
+  let zaddCalls = 0;
+  let expireCalls = 0;
+  let slidingWindowCalls = 0;
+  const originalZadd = redis.zadd;
+  const originalExpire = redis.expire;
+  const originalSlidingWindowAdd = redis.slidingWindowAdd;
+  redis.zadd = (key: string, score: number, member: string) => {
+    zaddCalls++;
+    return originalZadd(key, score, member);
+  };
+  redis.expire = (key: string, ttl: number) => {
+    expireCalls++;
+    return originalExpire(key, ttl);
+  };
+  redis.slidingWindowAdd = (
+    key: string,
+    windowStart: number,
+    limit: number,
+    score: number,
+    member: string,
+    ttl: number,
+  ) => {
+    slidingWindowCalls++;
+    return originalSlidingWindowAdd(key, windowStart, limit, score, member, ttl);
+  };
+  const testInfra = { ...infra, redis };
+  const factory = await rateLimitPlugin.initialize({
+    scope: 'ip',
+    window: 60,
+    backend: 'redis',
+  }, testInfra);
+  const inst = mockInstance(false, '203.0.113.12');
+  const policy = factory(inst);
+
+  for (let i = 0; i < 8; i++) {
+    assertEquals((await policy(['EVENT', makeEvent(`unlimited-${i}`)], inst.connectionInfo)).action, 'next');
+  }
+  assertEquals(zaddCalls, 0);
+  assertEquals(expireCalls, 0);
+  assertEquals(slidingWindowCalls, 0);
 });
 
 Deno.test('rateLimit passes CLOSE messages', async () => {

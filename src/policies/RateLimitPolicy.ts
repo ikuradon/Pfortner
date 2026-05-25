@@ -86,9 +86,6 @@ async function allowRedisHit(
   const member = `${now}:${Math.random()}`;
   const redisTtl = Math.max(1, Math.ceil(ttl));
   if (!Number.isFinite(limit)) {
-    await redis.zremrangebyscore(key, 0, now - windowMs);
-    await redis.zadd(key, now, member);
-    await redis.expire(key, redisTtl);
     return true;
   }
   return await redis.slidingWindowAdd(key, now - windowMs, limit, now, member, redisTtl);

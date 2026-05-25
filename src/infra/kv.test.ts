@@ -1,6 +1,12 @@
 import { assertEquals } from 'jsr:@std/assert@1.0.18';
 import { createKvClient } from './kv.ts';
 
+async function countEntries(kv: Deno.Kv, prefix: Deno.KvKey): Promise<number> {
+  let count = 0;
+  for await (const _entry of kv.list({ prefix })) count++;
+  return count;
+}
+
 Deno.test('kv get/set', async () => {
   const client = await createKvClient({ path: ':memory:' });
   await client.set('key1', 'value1');
@@ -101,6 +107,22 @@ Deno.test('kv expire applies to sorted set members', async () => {
   await client.close();
 });
 
+Deno.test('kv expire refreshes sorted set expiry indexes without growth', async () => {
+  const dir = await Deno.makeTempDir({ prefix: 'pfortner-kv-test-' });
+  const path = `${dir}/kv.db`;
+  const client = await createKvClient({ path });
+
+  await client.zadd('zset-refresh', 1, 'member-1');
+  await client.expire('zset-refresh', 10);
+  await new Promise((r) => setTimeout(r, 20));
+  await client.expire('zset-refresh', 10);
+  await client.close();
+
+  const kv = await Deno.openKv(path);
+  assertEquals(await countEntries(kv, ['expires']), 1);
+  kv.close();
+});
+
 Deno.test('kv slidingWindowAdd stores zset expiry in the same format as expire', async () => {
   const client = await createKvClient({ path: ':memory:' });
 
@@ -111,6 +133,21 @@ Deno.test('kv slidingWindowAdd stores zset expiry in the same format as expire',
 
   assertEquals(await client.zcard('events:conn:attacker'), 0);
   await client.close();
+});
+
+Deno.test('kv slidingWindowAdd removes evicted sorted set expiry indexes', async () => {
+  const dir = await Deno.makeTempDir({ prefix: 'pfortner-kv-test-' });
+  const path = `${dir}/kv.db`;
+  const client = await createKvClient({ path });
+
+  assertEquals(await client.slidingWindowAdd('events:conn:attacker', 0, 10, 100, 'member-1', 10), true);
+  assertEquals(await client.slidingWindowAdd('events:conn:attacker', 150, 10, 200, 'member-2', 10), true);
+  await client.close();
+
+  const kv = await Deno.openKv(path);
+  assertEquals(await countEntries(kv, ['zset', 'events:conn:attacker']), 1);
+  assertEquals(await countEntries(kv, ['expires']), 1);
+  kv.close();
 });
 
 Deno.test('kv incr preserves an existing TTL', async () => {
@@ -136,4 +173,21 @@ Deno.test('kv zadd/zcard/zremrangebyscore', async () => {
   assertEquals(await client.zcard('zset'), 2);
   await client.del('zset');
   await client.close();
+});
+
+Deno.test('kv zremrangebyscore removes sorted set expiry indexes', async () => {
+  const dir = await Deno.makeTempDir({ prefix: 'pfortner-kv-test-' });
+  const path = `${dir}/kv.db`;
+  const client = await createKvClient({ path });
+
+  await client.zadd('zset-index-cleanup', 100, 'a');
+  await client.zadd('zset-index-cleanup', 200, 'b');
+  await client.expire('zset-index-cleanup', 10);
+  await client.zremrangebyscore('zset-index-cleanup', 0, 150);
+  await client.close();
+
+  const kv = await Deno.openKv(path);
+  assertEquals(await countEntries(kv, ['zset', 'zset-index-cleanup']), 1);
+  assertEquals(await countEntries(kv, ['expires']), 1);
+  kv.close();
 });
