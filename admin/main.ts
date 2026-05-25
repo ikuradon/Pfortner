@@ -91,9 +91,11 @@ function buildOrigin(protocol: string | undefined, host: string | undefined): st
   }
 }
 
-function getAllowedRequestOrigins(req: Request): Set<string> {
+function getAllowedRequestOrigins(req: Request, trustProxy: boolean): Set<string> {
   const url = new URL(req.url);
   const origins = new Set([url.origin]);
+  if (!trustProxy) return origins;
+
   // Trust forwarded origin headers only when the deployment strips client-supplied values at the edge.
   const forwardedProto = firstHeaderValue(req.headers.get('X-Forwarded-Proto')) ??
     getForwardedValue(req, 'proto');
@@ -106,8 +108,8 @@ function getAllowedRequestOrigins(req: Request): Set<string> {
   return origins;
 }
 
-function isSameOriginRequest(req: Request): boolean {
-  const allowedOrigins = getAllowedRequestOrigins(req);
+function isSameOriginRequest(req: Request, trustProxy: boolean): boolean {
+  const allowedOrigins = getAllowedRequestOrigins(req, trustProxy);
   const origin = req.headers.get('Origin');
   if (origin !== null) return allowedOrigins.has(origin);
 
@@ -210,7 +212,7 @@ export function createAdminApp(
     if (
       credential.source === 'cookie' &&
       !SAFE_METHODS.has(ctx.req.method) &&
-      !isSameOriginRequest(ctx.req)
+      !isSameOriginRequest(ctx.req, state.config.admin?.trust_proxy === true)
     ) {
       return path.startsWith(`${adminPath}/api/`)
         ? json({ error: 'csrf validation failed' }, 403)

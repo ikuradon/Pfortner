@@ -38,7 +38,7 @@ export interface PfortnerConfig {
     http?: { default_timeout?: number; user_agent?: string };
   };
   relay_info?: { name?: string; description?: string; contact?: string; software?: string };
-  admin?: { enabled?: boolean; port?: number; path?: string; auth_token?: string };
+  admin?: { enabled?: boolean; port?: number; path?: string; auth_token?: string; trust_proxy?: boolean };
   plugins?: Array<{ name: string; url?: string; path?: string }>;
   pipelines: { client: PipelineEntry[]; server: PipelineEntry[] };
 }

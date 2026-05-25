@@ -31,6 +31,8 @@ auth:
 #   enabled: true
 #   auth_token: 'change-me-secret-token'
 #   path: '/admin'
+#   # Trust X-Forwarded-Proto/Host and Forwarded only behind a proxy that strips client-supplied values.
+#   trust_proxy: false
 #   # port: 9090  # optional: also expose admin API on a separate port
 
 # infra:
