@@ -64,8 +64,22 @@ export function createRelayQueryFn(relayUrl: string, timeoutMs = 10000): QueryFn
           reject(e);
         }
       };
+      const closeRelay = (sendClose: boolean) => {
+        if (sendClose) {
+          try {
+            ws.send(JSON.stringify(['CLOSE', subId]));
+          } catch {
+            // Ignore relay close notification failures; the query still needs to settle.
+          }
+        }
+        try {
+          ws.close();
+        } catch {
+          // Ignore close failures; the query still needs to settle.
+        }
+      };
       const timer = setTimeout(() => {
-        ws.close();
+        closeRelay(false);
         resolveMessages();
       }, timeoutMs);
 
@@ -81,8 +95,7 @@ export function createRelayQueryFn(relayUrl: string, timeoutMs = 10000): QueryFn
             messages.push(msg);
             if (msg[0] === 'EOSE' && msg[1] === subId) {
               clearTimeout(timer);
-              ws.send(JSON.stringify(['CLOSE', subId]));
-              ws.close();
+              closeRelay(true);
               resolveMessages();
             }
           }

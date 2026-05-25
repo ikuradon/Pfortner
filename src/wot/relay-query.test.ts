@@ -1,5 +1,5 @@
 import { assertEquals } from 'jsr:@std/assert@1.0.18';
-import { parseRelayResponse } from './relay-query.ts';
+import { createRelayQueryFn, parseRelayResponse } from './relay-query.ts';
 import { nostrTools } from '../deps.ts';
 
 function makeContactListEvent(
@@ -91,4 +91,63 @@ Deno.test('parseRelayResponse keeps the newest contact list for duplicate pubkey
 
   const result = parseRelayResponse(messages, 'sub1', new Set([newerEvent.pubkey]));
   assertEquals(result.get(newerEvent.pubkey), ['newer-follow']);
+});
+
+Deno.test('createRelayQueryFn resolves when CLOSE send throws after EOSE', async () => {
+  const originalWebSocket = globalThis.WebSocket;
+  const sk = nostrTools.generateSecretKey();
+  const contactList = makeContactListEvent(sk, [['p', 'trusted-follow']]);
+
+  class ThrowingCloseWebSocket {
+    #listeners = new Map<string, ((event: { data?: string }) => void)[]>();
+
+    constructor(_url: string) {
+      setTimeout(() => this.#dispatch('open', {}), 0);
+    }
+
+    addEventListener(type: string, listener: (event: { data?: string }) => void): void {
+      const listeners = this.#listeners.get(type) ?? [];
+      listeners.push(listener);
+      this.#listeners.set(type, listeners);
+    }
+
+    send(data: string): void {
+      const message = JSON.parse(data);
+      if (message[0] === 'CLOSE') {
+        throw new Error('relay close send failed');
+      }
+      const subId = message[1];
+      setTimeout(() => {
+        this.#dispatch('message', { data: JSON.stringify(['EVENT', subId, contactList]) });
+        this.#dispatch('message', { data: JSON.stringify(['EOSE', subId]) });
+      }, 0);
+    }
+
+    close(): void {}
+
+    #dispatch(type: string, event: { data?: string }): void {
+      for (const listener of this.#listeners.get(type) ?? []) {
+        listener(event);
+      }
+    }
+  }
+
+  try {
+    Object.defineProperty(globalThis, 'WebSocket', {
+      configurable: true,
+      value: ThrowingCloseWebSocket,
+    });
+    const queryFn = createRelayQueryFn('wss://example.invalid', 500);
+    const result = await Promise.race([
+      queryFn([contactList.pubkey]),
+      new Promise<'pending'>((resolve) => setTimeout(() => resolve('pending'), 50)),
+    ]);
+
+    assertEquals(result, new Map([[contactList.pubkey, ['trusted-follow']]]));
+  } finally {
+    Object.defineProperty(globalThis, 'WebSocket', {
+      configurable: true,
+      value: originalWebSocket,
+    });
+  }
 });
