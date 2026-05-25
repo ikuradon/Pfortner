@@ -26,19 +26,23 @@ export function parseRelayResponse(
       continue;
     }
 
-    const event = msg[2];
-    if (
-      isContactListEvent(event) &&
-      event.kind === 3 &&
-      expectedAuthors.has(event.pubkey) &&
-      nostrTools.validateEvent(event) &&
-      nostrTools.verifyEvent(event)
-    ) {
-      const storedCreatedAt = createdAtByPubkey.get(event.pubkey) ?? -1;
-      if (event.created_at > storedCreatedAt) {
-        createdAtByPubkey.set(event.pubkey, event.created_at);
-        result.set(event.pubkey, parseContactList(event));
+    try {
+      const event = msg[2];
+      if (
+        isContactListEvent(event) &&
+        event.kind === 3 &&
+        expectedAuthors.has(event.pubkey) &&
+        nostrTools.validateEvent(event) &&
+        nostrTools.verifyEvent(event)
+      ) {
+        const storedCreatedAt = createdAtByPubkey.get(event.pubkey) ?? -1;
+        if (event.created_at > storedCreatedAt) {
+          createdAtByPubkey.set(event.pubkey, event.created_at);
+          result.set(event.pubkey, parseContactList(event));
+        }
       }
+    } catch {
+      // Ignore malformed relay EVENT payloads.
     }
   }
   return result;
@@ -53,9 +57,16 @@ export function createRelayQueryFn(relayUrl: string, timeoutMs = 10000): QueryFn
       const messages: unknown[][] = [];
       const subId = `wot-${crypto.randomUUID().slice(0, 8)}`;
       const expectedAuthors = new Set(pubkeys);
+      const resolveMessages = () => {
+        try {
+          resolve(parseRelayResponse(messages, subId, expectedAuthors));
+        } catch (e) {
+          reject(e);
+        }
+      };
       const timer = setTimeout(() => {
         ws.close();
-        resolve(parseRelayResponse(messages, subId, expectedAuthors));
+        resolveMessages();
       }, timeoutMs);
 
       ws.addEventListener('open', () => {
@@ -72,7 +83,7 @@ export function createRelayQueryFn(relayUrl: string, timeoutMs = 10000): QueryFn
               clearTimeout(timer);
               ws.send(JSON.stringify(['CLOSE', subId]));
               ws.close();
-              resolve(parseRelayResponse(messages, subId, expectedAuthors));
+              resolveMessages();
             }
           }
         } catch {

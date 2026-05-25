@@ -57,6 +57,29 @@ Deno.test('parseRelayResponse ignores malformed EVENT payloads', () => {
   assertEquals(result, new Map([[validEvent.pubkey, ['trusted-follow']]]));
 });
 
+Deno.test('parseRelayResponse ignores EVENT payloads that throw during validation', () => {
+  const sk = nostrTools.generateSecretKey();
+  const validEvent = makeContactListEvent(sk, [['p', 'trusted-follow']]);
+  const throwingEvent = {
+    id: validEvent.id,
+    pubkey: validEvent.pubkey,
+    kind: 3,
+    created_at: validEvent.created_at,
+    content: validEvent.content,
+    sig: validEvent.sig,
+    get tags(): string[][] {
+      throw new Error('malformed tags');
+    },
+  };
+  const messages = [
+    ['EVENT', 'sub1', throwingEvent],
+    ['EVENT', 'sub1', validEvent],
+  ];
+
+  const result = parseRelayResponse(messages, 'sub1', new Set([validEvent.pubkey]));
+  assertEquals(result, new Map([[validEvent.pubkey, ['trusted-follow']]]));
+});
+
 Deno.test('parseRelayResponse keeps the newest contact list for duplicate pubkeys', () => {
   const sk = nostrTools.generateSecretKey();
   const newerEvent = makeContactListEvent(sk, [['p', 'newer-follow']], 2);
