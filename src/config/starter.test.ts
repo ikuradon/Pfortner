@@ -1,8 +1,11 @@
-import { assertEquals, assertThrows } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from 'jsr:@std/assert@1.0.18';
 import { buildRequestHandler } from './starter.ts';
 import { loadConfigFromString } from './loader.ts';
 import { buildInfraContext } from '../infra/context.ts';
 import { createPluginRegistry } from '../plugins/registry.ts';
+import { ConnectionManager } from '../connections/manager.ts';
+import type { ManagedConnection } from '../connections/types.ts';
+import { createInMemoryMetrics } from '../infra/metrics.ts';
 
 Deno.test('buildRequestHandler rejects invalid plugin config', async () => {
   const config = loadConfigFromString(`
@@ -140,49 +143,52 @@ pipelines:
   assertEquals(response.status, 429);
 });
 
-Deno.test('buildRequestHandler does not register state when websocket upgrade fails', async () => {
+Deno.test('buildRequestHandler rejects malformed websocket upgrade without registering connection', async () => {
   const config = loadConfigFromString(`
 server:
   port: 3000
   upstream_relay: "ws://localhost:7777"
+  connections:
+    max: 10
+    max_per_ip: 1
 pipelines:
   client:
     - policy: accept
   server:
     - policy: accept
 `);
-  const events: string[] = [];
-  const mockConnectionManager = {
-    canAccept: (_ip: string) => ({ allowed: true }),
-    register: () => events.push('register'),
-    unregister: () => events.push('unregister'),
-    getStats: () => ({ active: 0, authenticated: 0, max: 10, perIpMax: 3, pressure: 'normal' as const }),
-  };
-  const metrics = {
-    counters: new Map<string, number>(),
-    gauges: new Map<string, number>(),
-    counter(name: string) {
-      events.push(`counter:${name}`);
-      this.counters.set(name, (this.counters.get(name) ?? 0) + 1);
-    },
-    gauge(name: string, value: number) {
-      this.gauges.set(name, value);
-    },
-    histogram(_name: string, _value: number, _labels?: Record<string, string>) {},
-  };
+  const connections = new Map<string, ManagedConnection>();
+  const connectionManager = new ConnectionManager(connections, {
+    max: 10,
+    maxPerIp: 1,
+    pressure: { softLimitPercent: 80, authGracePeriod: 30 },
+  });
+  const metrics = createInMemoryMetrics();
+  let onConnectCount = 0;
+  let onDisconnectCount = 0;
   const handler = await buildRequestHandler(config, buildInfraContext({ metrics }), createPluginRegistry(), {
-    connectionManager: mockConnectionManager as any,
-    onConnect: () => events.push('onConnect'),
-    onDisconnect: () => events.push('onDisconnect'),
+    connectionManager,
+    onConnect: () => {
+      onConnectCount++;
+    },
+    onDisconnect: () => {
+      onDisconnectCount++;
+    },
   });
   const req = new Request('http://localhost/', {
     headers: {
-      upgrade: 'websocket',
-      connection: 'Upgrade',
+      Upgrade: 'websocket',
+      Connection: 'Upgrade',
     },
   });
   const conn = { remoteAddr: { hostname: '127.0.0.1', port: 12345, transport: 'tcp' as const } };
 
-  assertThrows(() => handler(req, conn as any));
-  assertEquals(events, []);
+  const response = handler(req, conn as any);
+
+  assertEquals(response.status, 400);
+  assertEquals(connections.size, 0);
+  assertEquals(connectionManager.canAccept('127.0.0.1').allowed, true);
+  assertEquals(onConnectCount, 0);
+  assertEquals(onDisconnectCount, 0);
+  assertEquals(metrics.getCounter('pfortner_connections_total'), 0);
 });
