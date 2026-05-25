@@ -31,6 +31,7 @@ import { LogsPage } from './routes/logs.tsx';
 
 const COOKIE_NAME = 'pfortner_admin_token';
 const STATIC_DIR = new URL('./static', import.meta.url).pathname;
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 const RESOLVED_STATIC_DIR = resolve(STATIC_DIR);
 
@@ -49,17 +50,78 @@ function renderHtml(component: h.JSX.Element): Response {
   });
 }
 
-function getTokenFromRequest(req: Request): string | undefined {
+function getCredentialFromRequest(req: Request): { token: string; source: 'bearer' | 'cookie' } | undefined {
   // Check Bearer token header
   const auth = req.headers.get('Authorization');
-  if (auth?.startsWith('Bearer ')) return auth.slice(7);
+  if (auth?.startsWith('Bearer ')) return { token: auth.slice(7), source: 'bearer' };
   // Check cookie
   const cookie = req.headers.get('Cookie') ?? '';
   for (const part of cookie.split(';')) {
     const [k, v] = part.trim().split('=', 2);
-    if (k === COOKIE_NAME) return decodeURIComponent(v ?? '');
+    if (k === COOKIE_NAME) return { token: decodeURIComponent(v ?? ''), source: 'cookie' };
   }
   return undefined;
+}
+
+function firstHeaderValue(value: string | null): string | undefined {
+  return value?.split(',', 1)[0]?.trim() || undefined;
+}
+
+function getForwardedValue(req: Request, key: string): string | undefined {
+  const forwarded = firstHeaderValue(req.headers.get('Forwarded'));
+  if (!forwarded) return undefined;
+
+  for (const part of forwarded.split(';')) {
+    const [rawName, rawValue] = part.trim().split('=', 2);
+    if (rawName?.toLowerCase() !== key) continue;
+    return rawValue?.replace(/^"|"$/g, '');
+  }
+  return undefined;
+}
+
+function buildOrigin(protocol: string | undefined, host: string | undefined): string | undefined {
+  const normalizedProtocol = protocol?.replace(/:$/, '').toLowerCase();
+  const normalizedHost = host?.trim();
+  if (!normalizedProtocol || !normalizedHost) return undefined;
+  if (normalizedProtocol !== 'http' && normalizedProtocol !== 'https') return undefined;
+  try {
+    return new URL(`${normalizedProtocol}://${normalizedHost}`).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function getAllowedRequestOrigins(req: Request): Set<string> {
+  const url = new URL(req.url);
+  const origins = new Set([url.origin]);
+  // Trust forwarded origin headers only when the deployment strips client-supplied values at the edge.
+  const forwardedProto = firstHeaderValue(req.headers.get('X-Forwarded-Proto')) ??
+    getForwardedValue(req, 'proto');
+  const forwardedHost = firstHeaderValue(req.headers.get('X-Forwarded-Host')) ??
+    getForwardedValue(req, 'host') ??
+    req.headers.get('Host') ??
+    url.host;
+  const forwardedOrigin = buildOrigin(forwardedProto, forwardedHost);
+  if (forwardedOrigin) origins.add(forwardedOrigin);
+  return origins;
+}
+
+function isSameOriginRequest(req: Request): boolean {
+  const allowedOrigins = getAllowedRequestOrigins(req);
+  const origin = req.headers.get('Origin');
+  if (origin !== null) return allowedOrigins.has(origin);
+
+  const referer = req.headers.get('Referer');
+  if (referer !== null) {
+    try {
+      return allowedOrigins.has(new URL(referer).origin);
+    } catch {
+      return false;
+    }
+  }
+
+  const fetchSite = req.headers.get('Sec-Fetch-Site');
+  return fetchSite === 'same-origin';
 }
 
 function redirectToLogin(req: Request): Response {
@@ -71,7 +133,7 @@ function redirectToLogin(req: Request): Response {
   });
 }
 
-const staticFileCache = new Map<string, { data: Uint8Array; contentType: string }>();
+const staticFileCache = new Map<string, { data: Uint8Array<ArrayBuffer>; contentType: string }>();
 
 async function serveStaticFile(filePath: string): Promise<Response> {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
@@ -137,13 +199,23 @@ export function createAdminApp(
       return await ctx.next();
     }
 
-    const token = getTokenFromRequest(ctx.req);
-    if (!token || token !== authToken) {
+    const credential = getCredentialFromRequest(ctx.req);
+    if (!credential || credential.token !== authToken) {
       // For API routes, return 401 JSON
       if (path.startsWith(`${adminPath}/api/`)) {
         return json({ error: 'unauthorized' }, 401);
       }
       return redirectToLogin(ctx.req);
+    }
+
+    if (
+      credential.source === 'cookie' &&
+      !SAFE_METHODS.has(ctx.req.method) &&
+      !isSameOriginRequest(ctx.req)
+    ) {
+      return path.startsWith(`${adminPath}/api/`)
+        ? json({ error: 'csrf validation failed' }, 403)
+        : new Response('Forbidden', { status: 403 });
     }
 
     return await ctx.next();
