@@ -22,6 +22,12 @@ export async function createRedisClient(options: RedisOptions): Promise<RedisCli
         await client.set(prefix + key, value);
       }
     },
+    async setIfAbsent(key: string, value: string, ttl?: number): Promise<boolean> {
+      const result = ttl
+        ? await client.set(prefix + key, value, { EX: ttl, NX: true })
+        : await client.set(prefix + key, value, { NX: true });
+      return result === 'OK';
+    },
     async incr(key: string): Promise<number> {
       return await client.incr(prefix + key);
     },

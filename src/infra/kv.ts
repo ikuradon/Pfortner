@@ -124,6 +124,32 @@ export async function createKvClient(options: KvOptions = {}): Promise<RedisClie
       }
       await kv.set(['data', key], entry);
     },
+    async setIfAbsent(key: string, value: string, ttl?: number): Promise<boolean> {
+      while (true) {
+        await cleanupExpired();
+        const current = await kv.get<KvEntry>(['data', key]);
+        if (current.value != null && !isExpired(current.value.expiresAt)) {
+          return false;
+        }
+
+        const entry: KvEntry = { value };
+        let op = kv.atomic().check(current);
+        if (ttl != null) {
+          entry.expiresAt = ttlToExpiresAt(ttl);
+          op = op.set(['data', key], entry, { expireIn: ttlToExpireIn(ttl) });
+        } else {
+          op = op.set(['data', key], entry);
+        }
+
+        const result = await op.commit();
+        if (result.ok) {
+          if (entry.expiresAt != null) {
+            await addExpiryIndex({ namespace: 'data', key, expiresAt: entry.expiresAt });
+          }
+          return true;
+        }
+      }
+    },
     async incr(key: string): Promise<number> {
       await cleanupExpired();
       let result = 0;

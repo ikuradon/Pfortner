@@ -18,6 +18,20 @@ Deno.test({
 });
 
 Deno.test({
+  name: 'redis setIfAbsent only writes missing keys',
+  ignore: skipRedis,
+  async fn() {
+    const client = await createRedisClient({ url: REDIS_URL!, keyPrefix: 'test:' });
+    await client.del('key-nx');
+    assertEquals(await client.setIfAbsent('key-nx', 'value1', 5), true);
+    assertEquals(await client.setIfAbsent('key-nx', 'value2', 5), false);
+    assertEquals(await client.get('key-nx'), 'value1');
+    await client.del('key-nx');
+    await client.close();
+  },
+});
+
+Deno.test({
   name: 'redis incr',
   ignore: skipRedis,
   async fn() {

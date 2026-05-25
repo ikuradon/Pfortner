@@ -1,7 +1,7 @@
 import { assertEquals } from 'jsr:@std/assert@1.0.18';
 import { spamFilterPlugin } from './SpamFilterPolicy.ts';
 import { buildInfraContext } from '../infra/context.ts';
-import type { PfortnerInstance } from '../plugins/types.ts';
+import type { PfortnerInstance, RedisClient } from '../plugins/types.ts';
 
 const REDIS_URL = Deno.env.get('REDIS_URL');
 
@@ -22,6 +22,60 @@ const makeEvent = (overrides: Record<string, unknown> = {}) => ({
   sig: '',
   ...overrides,
 });
+
+class MockRedis implements RedisClient {
+  store = new Map<string, string>();
+  setCalls: Array<{ key: string; value: string; ttl?: number }> = [];
+
+  get(key: string): Promise<string | null> {
+    return Promise.resolve(this.store.get(key) ?? null);
+  }
+
+  set(key: string, value: string, ttl?: number): Promise<void> {
+    this.setCalls.push({ key, value, ttl });
+    this.store.set(key, value);
+    return Promise.resolve();
+  }
+
+  setIfAbsent(key: string, value: string, ttl?: number): Promise<boolean> {
+    this.setCalls.push({ key, value, ttl });
+    if (this.store.has(key)) return Promise.resolve(false);
+    this.store.set(key, value);
+    return Promise.resolve(true);
+  }
+
+  incr(): Promise<number> {
+    return Promise.resolve(0);
+  }
+  expire(): Promise<void> {
+    return Promise.resolve();
+  }
+  sadd(): Promise<number> {
+    return Promise.resolve(0);
+  }
+  sismember(): Promise<boolean> {
+    return Promise.resolve(false);
+  }
+  del(...keys: string[]): Promise<number> {
+    let removed = 0;
+    for (const key of keys) {
+      if (this.store.delete(key)) removed++;
+    }
+    return Promise.resolve(removed);
+  }
+  zadd(): Promise<number> {
+    return Promise.resolve(0);
+  }
+  zremrangebyscore(): Promise<number> {
+    return Promise.resolve(0);
+  }
+  zcard(): Promise<number> {
+    return Promise.resolve(0);
+  }
+  close(): Promise<void> {
+    return Promise.resolve();
+  }
+}
 
 Deno.test('spamFilter passes non-EVENT messages', async () => {
   const factory = await spamFilterPlugin.initialize({ max_content_length: 10 }, infra);
@@ -98,6 +152,37 @@ Deno.test('spamFilter reject_duplicate enabled false skips duplicate check', asy
   assertEquals((await policy(['EVENT', makeEvent({ id: 'nodupcheck' })], inst.connectionInfo)).action, 'next');
   // Same ID again should pass because duplicate check is disabled
   assertEquals((await policy(['EVENT', makeEvent({ id: 'nodupcheck' })], inst.connectionInfo)).action, 'next');
+});
+
+Deno.test('spamFilter redis duplicate detection rejects concurrent duplicate event IDs', async () => {
+  const concurrent = 5;
+  const redis = new MockRedis();
+  const factory = await spamFilterPlugin.initialize({
+    reject_duplicate: { enabled: true, window: 300, backend: 'redis' },
+  }, { ...infra, redis });
+  const inst = mockInstance();
+  const policy = factory(inst);
+
+  const results = await Promise.all(
+    Array.from(
+      { length: concurrent },
+      () => policy(['EVENT', makeEvent({ id: 'redis-concurrent-dup' })], inst.connectionInfo),
+    ),
+  );
+
+  assertEquals(results.map((result) => result.action), ['next', 'reject', 'reject', 'reject', 'reject']);
+});
+
+Deno.test('spamFilter redis duplicate detection uses default window when omitted', async () => {
+  const redis = new MockRedis();
+  const factory = await spamFilterPlugin.initialize({
+    reject_duplicate: { enabled: true, backend: 'redis' },
+  }, { ...infra, redis });
+  const inst = mockInstance();
+
+  await factory(inst)(['EVENT', makeEvent({ id: 'redis-default-window' })], inst.connectionInfo);
+
+  assertEquals(redis.setCalls[0]?.ttl, 300);
 });
 
 Deno.test({
