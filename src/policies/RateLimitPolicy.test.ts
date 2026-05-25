@@ -29,6 +29,9 @@ function createAtomicRedis(ttls: number[] = []) {
     set() {
       return Promise.resolve();
     },
+    setIfAbsent() {
+      return Promise.resolve(true);
+    },
     incr() {
       return Promise.resolve(0);
     },

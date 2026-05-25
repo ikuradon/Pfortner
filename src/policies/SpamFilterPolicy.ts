@@ -4,7 +4,7 @@ import type { InfraContext, PolicyFactory, PolicyPlugin } from '../plugins/types
 interface SpamFilterConfig {
   min_pow?: number;
   max_content_length?: number;
-  reject_duplicate?: { enabled: boolean; window: number; backend?: string; max_cache_size?: number };
+  reject_duplicate?: { enabled: boolean; window?: number; backend?: string; max_cache_size?: number };
 }
 
 // Shared duplicate detection set
@@ -136,16 +136,14 @@ export const spamFilterPlugin: PolicyPlugin = {
             };
           }
           if (useRedis && redis) {
-            // Redis path: GET/SET with TTL for duplicate check
-            const existing = await redis.get(`seen:${eventId}`);
-            if (existing) {
+            const inserted = await redis.setIfAbsent(`seen:${eventId}`, '1', cfg.reject_duplicate.window ?? 300);
+            if (!inserted) {
               return {
                 message,
                 action: 'reject',
                 response: JSON.stringify(['OK', eventId, false, 'duplicate: already seen']),
               };
             }
-            await redis.set(`seen:${eventId}`, '1', cfg.reject_duplicate.window);
           } else {
             // In-memory path (existing code)
             cleanExpired(dupWindowMs);

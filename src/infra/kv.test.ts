@@ -10,6 +10,23 @@ Deno.test('kv get/set', async () => {
   await client.close();
 });
 
+Deno.test('kv setIfAbsent only writes missing keys', async () => {
+  const client = await createKvClient({ path: ':memory:' });
+  assertEquals(await client.setIfAbsent('key1', 'value1', 1), true);
+  assertEquals(await client.setIfAbsent('key1', 'value2', 1), false);
+  assertEquals(await client.get('key1'), 'value1');
+  await client.close();
+});
+
+Deno.test('kv setIfAbsent allows one concurrent insert', async () => {
+  const client = await createKvClient({ path: ':memory:' });
+  const results = await Promise.all(
+    Array.from({ length: 5 }, (_, index) => client.setIfAbsent('concurrent-key', `value${index}`, 1)),
+  );
+  assertEquals(results.filter(Boolean).length, 1);
+  await client.close();
+});
+
 Deno.test('kv incr', async () => {
   const client = await createKvClient({ path: ':memory:' });
   assertEquals(await client.incr('counter'), 1);

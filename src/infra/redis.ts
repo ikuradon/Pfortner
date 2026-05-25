@@ -19,6 +19,10 @@ redis.call('EXPIRE', KEYS[1], ttl)
 return 1
 `;
 
+function ttlSeconds(ttl: number): number {
+  return Math.max(1, Math.ceil(ttl));
+}
+
 export async function createRedisClient(options: RedisOptions): Promise<RedisClient> {
   const prefix = options.keyPrefix ?? '';
   const client = createClient({ url: options.url });
@@ -29,11 +33,17 @@ export async function createRedisClient(options: RedisOptions): Promise<RedisCli
       return await client.get(prefix + key);
     },
     async set(key: string, value: string, ttl?: number): Promise<void> {
-      if (ttl) {
-        await client.set(prefix + key, value, { EX: ttl });
+      if (ttl != null) {
+        await client.set(prefix + key, value, { EX: ttlSeconds(ttl) });
       } else {
         await client.set(prefix + key, value);
       }
+    },
+    async setIfAbsent(key: string, value: string, ttl?: number): Promise<boolean> {
+      const result = ttl != null
+        ? await client.set(prefix + key, value, { EX: ttlSeconds(ttl), NX: true })
+        : await client.set(prefix + key, value, { NX: true });
+      return result === 'OK';
     },
     async incr(key: string): Promise<number> {
       return await client.incr(prefix + key);

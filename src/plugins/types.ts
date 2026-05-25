@@ -51,6 +51,7 @@ export interface HttpClient {
 export interface RedisClient {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, ttl?: number): Promise<void>;
+  setIfAbsent(key: string, value: string, ttl?: number): Promise<boolean>;
   incr(key: string): Promise<number>;
   expire(key: string, ttl: number): Promise<void>;
   sadd(key: string, ...members: string[]): Promise<number>;
