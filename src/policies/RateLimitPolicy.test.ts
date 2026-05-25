@@ -211,6 +211,28 @@ Deno.test('rateLimit memory backend does not track message types without limits'
   }
 });
 
+Deno.test('rateLimit memory backend isolates counters between policy instances', async () => {
+  await rateLimitPlugin.destroy!();
+  const originalNow = Date.now;
+  let now = 3_000_000;
+  Date.now = () => now;
+  try {
+    const longFactory = await rateLimitPlugin.initialize({ scope: 'ip', window: 60, max_events: 2 }, infra);
+    const shortFactory = await rateLimitPlugin.initialize({ scope: 'ip', window: 1, max_events: 100 }, infra);
+    const inst = mockInstance(false, '10.0.0.250');
+    const longPolicy = longFactory(inst);
+    const shortPolicy = shortFactory(inst);
+
+    assertEquals((await longPolicy(['EVENT', makeEvent('long-1')], inst.connectionInfo)).action, 'next');
+    assertEquals((await shortPolicy(['EVENT', makeEvent('short-1')], inst.connectionInfo)).action, 'next');
+    assertEquals((await longPolicy(['EVENT', makeEvent('long-2')], inst.connectionInfo)).action, 'next');
+    assertEquals((await longPolicy(['EVENT', makeEvent('long-3')], inst.connectionInfo)).action, 'reject');
+  } finally {
+    Date.now = originalNow;
+    await rateLimitPlugin.destroy!();
+  }
+});
+
 Deno.test({
   name: 'rateLimit with redis backend shares state',
   ignore: !REDIS_URL,
