@@ -3,6 +3,7 @@ import type { ManagedConnection } from '../connections/types.ts';
 import type { ThroughputTracker } from '../infra/throughput-tracker.ts';
 import { evaluateCondition } from '../conditions/evaluator.ts';
 import { buildEvalContext } from '../conditions/context.ts';
+import { extractEvent } from '../plugins/types.ts';
 
 export interface AdminServiceState {
   config: PfortnerConfig;
@@ -184,6 +185,21 @@ export async function simulatePipeline(
   return { steps, finalAction, finalResponse: final.response };
 }
 
+function ipToNumber(ip: string): number {
+  const parts = ip.split('.').map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return NaN;
+  return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+}
+
+function cidrContains(network: string, ip: string, prefix: number): boolean {
+  if (prefix < 0 || prefix > 32) return false;
+  const networkNumber = ipToNumber(network);
+  const ipNumber = ipToNumber(ip);
+  if (Number.isNaN(networkNumber) || Number.isNaN(ipNumber)) return false;
+  const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
+  return (ipNumber & mask) === (networkNumber & mask);
+}
+
 function simulatePolicyStep(
   policyName: string,
   cfg: Record<string, unknown>,
@@ -225,7 +241,11 @@ function simulatePolicyStep(
     }
 
     case 'protected-event': {
-      if (messageType === 'EVENT' && ctx.eventKind === 1059) {
+      if (messageType !== 'EVENT' || _message.length < 3) return { policy: policyName, action: 'next' };
+      const requireAuth = cfg['require_auth'] as boolean | undefined;
+      const event = extractEvent(_message)?.event as { tags?: string[][] } | undefined;
+      const isProtected = event?.tags?.some((tag) => tag.length >= 1 && tag[0] === '-');
+      if (requireAuth && isProtected) {
         if (!connectionInfo.clientAuthorized) {
           return { policy: policyName, action: 'reject', response: 'authentication required for protected events' };
         }
@@ -247,27 +267,40 @@ function simulatePolicyStep(
     }
 
     case 'pubkey-acl': {
-      const allowList = cfg['allow'] as string[] | undefined;
-      const denyList = cfg['deny'] as string[] | undefined;
-      const pubkey = connectionInfo.clientPubkey;
-      if (denyList && pubkey && denyList.includes(pubkey)) {
+      const mode = cfg['mode'] as string | undefined;
+      const target = cfg['target'] as string | undefined;
+      const pubkeys = cfg['pubkeys'] as string[] | undefined;
+      const event = extractEvent(_message)?.event as { pubkey?: string } | undefined;
+      if (!event) return { policy: policyName, action: 'next' };
+      const pubkey = target === 'client' ? connectionInfo.clientPubkey : event?.pubkey;
+      if (target === 'client' && !pubkey && mode === 'whitelist') {
+        return { policy: policyName, action: 'reject', response: 'pubkey is not allowed' };
+      }
+      if (!pubkey) return { policy: policyName, action: 'next' };
+      const inList = pubkeys?.includes(pubkey) ?? false;
+      if (mode === 'blacklist' && inList) {
         return { policy: policyName, action: 'reject', response: 'pubkey is blocked' };
       }
-      if (allowList && allowList.length > 0 && pubkey && !allowList.includes(pubkey)) {
+      if (mode === 'whitelist' && !inList) {
         return { policy: policyName, action: 'reject', response: 'pubkey is not allowed' };
       }
       return { policy: policyName, action: 'next' };
     }
 
     case 'ip-filter': {
-      const allowList = cfg['allow'] as string[] | undefined;
-      const denyList = cfg['deny'] as string[] | undefined;
+      const blacklist = cfg['blacklist'] as { ips?: string[]; cidrs?: string[] } | undefined;
       const ip = connectionInfo.connectionIpAddr;
-      if (denyList && ip && denyList.includes(ip)) {
+      if (blacklist?.ips && ip && blacklist.ips.includes(ip)) {
         return { policy: policyName, action: 'reject', response: 'IP is blocked' };
       }
-      if (allowList && allowList.length > 0 && ip && !allowList.includes(ip)) {
-        return { policy: policyName, action: 'reject', response: 'IP is not allowed' };
+      if (blacklist?.cidrs && ip) {
+        for (const cidr of blacklist.cidrs) {
+          const [network, prefixStr] = cidr.split('/');
+          const prefix = Number(prefixStr);
+          if (Number.isInteger(prefix) && cidrContains(network, ip, prefix)) {
+            return { policy: policyName, action: 'reject', response: 'IP is blocked' };
+          }
+        }
       }
       return { policy: policyName, action: 'next' };
     }

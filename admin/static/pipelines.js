@@ -66,7 +66,7 @@ function entriesToYaml(entries, indent) {
   return out;
 }
 
-function buildYamlPreview(pipes) {
+export function buildYamlPreview(pipes) {
   let yaml = 'pipelines:\n';
   yaml += '  client:\n' + entriesToYaml(pipes.client, '  ');
   yaml += '  server:\n' + entriesToYaml(pipes.server, '  ');
@@ -431,7 +431,7 @@ async function applyConfig() {
 
 // ─── Defaults for new policies ────────────────────────────────────────────────
 
-function defaultConfigForPolicy(name) {
+export function defaultConfigForPolicy(name) {
   switch (name) {
     case 'accept':
       return {};
@@ -440,7 +440,7 @@ function defaultConfigForPolicy(name) {
     case 'write-guard':
       return { require_auth: true };
     case 'protected-event':
-      return {};
+      return { require_auth: true };
     case 'rate-limit':
       return { max_per_minute: 60 };
     case 'spam-filter':
@@ -448,9 +448,9 @@ function defaultConfigForPolicy(name) {
     case 'content-filter':
       return { max_length: 1000 };
     case 'pubkey-acl':
-      return { allow: [], deny: [] };
+      return { mode: 'blacklist', target: 'author', pubkeys: [] };
     case 'ip-filter':
-      return { allow: [], deny: [] };
+      return { blacklist: { ips: [], cidrs: [] } };
     case 'when':
       return { condition: { authenticated: true }, then: [{ policy: 'accept' }], else: [] };
     case 'match':
@@ -488,49 +488,51 @@ async function init() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  init();
+if (typeof document !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', () => {
+    init();
 
-  // Tab buttons
-  document.querySelectorAll('.pipeline-tab').forEach((tab) => {
-    tab.addEventListener('click', (e) => {
-      const dir = e.currentTarget.dataset.pipeline;
-      if (!dir) return;
-      currentDirection = dir;
-      document.querySelectorAll('.pipeline-tab').forEach((t) => {
-        t.classList.toggle('active', t.dataset.pipeline === dir);
+    // Tab buttons
+    document.querySelectorAll('.pipeline-tab').forEach((tab) => {
+      tab.addEventListener('click', (e) => {
+        const dir = e.currentTarget.dataset.pipeline;
+        if (!dir) return;
+        currentDirection = dir;
+        document.querySelectorAll('.pipeline-tab').forEach((t) => {
+          t.classList.toggle('active', t.dataset.pipeline === dir);
+        });
+        render();
       });
-      render();
     });
+
+    // Refresh
+    const btnRefresh = document.getElementById('btn-refresh-pipelines');
+    if (btnRefresh) btnRefresh.addEventListener('click', init);
+
+    // Apply
+    const btnApply = document.getElementById('btn-apply-pipeline');
+    if (btnApply) btnApply.addEventListener('click', applyConfig);
+
+    // Add policy
+    const btnAdd = document.getElementById('btn-add-policy');
+    if (btnAdd) {
+      btnAdd.addEventListener('click', () => {
+        const sel = document.getElementById('add-policy-select');
+        const policyName = sel?.value;
+        if (!policyName) {
+          setStatus('Select a policy to add', true);
+          return;
+        }
+        const newEntry = {
+          policy: policyName,
+          config: defaultConfigForPolicy(policyName),
+        };
+        if (!pipelines[currentDirection]) pipelines[currentDirection] = [];
+        pipelines[currentDirection].push(newEntry);
+        if (sel) sel.value = '';
+        render();
+        setStatus('Added ' + policyName, false);
+      });
+    }
   });
-
-  // Refresh
-  const btnRefresh = document.getElementById('btn-refresh-pipelines');
-  if (btnRefresh) btnRefresh.addEventListener('click', init);
-
-  // Apply
-  const btnApply = document.getElementById('btn-apply-pipeline');
-  if (btnApply) btnApply.addEventListener('click', applyConfig);
-
-  // Add policy
-  const btnAdd = document.getElementById('btn-add-policy');
-  if (btnAdd) {
-    btnAdd.addEventListener('click', () => {
-      const sel = document.getElementById('add-policy-select');
-      const policyName = sel?.value;
-      if (!policyName) {
-        setStatus('Select a policy to add', true);
-        return;
-      }
-      const newEntry = {
-        policy: policyName,
-        config: defaultConfigForPolicy(policyName),
-      };
-      if (!pipelines[currentDirection]) pipelines[currentDirection] = [];
-      pipelines[currentDirection].push(newEntry);
-      if (sel) sel.value = '';
-      render();
-      setStatus('Added ' + policyName, false);
-    });
-  }
-});
+}

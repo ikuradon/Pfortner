@@ -30,6 +30,26 @@ pipelines:
   }
 });
 
+Deno.test('buildRequestHandler rejects protected-event without required config', async () => {
+  const config = loadConfigFromString(`
+server:
+  port: 3000
+  upstream_relay: "ws://localhost:7777"
+pipelines:
+  client:
+    - policy: accept
+  server:
+    - policy: protected-event
+    - policy: accept
+`);
+  try {
+    await buildRequestHandler(config, buildInfraContext({}), createPluginRegistry());
+    throw new Error('should have thrown');
+  } catch (e) {
+    assertEquals((e as Error).message.includes("must have required property 'require_auth'"), true);
+  }
+});
+
 Deno.test('buildRequestHandler rejects invalid conditional policy config', async () => {
   const config = loadConfigFromString(`
 server:
