@@ -476,6 +476,9 @@ export const pfortnerInit = (
       }
       if (checkChallenge && checkRelay) {
         if (isBlacklistedPubkey(event.pubkey)) {
+          log.warn(
+            `AUTH blocked: pubkey blacklisted pubkey=${event.pubkey} connectionId=${connectionInfo.connectionId}`,
+          );
           listeners.authFailed.forEach((cb) => cb());
           return;
         }
