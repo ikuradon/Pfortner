@@ -5,6 +5,6 @@ export function redactUrlCredentials(url: string): string {
     parsed.password = '';
     return parsed.toString();
   } catch {
-    return url;
+    return '[redacted: unparseable URL]';
   }
 }
