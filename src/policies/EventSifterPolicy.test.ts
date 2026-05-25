@@ -26,11 +26,14 @@ Deno.test('eventSifterPolicy passes non-EVENT messages through', async () => {
   assertEquals(result.message, message);
 });
 
-Deno.test('eventSifterPolicy passes EVENT with wrong length (2 elements)', async () => {
-  const message = ['EVENT', makeEvent()];
-  const result = await eventSifterPolicy(message, connectionInfo, []);
-  assertEquals(result.action, 'next');
-  assertEquals(result.message, message);
+Deno.test('eventSifterPolicy rejects client EVENT when ES policy rejects', async () => {
+  const event = makeEvent();
+  const message = ['EVENT', event];
+  const rejectAll = () => ({ id: event.id, action: 'reject' as const, msg: 'blocked' });
+
+  const result = await eventSifterPolicy(message, connectionInfo, [rejectAll]);
+  assertEquals(result.action, 'reject');
+  assertEquals(result.response, JSON.stringify(['OK', 'event-id', false, 'blocked']));
 });
 
 Deno.test('eventSifterPolicy passes REQ messages through', async () => {

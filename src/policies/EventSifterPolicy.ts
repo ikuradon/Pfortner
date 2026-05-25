@@ -1,5 +1,6 @@
 import { type Policy } from '../../mod.ts';
 import { nostrTools } from '../deps.ts';
+import { extractEvent } from '../plugins/types.ts';
 
 type sourceType = 'IP4' | 'IP6' | 'Import' | 'Stream' | 'Sync';
 
@@ -45,11 +46,12 @@ export const eventSifterPolicy: Policy<ESPolicies<unknown[]>> = async (
   connectionInfo,
   esPolicies,
 ) => {
-  if (message[0] !== 'EVENT' || message.length !== 3) {
+  const extracted = extractEvent(message);
+  if (!extracted) {
     return { message, action: 'next' };
   }
 
-  const event = message[2] as nostrTools.Event;
+  const event = extracted.event as nostrTools.Event;
   const msg: ESInputMessage = {
     type: 'new',
     event,
