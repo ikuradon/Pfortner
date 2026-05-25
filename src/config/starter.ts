@@ -108,6 +108,7 @@ export async function buildRequestHandler(
       allowedAuthTimeDuration: config.auth?.allowed_time_duration,
       allowedAuthFutureTimeDuration: config.auth?.allowed_future_time_duration,
       upstreamRawAddress: config.server.upstream_raw_url,
+      pubkeyBlacklist: hooks?.blacklist?.pubkeys,
     });
     const clientPolicies = clientPipeline.factories.map((factory) => factory(instance));
     const serverPolicies = serverPipeline.factories.map((factory) => factory(instance));

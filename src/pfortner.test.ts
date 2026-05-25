@@ -3,6 +3,7 @@ import { nostrTools } from './deps.ts';
 import { pfortnerInit } from './pfortner.ts';
 
 const sk = nostrTools.generateSecretKey();
+const pk = nostrTools.getPublicKey(sk);
 
 function currUnixtime(): number {
   return Math.floor(Date.now() / 1000);
@@ -204,6 +205,24 @@ Deno.test({
 });
 
 Deno.test({
+  name: 'verifyAuthMessage: blacklisted AUTH pubkey fails',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const env = await createEnv({ pubkeyBlacklist: new Set([pk]) });
+    try {
+      const event = makeAuthEvent(env.challenge, env.upstreamUrl);
+      const result = await sendAuth(env.ws, env.proxy, event);
+      assertEquals(result, 'failed');
+      assertEquals(env.proxy.connectionInfo.clientAuthorized, false);
+      assertEquals(env.proxy.connectionInfo.clientPubkey, '');
+    } finally {
+      await env.cleanup();
+    }
+  },
+});
+
+Deno.test({
   name: 'client message handler: async listener rejection does not skip pipeline',
   sanitizeResources: false,
   sanitizeOps: false,
@@ -234,6 +253,64 @@ Deno.test({
       assertEquals(await sendAuth(env.ws, env.proxy, event), 'success');
     } finally {
       globalThis.removeEventListener('unhandledrejection', onUnhandledRejection);
+      await env.cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: 'client message handler: blacklisted authenticated client is not forwarded',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const pubkeyBlacklist = new Set<string>();
+    const env = await createEnv({ pubkeyBlacklist });
+    try {
+      const event = makeAuthEvent(env.challenge, env.upstreamUrl);
+      const authResult = await sendAuth(env.ws, env.proxy, event);
+      assertEquals(authResult, 'success');
+
+      let policyRan = false;
+      env.proxy.registerClientPipeline([(_msg) => {
+        policyRan = true;
+        return { message: _msg, action: 'next' };
+      }]);
+
+      pubkeyBlacklist.add(pk);
+      env.ws.send(JSON.stringify(['REQ', 'sub1', { kinds: [1] }]));
+      await delay(100);
+
+      assertEquals(policyRan, false);
+    } finally {
+      await env.cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: 'client message handler: blacklisted EVENT author is not forwarded',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const env = await createEnv({ pubkeyBlacklist: new Set([pk]) });
+    try {
+      let policyRan = false;
+      env.proxy.registerClientPipeline([(_msg) => {
+        policyRan = true;
+        return { message: _msg, action: 'next' };
+      }]);
+
+      const event = nostrTools.finalizeEvent({
+        kind: 1,
+        created_at: currUnixtime(),
+        tags: [],
+        content: 'blocked',
+      }, sk);
+      env.ws.send(JSON.stringify(['EVENT', event]));
+      await delay(100);
+
+      assertEquals(policyRan, false);
+    } finally {
       await env.cleanup();
     }
   },
