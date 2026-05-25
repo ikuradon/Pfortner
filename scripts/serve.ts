@@ -10,6 +10,7 @@ import { ConfigManager } from '../src/config/manager.ts';
 import { ConnectionManager } from '../src/connections/manager.ts';
 import { ShutdownManager } from '../src/shutdown/manager.ts';
 import { UpstreamProbe } from '../src/connections/upstream-probe.ts';
+import { resolveClientIp } from '../src/http/client-ip.ts';
 import { dotenv, log, nostrTools } from './deps.ts';
 dotenv.loadSync({ export: true });
 
@@ -213,6 +214,7 @@ if (configPath) {
 } else {
   const APP_PORT = Number(Deno.env.get('APP_PORT')) || 3000;
   const UPSTREAM_RELAY = Deno.env.get('UPSTREAM_RELAY');
+  const TRUST_X_FORWARDED_FOR = Deno.env.get('X_FORWARDED_FOR') === 'true';
   if (UPSTREAM_RELAY == undefined) {
     log.error('UPSTREAM_RELAY environment variable is required');
     Deno.exit(1);
@@ -318,8 +320,7 @@ if (configPath) {
         return new Response('Please use a Nostr client to connect.', { status: 400 });
       }
 
-      const clientIp = req.headers.get('X-Forwarded-For') ||
-        ('hostname' in conn.remoteAddr ? conn.remoteAddr.hostname : '');
+      const clientIp = resolveClientIp(req, conn, TRUST_X_FORWARDED_FOR);
 
       const stash = new Map<string, nostrTools.Event[]>();
 
