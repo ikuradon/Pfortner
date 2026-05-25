@@ -26,11 +26,6 @@ export const __testing = {
   sharedCounterCount(): number {
     return sharedCounters.size;
   },
-  sharedCountersForKey(key: string): { events: number; requests: number } | undefined {
-    const counters = sharedCounters.get(key);
-    if (!counters) return undefined;
-    return { events: counters.events.length, requests: counters.requests.length };
-  },
 };
 
 function getCounters(key: string, windowMs: number) {

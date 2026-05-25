@@ -205,7 +205,7 @@ Deno.test('rateLimit memory backend does not track message types without limits'
       assertEquals((await policy(['REQ', `sub-${i}`, {}], inst.connectionInfo)).action, 'next');
     }
 
-    assertEquals(__testing.sharedCountersForKey('ip:10.0.0.200'), undefined);
+    assertEquals(__testing.sharedCounterCount(), 0);
   } finally {
     await rateLimitPlugin.destroy!();
   }
