@@ -215,6 +215,8 @@ if (configPath) {
 } else {
   const APP_PORT = Number(Deno.env.get('APP_PORT')) || 3000;
   const UPSTREAM_RELAY = Deno.env.get('UPSTREAM_RELAY');
+  const TRUST_X_FORWARDED_FOR = Deno.env.get('TRUST_X_FORWARDED_FOR') === 'true' ||
+    Deno.env.get('X_FORWARDED_FOR') === 'true';
   if (UPSTREAM_RELAY == undefined) {
     log.error('UPSTREAM_RELAY environment variable is required');
     Deno.exit(1);
@@ -322,7 +324,7 @@ if (configPath) {
 
       const clientIp = selectClientIp(req, {
         remoteHostname: remoteHostnameFromConn(conn),
-        trustForwardedFor: false,
+        trustForwardedFor: TRUST_X_FORWARDED_FOR,
       });
 
       const stash = new Map<string, nostrTools.Event[]>();
