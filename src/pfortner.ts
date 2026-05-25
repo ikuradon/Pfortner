@@ -107,6 +107,7 @@ export const pfortnerInit = (
     clientAuthorized: false,
     clientPubkey: '',
   };
+  let sessionStarted = false;
 
   const allowedAuthTimeDuration = Math.max(options.allowedAuthTimeDuration ?? 10 * 60, 1);
   const allowedAuthFutureTimeDuration = Math.max(options.allowedAuthFutureTimeDuration ?? 60, 1);
@@ -136,7 +137,12 @@ export const pfortnerInit = (
   on('clientAuth', verifyAuthMessage);
 
   function createSession(request: Request): Response {
+    if (sessionStarted) {
+      return new Response('WebSocket session already started for this proxy instance', { status: 409 });
+    }
+
     const opts = Deno.upgradeWebSocket(request);
+    sessionStarted = true;
 
     clientSocket = opts.socket;
 

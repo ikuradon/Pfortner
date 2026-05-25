@@ -104,6 +104,7 @@ async function createEnv(opts: Record<string, unknown> = {}) {
 
   return {
     proxy,
+    proxyPort,
     ws,
     challenge,
     upstreamUrl,
@@ -146,6 +147,40 @@ function sendAuth(
     ws.send(JSON.stringify(['AUTH', event]));
   });
 }
+
+Deno.test({
+  name: 'createSession: rejects a second WebSocket on the same proxy instance',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const env = await createEnv();
+    const secondMessages: string[] = [];
+    let secondClosed = false;
+    let secondErrored = false;
+    const second = new WebSocket(`ws://127.0.0.1:${env.proxyPort}`);
+    second.onmessage = ({ data }) => secondMessages.push(data as string);
+    second.onclose = () => {
+      secondClosed = true;
+    };
+    second.onerror = () => {
+      secondErrored = true;
+    };
+
+    try {
+      await waitFor(
+        () => secondClosed || secondErrored || secondMessages.length > 0,
+        1000,
+        'second WebSocket did not settle',
+      );
+
+      assertEquals(secondClosed || secondErrored, true);
+      assertEquals(secondMessages, []);
+    } finally {
+      second.close();
+      await env.cleanup();
+    }
+  },
+});
 
 // =============================
 // AUTH リプレイ攻撃防止
