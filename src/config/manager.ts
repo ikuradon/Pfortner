@@ -77,7 +77,7 @@ export class ConfigManager {
     };
   }
 
-  async reload(yamlString: string): Promise<void> {
+  async reload(yamlString: string): Promise<PfortnerConfig> {
     const config = loadConfigFromString(yamlString);
     const usedPlugins = ConfigManager.collectPlugins(config, this.registry);
     const handler = await buildRequestHandler(config, this.infra, this.registry, this.hooks);
@@ -88,6 +88,7 @@ export class ConfigManager {
     } else {
       this.cleanupGeneration(oldGen);
     }
+    return config;
   }
 
   private cleanupGeneration(gen: Generation): void {

@@ -5,7 +5,7 @@ import type { PfortnerConfig, PipelineEntry } from './loader.ts';
 import type { ManagedConnection } from '../connections/types.ts';
 import type { ConnectionManager } from '../connections/manager.ts';
 import type { ShutdownManager } from '../shutdown/manager.ts';
-import { resolveClientIp } from '../http/client-ip.ts';
+import { remoteHostnameFromConn, selectClientIp } from '../net/client-ip.ts';
 import AjvModule from 'ajv';
 // deno-lint-ignore no-explicit-any
 const AjvClass = (AjvModule as any).default ?? AjvModule;
@@ -39,9 +39,10 @@ export async function resolvePipeline(
         `Plugin "${plugin.name}" has direction "${plugin.direction}" but is placed in "${direction}" pipeline (pipelines.${direction}[${i}])`,
       );
     }
-    if (entry.config && Object.keys(plugin.configSchema).length > 0) {
+    const pluginConfig = entry.config ?? {};
+    if (Object.keys(plugin.configSchema).length > 0) {
       const validate = ajv.compile(plugin.configSchema);
-      if (!validate(entry.config)) {
+      if (!validate(pluginConfig)) {
         const errors = validate.errors?.map((e: any) => `${e.instancePath} ${e.message}`).join('; ');
         throw new Error(
           `Config validation failed for plugin "${plugin.name}" at pipelines.${direction}[${i}]: ${errors}`,
@@ -49,7 +50,7 @@ export async function resolvePipeline(
       }
     }
     const infraForPlugin: InfraContext = { ...infra, currentDirection: direction };
-    const factory = await plugin.initialize(entry.config ?? {}, infraForPlugin);
+    const factory = await plugin.initialize(pluginConfig, infraForPlugin);
     factories.push(factory);
   }
   return { factories, direction };
@@ -79,7 +80,10 @@ export async function buildRequestHandler(
   const serverPipeline = await resolvePipeline(config.pipelines.server, 'server', registry, infraWithResolver);
 
   return (req: Request, conn: Deno.ServeHandlerInfo<Deno.NetAddr>) => {
-    const clientIp = resolveClientIp(req, conn, config.server.x_forwarded_for === true);
+    const clientIp = selectClientIp(req, {
+      remoteHostname: remoteHostnameFromConn(conn),
+      trustForwardedFor: config.server.x_forwarded_for === true,
+    });
 
     // Draining check
     if (hooks?.shutdownManager?.isDraining()) {

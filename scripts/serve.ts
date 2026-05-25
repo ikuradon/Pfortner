@@ -10,7 +10,7 @@ import { ConfigManager } from '../src/config/manager.ts';
 import { ConnectionManager } from '../src/connections/manager.ts';
 import { ShutdownManager } from '../src/shutdown/manager.ts';
 import { UpstreamProbe } from '../src/connections/upstream-probe.ts';
-import { resolveClientIp } from '../src/http/client-ip.ts';
+import { remoteHostnameFromConn, selectClientIp } from '../src/net/client-ip.ts';
 import { dotenv, log, nostrTools } from './deps.ts';
 dotenv.loadSync({ export: true });
 
@@ -134,7 +134,7 @@ if (configPath) {
   adminState.configPath = configPath;
   adminState.reloadFn = async (yaml: string) => {
     if (shutdownManager.isDraining()) return;
-    await manager.reload(yaml);
+    adminState.config = await manager.reload(yaml);
     infra.logger.info('Config reloaded', { generation: manager.generation });
   };
 
@@ -144,7 +144,7 @@ if (configPath) {
       infra.logger.info('SIGHUP received, reloading config');
       try {
         const content = await Deno.readTextFile(configPath);
-        await manager.reload(content);
+        adminState.config = await manager.reload(content);
         infra.logger.info('Config reloaded via SIGHUP', { generation: manager.generation });
       } catch (e) {
         infra.logger.error('Config reload failed', { error: String(e) });
@@ -321,7 +321,10 @@ if (configPath) {
         return new Response('Please use a Nostr client to connect.', { status: 400 });
       }
 
-      const clientIp = resolveClientIp(req, conn, TRUST_X_FORWARDED_FOR);
+      const clientIp = selectClientIp(req, {
+        remoteHostname: remoteHostnameFromConn(conn),
+        trustForwardedFor: TRUST_X_FORWARDED_FOR,
+      });
 
       const stash = new Map<string, nostrTools.Event[]>();
 
