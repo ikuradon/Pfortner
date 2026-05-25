@@ -24,6 +24,8 @@ type SocketEvent = {
   serverNotice: (message: string) => void | Promise<void>;
 };
 
+const POLICY_VIOLATION_CLOSE_CODE = 1008;
+
 const newListeners = (): { [TK in keyof SocketEvent]: SocketEvent[TK][] } => ({
   authSuccess: [],
   authFailed: [],
@@ -82,6 +84,7 @@ export const pfortnerInit = (
     idleTimeout?: number;
     sendAuthOnConnect?: boolean;
     upstreamRawAddress?: string;
+    pubkeyBlacklist?: Set<string>;
   } = {},
 ) => {
   let clientSocket: WebSocket | null = null;
@@ -122,6 +125,25 @@ export const pfortnerInit = (
   }
 
   const usedAuthEventIds = new Set<string>();
+
+  function isBlacklistedPubkey(pubkey: unknown): boolean {
+    return typeof pubkey === 'string' && options.pubkeyBlacklist?.has(pubkey) === true;
+  }
+
+  function isBlacklistedClientMessage(msg: unknown[]): boolean {
+    if (isBlacklistedPubkey(connectionInfo.clientPubkey)) {
+      return true;
+    }
+    if (msg[0] === 'EVENT') {
+      const event = msg[1] as { pubkey?: unknown } | undefined;
+      return isBlacklistedPubkey(event?.pubkey);
+    }
+    return false;
+  }
+
+  function closeBlacklistedConnection(): void {
+    closeSocket(POLICY_VIOLATION_CLOSE_CODE);
+  }
   let authAttemptCount = 0;
 
   const headers: HeadersInit = {};
@@ -185,6 +207,12 @@ export const pfortnerInit = (
       setIdleTimeout();
 
       try {
+        if (isBlacklistedClientMessage(msg)) {
+          await sendMessageToClient(JSON.stringify(['NOTICE', 'ERROR: blocked: pubkey banned']));
+          closeBlacklistedConnection();
+          return;
+        }
+
         await emit('clientMsg', json);
 
         switch (msg[0]) {
@@ -266,6 +294,11 @@ export const pfortnerInit = (
             } catch (e) {
               log.warn(`Failed to parse server message: ${e}`);
               continue;
+            }
+
+            if (isBlacklistedPubkey(connectionInfo.clientPubkey)) {
+              closeBlacklistedConnection();
+              return;
             }
 
             switch (msg[0]) {
@@ -454,6 +487,14 @@ export const pfortnerInit = (
         }
       }
       if (checkChallenge && checkRelay) {
+        if (isBlacklistedPubkey(event.pubkey)) {
+          log.warn(
+            `AUTH blocked: pubkey blacklisted pubkey=${event.pubkey} connectionId=${connectionInfo.connectionId}`,
+          );
+          listeners.authFailed.forEach((cb) => cb());
+          closeBlacklistedConnection();
+          return;
+        }
         // Record used event ID to prevent replay
         usedAuthEventIds.add(event.id);
         connectionInfo.clientPubkey = event.pubkey;
