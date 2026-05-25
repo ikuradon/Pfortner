@@ -204,7 +204,11 @@ export const pfortnerInit = (
             }
             break;
           case 'EVENT': // NIP-01
-            if (msg.length >= 2) {
+            if (msg.length !== 2) {
+              sendMessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: invalid EVENT message']));
+              return;
+            }
+            {
               const event = msg[1] as nostrTools.Event;
               await emit('clientEvent', event);
             }

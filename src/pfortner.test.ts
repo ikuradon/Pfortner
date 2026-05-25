@@ -1,6 +1,9 @@
 import { assertEquals } from 'jsr:@std/assert@1.0.18';
 import { nostrTools } from './deps.ts';
 import { pfortnerInit } from './pfortner.ts';
+import { acceptPolicy } from './policies/AcceptPolicy.ts';
+import { kindFilterPlugin } from './policies/KindFilterPolicy.ts';
+import { buildInfraContext } from './infra/context.ts';
 
 const sk = nostrTools.generateSecretKey();
 
@@ -48,6 +51,8 @@ async function waitFor(
 }
 
 async function createEnv(opts: Record<string, unknown> = {}) {
+  const upstreamMessages: string[] = [];
+
   // Mock upstream relay
   const relayAc = new AbortController();
   const relayPort = await new Promise<number>((resolve) => {
@@ -59,7 +64,11 @@ async function createEnv(opts: Record<string, unknown> = {}) {
       },
     }, (req) => {
       if (req.headers.get('upgrade') === 'websocket') {
-        return Deno.upgradeWebSocket(req).response;
+        const { socket, response } = Deno.upgradeWebSocket(req);
+        socket.addEventListener('message', ({ data }) => {
+          upstreamMessages.push(data as string);
+        });
+        return response;
       }
       return new Response('ok');
     });
@@ -108,6 +117,7 @@ async function createEnv(opts: Record<string, unknown> = {}) {
     ws,
     challenge,
     upstreamUrl,
+    upstreamMessages,
     async cleanup() {
       ws.close();
       proxy.closeSocket();
@@ -177,6 +187,33 @@ Deno.test({
       assertEquals(secondMessages, []);
     } finally {
       second.close();
+      await env.cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: 'client message handler: rejects malformed three-element EVENT before policy forwarding',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const env = await createEnv();
+    try {
+      const factory = await kindFilterPlugin.initialize(
+        { mode: 'deny', kinds: [4], require_auth_for: [4] },
+        buildInfraContext({}),
+      );
+      const kindFilter = factory(env.proxy);
+      env.proxy.registerClientPipeline([kindFilter, acceptPolicy]);
+
+      const forbiddenEvent = { id: 'forbidden', pubkey: 'pk', kind: 4, created_at: 0, tags: [], content: '', sig: '' };
+      const allowedDummyEvent = { id: 'allowed', pubkey: 'pk', kind: 1, created_at: 0, tags: [], content: '', sig: '' };
+
+      env.ws.send(JSON.stringify(['EVENT', forbiddenEvent, allowedDummyEvent]));
+      await delay(100);
+
+      assertEquals(env.upstreamMessages, []);
+    } finally {
       await env.cleanup();
     }
   },
