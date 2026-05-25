@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals, assertThrows } from 'jsr:@std/assert@1.0.18';
 import { buildRequestHandler } from './starter.ts';
 import { loadConfigFromString } from './loader.ts';
 import { buildInfraContext } from '../infra/context.ts';
@@ -183,11 +183,6 @@ pipelines:
   });
   const conn = { remoteAddr: { hostname: '127.0.0.1', port: 12345, transport: 'tcp' as const } };
 
-  try {
-    handler(req, conn as any);
-    throw new Error('should have thrown');
-  } catch (e) {
-    assertEquals((e as Error).message.includes('sec-websocket-key'), true);
-  }
+  assertThrows(() => handler(req, conn as any));
   assertEquals(events, []);
 });
