@@ -112,6 +112,30 @@ Deno.test('spamFilter duplicate cache evicts oldest IDs when max_cache_size is r
   assertEquals((await policy(['EVENT', third], inst.connectionInfo)).action, 'reject');
 });
 
+Deno.test('spamFilter duplicate cleanup does not assume monotonic wall clock', async () => {
+  await clearSpamFilterState();
+  const originalNow = Date.now;
+  const factory = await spamFilterPlugin.initialize({
+    reject_duplicate: { enabled: true, window: 10, max_cache_size: 10 },
+  }, infra);
+  const inst = mockInstance();
+  const policy = factory(inst);
+  const first = makeSignedEvent({ content: 'clock-first' });
+  const second = makeSignedEvent({ content: 'clock-second' });
+
+  try {
+    Date.now = () => 100_000;
+    assertEquals((await policy(['EVENT', first], inst.connectionInfo)).action, 'next');
+    Date.now = () => 50_000;
+    assertEquals((await policy(['EVENT', second], inst.connectionInfo)).action, 'next');
+    Date.now = () => 90_000;
+    assertEquals((await policy(['EVENT', second], inst.connectionInfo)).action, 'next');
+  } finally {
+    Date.now = originalNow;
+    await clearSpamFilterState();
+  }
+});
+
 Deno.test('spamFilter min_pow 0 passes all events regardless of PoW', async () => {
   const factory = await spamFilterPlugin.initialize({ min_pow: 0 }, infra);
   const inst = mockInstance();

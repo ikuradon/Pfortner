@@ -15,7 +15,6 @@ function cleanExpired(windowMs: number): void {
   const cutoff = Date.now() - windowMs;
   for (const [id, ts] of seenEventIds) {
     if (ts < cutoff) seenEventIds.delete(id);
-    else break;
   }
 }
 
