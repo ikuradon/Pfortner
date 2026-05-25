@@ -6,6 +6,19 @@ export interface RedisOptions {
   keyPrefix?: string;
 }
 
+const slidingWindowAddScript = `
+redis.call('ZREMRANGEBYSCORE', KEYS[1], 0, ARGV[1])
+local count = redis.call('ZCARD', KEYS[1])
+local limit = tonumber(ARGV[2])
+local ttl = math.max(1, math.ceil(tonumber(ARGV[5])))
+if count >= limit then
+  return 0
+end
+redis.call('ZADD', KEYS[1], ARGV[3], ARGV[4])
+redis.call('EXPIRE', KEYS[1], ttl)
+return 1
+`;
+
 export async function createRedisClient(options: RedisOptions): Promise<RedisClient> {
   const prefix = options.keyPrefix ?? '';
   const client = createClient({ url: options.url });
@@ -45,6 +58,20 @@ export async function createRedisClient(options: RedisOptions): Promise<RedisCli
     },
     async zcard(key: string): Promise<number> {
       return await client.zCard(prefix + key);
+    },
+    async slidingWindowAdd(
+      key: string,
+      windowStart: number,
+      limit: number,
+      score: number,
+      member: string,
+      ttl: number,
+    ): Promise<boolean> {
+      const result = await client.eval(slidingWindowAddScript, {
+        keys: [prefix + key],
+        arguments: [String(windowStart), String(limit), String(score), member, String(ttl)],
+      });
+      return result === 1;
     },
     async close(): Promise<void> {
       await client.quit();
