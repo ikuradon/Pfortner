@@ -132,16 +132,21 @@ export async function buildRequestHandler(
       });
     }
 
-    const response = instance.createSession(req);
+    let session: Response;
+    try {
+      session = instance.createSession(req);
+    } catch (e) {
+      // Deno exposes malformed WebSocket upgrade failures only as TypeError messages.
+      if (e instanceof TypeError && e.message.startsWith('Invalid Header:')) {
+        return new Response('Bad Request', { status: 400 });
+      }
+      throw e;
+    }
 
     infra.metrics.counter('pfortner_connections_total');
-    if (hooks?.connectionManager) {
-      hooks.connectionManager.register(managed);
-    }
-    if (hooks?.onConnect) {
-      hooks.onConnect(managed);
-    }
+    hooks?.connectionManager?.register(managed);
+    hooks?.onConnect?.(managed);
 
-    return response;
+    return session;
   };
 }
