@@ -5,7 +5,58 @@ interface ContentFilterConfig {
   banned_words?: string[];
   banned_patterns?: string[];
   apply_to_kinds?: number[];
-  external_api?: { url: string; timeout: number; on_error: 'accept' | 'reject' };
+  external_api?: {
+    url: string;
+    timeout: number;
+    on_error: 'accept' | 'reject';
+    max_concurrent_requests?: number;
+    max_response_bytes?: number;
+  };
+}
+
+const DEFAULT_EXTERNAL_API_MAX_CONCURRENT_REQUESTS = 8;
+const DEFAULT_EXTERNAL_API_MAX_RESPONSE_BYTES = 64 * 1024;
+
+function positiveInteger(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
+function isModeratableEvent(event: unknown): event is { id: string; kind: number; content: string } {
+  return (
+    typeof event === 'object' &&
+    event !== null &&
+    typeof (event as { id?: unknown }).id === 'string' &&
+    typeof (event as { kind?: unknown }).kind === 'number' &&
+    typeof (event as { content?: unknown }).content === 'string'
+  );
+}
+
+async function readJsonWithLimit(response: Response, maxBytes: number): Promise<any> {
+  if (!response.body) {
+    throw new Error('external moderation response body unavailable');
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new Error('external moderation response too large');
+    }
+    chunks.push(value);
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return JSON.parse(new TextDecoder().decode(bytes));
 }
 
 export const contentFilterPlugin: PolicyPlugin = {
@@ -18,6 +69,17 @@ export const contentFilterPlugin: PolicyPlugin = {
       banned_words: { type: 'array', items: { type: 'string' } },
       banned_patterns: { type: 'array', items: { type: 'string' } },
       apply_to_kinds: { type: 'array', items: { type: 'number' } },
+      external_api: {
+        type: 'object',
+        properties: {
+          url: { type: 'string' },
+          timeout: { type: 'number' },
+          on_error: { type: 'string', enum: ['accept', 'reject'] },
+          max_concurrent_requests: { type: 'number', minimum: 1 },
+          max_response_bytes: { type: 'number', minimum: 1 },
+        },
+        required: ['url', 'timeout', 'on_error'],
+      },
     },
   },
   initialize(config: unknown, infra: InfraContext): Promise<PolicyFactory> {
@@ -27,6 +89,12 @@ export const contentFilterPlugin: PolicyPlugin = {
     const kindSet = cfg.apply_to_kinds ? new Set(cfg.apply_to_kinds) : null;
     const httpClient: HttpClient | undefined = cfg.external_api ? infra.httpClient : undefined;
     const apiConfig = cfg.external_api;
+    const maxConcurrentRequests = positiveInteger(
+      apiConfig?.max_concurrent_requests,
+      DEFAULT_EXTERNAL_API_MAX_CONCURRENT_REQUESTS,
+    );
+    const maxResponseBytes = positiveInteger(apiConfig?.max_response_bytes, DEFAULT_EXTERNAL_API_MAX_RESPONSE_BYTES);
+    let activeRequests = 0;
 
     return Promise.resolve((_instance) => {
       return async (message, _connectionInfo) => {
@@ -66,14 +134,29 @@ export const contentFilterPlugin: PolicyPlugin = {
 
         // External API check
         if (apiConfig && httpClient) {
+          if (!isModeratableEvent(extracted.event)) {
+            return { message, action: 'next' };
+          }
+          if (activeRequests >= maxConcurrentRequests) {
+            if (apiConfig.on_error === 'reject') {
+              return {
+                message,
+                action: 'reject',
+                response: JSON.stringify(['OK', event.id, false, 'blocked: moderation service unavailable']),
+              };
+            }
+            return { message, action: 'next' };
+          }
+
           try {
+            activeRequests++;
             const response = await httpClient.fetch(apiConfig.url, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ content: event.content, event_id: event.id, kind: event.kind }),
               timeout: apiConfig.timeout,
             });
-            const result = await response.json();
+            const result = await readJsonWithLimit(response, maxResponseBytes);
             if (!result.allowed) {
               return {
                 message,
@@ -90,6 +173,8 @@ export const contentFilterPlugin: PolicyPlugin = {
               };
             }
             // on_error: 'accept' — fall through
+          } finally {
+            activeRequests--;
           }
         }
 
