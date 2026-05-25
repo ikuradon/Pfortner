@@ -8,11 +8,11 @@ const REDIS_URL = Deno.env.get('REDIS_URL');
 const infra = buildInfraContext({});
 const makeEvent = (id = 'e1') => ({ id, pubkey: 'pk', kind: 1, created_at: 0, tags: [], content: '', sig: '' });
 
-const mockInstance = (authorized = false, ip = '127.0.0.1'): PfortnerInstance => ({
+const mockInstance = (authorized = false, ip = '127.0.0.1', connectionId = 'conn-1'): PfortnerInstance => ({
   sendAuthMessage: () => {},
   sendMessageToClient: async () => {},
   connectionInfo: {
-    connectionId: 'conn-1',
+    connectionId,
     connectionIpAddr: ip,
     clientAuthorized: authorized,
     clientPubkey: authorized ? 'pubkey123' : '',
@@ -163,6 +163,40 @@ Deno.test({
 
     // Cleanup
     await redis.del('events:ip:99.99.99.99', 'requests:ip:99.99.99.99');
+    await redis.close();
+  },
+});
+
+Deno.test({
+  name: 'rateLimit with redis backend scopes connection keys by connectionId',
+  ignore: !REDIS_URL,
+  async fn() {
+    const { createRedisClient } = await import('../infra/redis.ts');
+    const redis = await createRedisClient({ url: REDIS_URL!, keyPrefix: 'test-rl-conn:' });
+    const testInfra = { ...infra, redis };
+
+    const factory = await rateLimitPlugin.initialize({
+      scope: 'connection',
+      window: 60,
+      max_events: 1,
+      backend: 'redis',
+    }, testInfra);
+
+    // Redis scopes connection limits by connectionId, not by IP or policy instance.
+    // inst2 intentionally reuses inst1's connectionId to prove the shared Redis bucket.
+    const inst1 = mockInstance(false, '99.99.99.99', 'redis-conn-1');
+    const inst2 = mockInstance(false, '88.88.88.88', 'redis-conn-1');
+    const inst3 = mockInstance(false, '77.77.77.77', 'redis-conn-2');
+    const policy1 = factory(inst1);
+    const policy2 = factory(inst2);
+    const policy3 = factory(inst3);
+
+    assertEquals((await policy1(['EVENT', makeEvent('redis-conn-1')], inst1.connectionInfo)).action, 'next');
+    assertEquals((await policy2(['EVENT', makeEvent('redis-conn-2')], inst2.connectionInfo)).action, 'reject');
+    assertEquals((await policy3(['EVENT', makeEvent('redis-conn-3')], inst3.connectionInfo)).action, 'next');
+
+    await redis.del('events:conn:redis-conn-1', 'requests:conn:redis-conn-1');
+    await redis.del('events:conn:redis-conn-2', 'requests:conn:redis-conn-2');
     await redis.close();
   },
 });
