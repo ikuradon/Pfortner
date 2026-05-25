@@ -1,5 +1,6 @@
 import { parse as parseYaml } from '@std/yaml';
 import { expandEnvVars } from './env.ts';
+import { BUILTIN_PLUGIN_NAME_SET } from '../plugins/builtin-names.ts';
 
 export interface PipelineEntry {
   policy: string;
@@ -38,7 +39,7 @@ export interface PfortnerConfig {
   };
   relay_info?: { name?: string; description?: string; contact?: string; software?: string };
   admin?: { enabled?: boolean; port?: number; path?: string; auth_token?: string };
-  plugins?: Array<{ url?: string; path?: string }>;
+  plugins?: Array<{ name: string; url?: string; path?: string }>;
   pipelines: { client: PipelineEntry[]; server: PipelineEntry[] };
 }
 
@@ -53,6 +54,27 @@ function validate(config: any): string[] {
   }
   if (config.admin?.enabled && !config.admin?.auth_token) {
     errors.push('admin.auth_token is required when admin.enabled is true');
+  }
+  if (config.plugins != null) {
+    if (!Array.isArray(config.plugins)) {
+      errors.push('plugins must be an array');
+    } else {
+      const pluginNames = new Set<string>();
+      config.plugins.forEach((plugin: any, i: number) => {
+        if (!plugin?.name) errors.push(`plugins[${i}].name is required`);
+        if (plugin?.name) {
+          if (BUILTIN_PLUGIN_NAME_SET.has(plugin.name)) {
+            errors.push(`External plugin name duplicates builtin plugin: ${plugin.name}`);
+          }
+          if (pluginNames.has(plugin.name)) errors.push(`Duplicate external plugin name: ${plugin.name}`);
+          pluginNames.add(plugin.name);
+        }
+        const hasUrl = plugin?.url != null;
+        const hasPath = plugin?.path != null;
+        if (hasUrl === hasPath) errors.push(`plugins[${i}] requires exactly one of url or path`);
+        if (plugin?.url === '' || plugin?.path === '') errors.push(`plugins[${i}] source must be non-empty`);
+      });
+    }
   }
   if (config.admin?.port != null) {
     console.warn(

@@ -115,6 +115,92 @@ pipelines:
   }
 });
 
+Deno.test('loadConfigFromString rejects external plugins without a name', () => {
+  try {
+    loadConfigFromString(`
+server:
+  port: 3000
+  upstream_relay: "ws://localhost:7777"
+plugins:
+  - path: "./plugins/example.ts"
+pipelines:
+  client:
+    - policy: accept
+  server:
+    - policy: accept
+`);
+    throw new Error('should have thrown');
+  } catch (e) {
+    assertEquals((e as Error).message.includes('plugins[0].name'), true);
+  }
+});
+
+Deno.test('loadConfigFromString rejects external plugins without exactly one source', () => {
+  try {
+    loadConfigFromString(`
+server:
+  port: 3000
+  upstream_relay: "ws://localhost:7777"
+plugins:
+  - name: example
+    path: "./plugins/example.ts"
+    url: "file:///workspace/plugins/example.ts"
+pipelines:
+  client:
+    - policy: accept
+  server:
+    - policy: accept
+`);
+    throw new Error('should have thrown');
+  } catch (e) {
+    assertEquals((e as Error).message.includes('plugins[0] requires exactly one'), true);
+  }
+});
+
+Deno.test('loadConfigFromString rejects duplicate external plugin names', () => {
+  try {
+    loadConfigFromString(`
+server:
+  port: 3000
+  upstream_relay: "ws://localhost:7777"
+plugins:
+  - name: example
+    path: "./plugins/example.ts"
+  - name: example
+    path: "./plugins/other.ts"
+pipelines:
+  client:
+    - policy: accept
+  server:
+    - policy: accept
+`);
+    throw new Error('should have thrown');
+  } catch (e) {
+    assertEquals((e as Error).message.includes('Duplicate external plugin name'), true);
+  }
+});
+
+Deno.test('loadConfigFromString rejects external plugin names that duplicate builtins', () => {
+  try {
+    loadConfigFromString(`
+server:
+  port: 3000
+  upstream_relay: "ws://localhost:7777"
+plugins:
+  - name: write-guard
+    path: "./plugins/write-guard.ts"
+pipelines:
+  client:
+    - policy: accept
+  server:
+    - policy: accept
+`);
+    throw new Error('should have thrown');
+  } catch (e) {
+    assertEquals((e as Error).message.includes('duplicates builtin plugin'), true);
+  }
+});
+
 Deno.test('loadConfigFromString warns on admin.port', () => {
   // Just verify it doesn't error
   const config = loadConfigFromString(`
