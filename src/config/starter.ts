@@ -38,9 +38,10 @@ export async function resolvePipeline(
         `Plugin "${plugin.name}" has direction "${plugin.direction}" but is placed in "${direction}" pipeline (pipelines.${direction}[${i}])`,
       );
     }
-    if (entry.config && Object.keys(plugin.configSchema).length > 0) {
+    const pluginConfig = entry.config ?? {};
+    if (Object.keys(plugin.configSchema).length > 0) {
       const validate = ajv.compile(plugin.configSchema);
-      if (!validate(entry.config)) {
+      if (!validate(pluginConfig)) {
         const errors = validate.errors?.map((e: any) => `${e.instancePath} ${e.message}`).join('; ');
         throw new Error(
           `Config validation failed for plugin "${plugin.name}" at pipelines.${direction}[${i}]: ${errors}`,
@@ -48,7 +49,7 @@ export async function resolvePipeline(
       }
     }
     const infraForPlugin: InfraContext = { ...infra, currentDirection: direction };
-    const factory = await plugin.initialize(entry.config ?? {}, infraForPlugin);
+    const factory = await plugin.initialize(pluginConfig, infraForPlugin);
     factories.push(factory);
   }
   return { factories, direction };
