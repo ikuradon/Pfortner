@@ -158,6 +158,83 @@ Deno.test('simulatePipeline with accept policy returns accept step', async () =>
   assertEquals(result.steps[0].action, 'accept');
 });
 
+Deno.test('simulatePipeline protected-event follows require_auth config and protected tag', async () => {
+  const protectedEvent = ['EVENT', 'sub1', {
+    id: 'e1',
+    pubkey: 'pk',
+    kind: 1,
+    created_at: 0,
+    tags: [['-']],
+    content: '',
+    sig: '',
+  }];
+  const connectionInfo = { clientAuthorized: false, clientPubkey: '', connectionIpAddr: '127.0.0.1' };
+
+  const missingConfig = await simulatePipeline(
+    [{ policy: 'protected-event', config: {} }],
+    protectedEvent,
+    connectionInfo,
+  );
+  const requireAuth = await simulatePipeline(
+    [{ policy: 'protected-event', config: { require_auth: true } }],
+    protectedEvent,
+    connectionInfo,
+  );
+
+  assertEquals(missingConfig.finalAction, 'accept');
+  assertEquals(requireAuth.finalAction, 'reject');
+});
+
+Deno.test('simulatePipeline protected-event ignores client EVENT shape like runtime policy', async () => {
+  const clientEvent = ['EVENT', {
+    id: 'e1',
+    pubkey: 'pk',
+    kind: 1,
+    created_at: 0,
+    tags: [['-']],
+    content: '',
+    sig: '',
+  }];
+  const connectionInfo = { clientAuthorized: false, clientPubkey: '', connectionIpAddr: '127.0.0.1' };
+
+  const result = await simulatePipeline(
+    [{ policy: 'protected-event', config: { require_auth: true } }],
+    clientEvent,
+    connectionInfo,
+  );
+
+  assertEquals(result.finalAction, 'accept');
+});
+
+Deno.test('simulatePipeline ip-filter follows runtime blacklist schema', async () => {
+  const message = ['EVENT', { id: 'e1', pubkey: 'pk', kind: 1, created_at: 0, tags: [], content: '', sig: '' }];
+  const connectionInfo = { clientAuthorized: false, clientPubkey: '', connectionIpAddr: '1.2.3.4' };
+
+  const uiShapedConfig = await simulatePipeline(
+    [{ policy: 'ip-filter', config: { deny: ['1.2.3.4'] } }],
+    message,
+    connectionInfo,
+  );
+  const runtimeConfig = await simulatePipeline(
+    [{ policy: 'ip-filter', config: { blacklist: { ips: ['1.2.3.4'] } } }],
+    message,
+    connectionInfo,
+  );
+
+  assertEquals(uiShapedConfig.finalAction, 'accept');
+  assertEquals(runtimeConfig.finalAction, 'reject');
+});
+
+Deno.test('simulatePipeline pubkey-acl ignores non-EVENT messages like runtime policy', async () => {
+  const result = await simulatePipeline(
+    [{ policy: 'pubkey-acl', config: { mode: 'whitelist', target: 'client', pubkeys: ['pk1'] } }],
+    ['REQ', 'sub1', { kinds: [1] }],
+    { clientAuthorized: false, clientPubkey: '', connectionIpAddr: '127.0.0.1' },
+  );
+
+  assertEquals(result.finalAction, 'accept');
+});
+
 Deno.test('maskSecrets masks infra.redis.url', () => {
   const state = makeState();
   (state.config as any).infra = { redis: { url: 'redis://secret@localhost:6379' } };

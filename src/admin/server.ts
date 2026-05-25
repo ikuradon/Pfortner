@@ -39,13 +39,11 @@ export function json(data: unknown, status = 200): Response {
 }
 
 export function createAdminHandler(state: AdminState): (req: Request) => Promise<Response> {
-  const authToken = state.config.admin?.auth_token;
-
   return async (req: Request): Promise<Response> => {
     // Auth check
     const authHeader = req.headers.get('Authorization');
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
-    if (!token || token !== authToken) {
+    if (!token || token !== state.config.admin?.auth_token) {
       return json({ error: 'unauthorized' }, 401);
     }
 

@@ -19,6 +19,137 @@ const mockInstance = (authorized = false, ip = '127.0.0.1', connectionId = 'conn
   },
 });
 
+function createAtomicRedis(ttls: number[] = []) {
+  const zsets = new Map<string, Array<{ score: number; member: string }>>();
+
+  return {
+    get() {
+      return Promise.resolve(null);
+    },
+    set() {
+      return Promise.resolve();
+    },
+    incr() {
+      return Promise.resolve(0);
+    },
+    expire() {
+      return Promise.resolve();
+    },
+    sadd() {
+      return Promise.resolve(0);
+    },
+    sismember() {
+      return Promise.resolve(false);
+    },
+    del() {
+      return Promise.resolve(0);
+    },
+    zadd(key: string, score: number, member: string) {
+      const set = zsets.get(key) ?? [];
+      set.push({ score, member });
+      zsets.set(key, set);
+      return Promise.resolve(1);
+    },
+    zremrangebyscore(key: string, min: number, max: number) {
+      const set = zsets.get(key) ?? [];
+      zsets.set(key, set.filter((entry) => entry.score < min || entry.score > max));
+      return Promise.resolve(0);
+    },
+    zcard(key: string) {
+      return Promise.resolve((zsets.get(key) ?? []).length);
+    },
+    slidingWindowAdd(key: string, windowStart: number, limit: number, score: number, member: string, ttl: number) {
+      ttls.push(ttl);
+      const set = (zsets.get(key) ?? []).filter((entry) => entry.score > windowStart);
+      if (set.length >= limit) {
+        zsets.set(key, set);
+        return Promise.resolve(false);
+      }
+      set.push({ score, member });
+      zsets.set(key, set);
+      return Promise.resolve(true);
+    },
+    close() {
+      return Promise.resolve();
+    },
+  };
+}
+
+Deno.test('rateLimit redis backend rejects concurrent EVENT messages atomically', async () => {
+  const attempts = 8;
+  const redis = createAtomicRedis();
+  const testInfra = { ...infra, redis };
+  const factory = await rateLimitPlugin.initialize({
+    scope: 'ip',
+    window: 60,
+    max_events: 1,
+    backend: 'redis',
+  }, testInfra);
+  const inst = mockInstance(false, '203.0.113.9');
+  const policy = factory(inst);
+
+  const results = await Promise.all(
+    Array.from({ length: attempts }, (_, i) => policy(['EVENT', makeEvent(`redis-race-${i}`)], inst.connectionInfo)),
+  );
+
+  assertEquals(results.map((result) => result.action), [
+    'next',
+    'reject',
+    'reject',
+    'reject',
+    'reject',
+    'reject',
+    'reject',
+    'reject',
+  ]);
+});
+
+Deno.test('rateLimit redis backend rejects concurrent REQ messages atomically', async () => {
+  const attempts = 8;
+  const redis = createAtomicRedis();
+  const testInfra = { ...infra, redis };
+  const factory = await rateLimitPlugin.initialize({
+    scope: 'ip',
+    window: 60,
+    max_requests: 1,
+    backend: 'redis',
+  }, testInfra);
+  const inst = mockInstance(false, '203.0.113.10');
+  const policy = factory(inst);
+
+  const results = await Promise.all(
+    Array.from({ length: attempts }, (_, i) => policy(['REQ', `redis-race-${i}`, {}], inst.connectionInfo)),
+  );
+
+  assertEquals(results.map((result) => result.action), [
+    'next',
+    'reject',
+    'reject',
+    'reject',
+    'reject',
+    'reject',
+    'reject',
+    'reject',
+  ]);
+});
+
+Deno.test('rateLimit redis backend passes integer TTL for fractional windows', async () => {
+  const ttls: number[] = [];
+  const redis = createAtomicRedis(ttls);
+  const testInfra = { ...infra, redis };
+  const factory = await rateLimitPlugin.initialize({
+    scope: 'ip',
+    window: 0.5,
+    max_events: 1,
+    backend: 'redis',
+  }, testInfra);
+  const inst = mockInstance(false, '203.0.113.11');
+  const policy = factory(inst);
+
+  assertEquals((await policy(['EVENT', makeEvent('fractional-window')], inst.connectionInfo)).action, 'next');
+  assertEquals(ttls, [2]);
+});
+
 Deno.test('rateLimit passes CLOSE messages', async () => {
   const factory = await rateLimitPlugin.initialize({ scope: 'connection', window: 60, max_events: 1 }, infra);
   const inst = mockInstance();

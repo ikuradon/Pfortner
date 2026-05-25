@@ -10,6 +10,8 @@ import { ConfigManager } from '../src/config/manager.ts';
 import { ConnectionManager } from '../src/connections/manager.ts';
 import { ShutdownManager } from '../src/shutdown/manager.ts';
 import { UpstreamProbe } from '../src/connections/upstream-probe.ts';
+import { remoteHostnameFromConn, selectClientIp } from '../src/net/client-ip.ts';
+import { redactUrlCredentials } from '../src/infra/redaction.ts';
 import { dotenv, log, nostrTools } from './deps.ts';
 dotenv.loadSync({ export: true });
 
@@ -37,7 +39,7 @@ if (configPath) {
       keyPrefix: config.infra.redis.key_prefix,
     });
     infraWithRedis = { ...infra, redis };
-    infra.logger.info('Connected to Redis', { url: config.infra.redis.url });
+    infra.logger.info('Connected to Redis', { url: redactUrlCredentials(config.infra.redis.url) });
   }
 
   if (!infraWithRedis.redis && config.infra?.kv?.path) {
@@ -133,7 +135,7 @@ if (configPath) {
   adminState.configPath = configPath;
   adminState.reloadFn = async (yaml: string) => {
     if (shutdownManager.isDraining()) return;
-    await manager.reload(yaml);
+    adminState.config = await manager.reload(yaml);
     infra.logger.info('Config reloaded', { generation: manager.generation });
   };
 
@@ -143,7 +145,7 @@ if (configPath) {
       infra.logger.info('SIGHUP received, reloading config');
       try {
         const content = await Deno.readTextFile(configPath);
-        await manager.reload(content);
+        adminState.config = await manager.reload(content);
         infra.logger.info('Config reloaded via SIGHUP', { generation: manager.generation });
       } catch (e) {
         infra.logger.error('Config reload failed', { error: String(e) });
@@ -213,6 +215,8 @@ if (configPath) {
 } else {
   const APP_PORT = Number(Deno.env.get('APP_PORT')) || 3000;
   const UPSTREAM_RELAY = Deno.env.get('UPSTREAM_RELAY');
+  const TRUST_X_FORWARDED_FOR = Deno.env.get('TRUST_X_FORWARDED_FOR') === 'true' ||
+    Deno.env.get('X_FORWARDED_FOR') === 'true';
   if (UPSTREAM_RELAY == undefined) {
     log.error('UPSTREAM_RELAY environment variable is required');
     Deno.exit(1);
@@ -318,8 +322,10 @@ if (configPath) {
         return new Response('Please use a Nostr client to connect.', { status: 400 });
       }
 
-      const clientIp = req.headers.get('X-Forwarded-For') ||
-        ('hostname' in conn.remoteAddr ? conn.remoteAddr.hostname : '');
+      const clientIp = selectClientIp(req, {
+        remoteHostname: remoteHostnameFromConn(conn),
+        trustForwardedFor: TRUST_X_FORWARDED_FOR,
+      });
 
       const stash = new Map<string, nostrTools.Event[]>();
 

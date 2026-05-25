@@ -40,6 +40,11 @@ Deno.test('buildEvalContext hasSearch false for REQ without search', () => {
   assertEquals(ctx.hasSearch, false);
 });
 
+Deno.test('buildEvalContext ignores primitive REQ filters', () => {
+  const ctx = buildEvalContext(['REQ', 'sub1', 'not-an-object'], connInfo);
+  assertEquals(ctx.hasSearch, false);
+});
+
 Deno.test('buildEvalContext hasSearch false for non-REQ', () => {
   const ctx = buildEvalContext(['EVENT', { kind: 1, pubkey: 'pk' }], connInfo);
   assertEquals(ctx.hasSearch, false);

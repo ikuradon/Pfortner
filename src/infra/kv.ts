@@ -23,6 +23,7 @@ interface ExpiryIndex {
 
 export async function createKvClient(options: KvOptions = {}): Promise<RedisClient> {
   const kv = await Deno.openKv(options.path);
+  const keyLocks = new Map<string, Promise<void>>();
 
   function ttlToExpiresAt(ttl: number): number {
     return Date.now() + ttl * 1000;
@@ -43,6 +44,26 @@ export async function createKvClient(options: KvOptions = {}): Promise<RedisClie
 
   function parseZsetEntry(value: number | ZsetEntry): ZsetEntry {
     return typeof value === 'number' ? { score: value } : value;
+  }
+
+  async function withKeyLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const previous = keyLocks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const lock = previous.catch(() => {}).then(() => current);
+    keyLocks.set(key, lock);
+
+    await previous.catch(() => {});
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (keyLocks.get(key) === lock) {
+        keyLocks.delete(key);
+      }
+    }
   }
 
   function expiryIndexKey(index: ExpiryIndex): Deno.KvKey {
@@ -281,6 +302,38 @@ export async function createKvClient(options: KvOptions = {}): Promise<RedisClie
         count++;
       }
       return count;
+    },
+    async slidingWindowAdd(
+      key: string,
+      windowStart: number,
+      limit: number,
+      score: number,
+      member: string,
+      ttl: number,
+    ): Promise<boolean> {
+      return await withKeyLock(key, async () => {
+        await cleanupExpired();
+        let count = 0;
+        const iter = kv.list<number | ZsetEntry>({ prefix: ['zset', key] });
+        for await (const entry of iter) {
+          const parsed = parseZsetEntry(entry.value);
+          if (isExpired(parsed.expiresAt) || parsed.score <= windowStart) {
+            await kv.delete(entry.key);
+            continue;
+          }
+          count++;
+        }
+        if (count >= limit) {
+          return false;
+        }
+
+        const expiresAt = ttlToExpiresAt(ttl);
+        const zsetEntry: ZsetEntry = { score, expiresAt };
+        await kv.set(['zset', key, member], zsetEntry, { expireIn: ttlToExpireIn(ttl) });
+        await addExpiryIndex({ namespace: 'zset', key, member, expiresAt });
+        await kv.set(['zset-expiry', key], { value: '1', expiresAt }, { expireIn: ttlToExpireIn(ttl) });
+        return true;
+      });
     },
     close(): Promise<void> {
       kv.close();

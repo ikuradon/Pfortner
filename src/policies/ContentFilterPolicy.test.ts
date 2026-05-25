@@ -150,3 +150,102 @@ Deno.test('contentFilter external_api on_error reject rejects on API failure', a
   const result = await factory(inst)(['EVENT', makeEvent('hello')], inst.connectionInfo);
   assertEquals(result.action, 'reject');
 });
+
+Deno.test('contentFilter external_api bounds concurrent moderation requests', async () => {
+  const mockInfra = buildInfraContext({});
+  let active = 0;
+  let maxActive = 0;
+  let calls = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  mockInfra.httpClient = {
+    fetch: async () => {
+      calls++;
+      active++;
+      maxActive = Math.max(maxActive, active);
+      await gate;
+      active--;
+      return new Response(JSON.stringify({ allowed: true }), { status: 200 });
+    },
+  };
+  const factory = await contentFilterPlugin.initialize({
+    external_api: { url: 'http://mock/check', timeout: 1000, on_error: 'reject', max_concurrent_requests: 2 },
+  }, mockInfra);
+  const inst = mockInstance();
+  const policy = factory(inst);
+
+  const pending = [
+    policy(['EVENT', makeEvent('hello 1')], inst.connectionInfo),
+    policy(['EVENT', makeEvent('hello 2')], inst.connectionInfo),
+    policy(['EVENT', makeEvent('hello 3')], inst.connectionInfo),
+  ];
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assertEquals(calls, 2);
+  assertEquals(maxActive, 2);
+  release();
+  const results = await Promise.all(pending);
+  assertEquals(results.map((result) => result.action), ['next', 'next', 'reject']);
+});
+
+Deno.test('contentFilter external_api passes on concurrency limit when on_error accept', async () => {
+  const mockInfra = buildInfraContext({});
+  let calls = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  mockInfra.httpClient = {
+    fetch: async () => {
+      calls++;
+      await gate;
+      return new Response(JSON.stringify({ allowed: true }), { status: 200 });
+    },
+  };
+  const factory = await contentFilterPlugin.initialize({
+    external_api: { url: 'http://mock/check', timeout: 1000, on_error: 'accept', max_concurrent_requests: 1 },
+  }, mockInfra);
+  const inst = mockInstance();
+  const policy = factory(inst);
+
+  const first = policy(['EVENT', makeEvent('hello 1')], inst.connectionInfo);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const second = await policy(['EVENT', makeEvent('hello 2')], inst.connectionInfo);
+
+  assertEquals(calls, 1);
+  assertEquals(second.action, 'next');
+  release();
+  assertEquals((await first).action, 'next');
+});
+
+Deno.test('contentFilter external_api rejects responses over max_response_bytes when on_error reject', async () => {
+  const mockInfra = buildInfraContext({});
+  mockInfra.httpClient = {
+    fetch: () => Promise.resolve(new Response(JSON.stringify({ allowed: true }).padEnd(64, ' '), { status: 200 })),
+  };
+  const factory = await contentFilterPlugin.initialize({
+    external_api: { url: 'http://mock/check', timeout: 1000, on_error: 'reject', max_response_bytes: 16 },
+  }, mockInfra);
+  const inst = mockInstance();
+  const result = await factory(inst)(['EVENT', makeEvent('hello')], inst.connectionInfo);
+  assertEquals(result.action, 'reject');
+});
+
+Deno.test('contentFilter external_api rejects unavailable response body when on_error reject', async () => {
+  const mockInfra = buildInfraContext({});
+  mockInfra.httpClient = {
+    fetch: () =>
+      Promise.resolve({
+        body: null,
+        json: () => Promise.resolve({ allowed: true }),
+      } as Response),
+  };
+  const factory = await contentFilterPlugin.initialize({
+    external_api: { url: 'http://mock/check', timeout: 1000, on_error: 'reject', max_response_bytes: 16 },
+  }, mockInfra);
+  const inst = mockInstance();
+  const result = await factory(inst)(['EVENT', makeEvent('hello')], inst.connectionInfo);
+  assertEquals(result.action, 'reject');
+});

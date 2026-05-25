@@ -84,14 +84,26 @@ Deno.test('kv expire applies to sorted set members', async () => {
   await client.close();
 });
 
+Deno.test('kv slidingWindowAdd stores zset expiry in the same format as expire', async () => {
+  const client = await createKvClient({ path: ':memory:' });
+
+  assertEquals(await client.slidingWindowAdd('events:conn:attacker', 0, 10, Date.now(), 'member-1', 0.05), true);
+  await client.zadd('events:conn:attacker', Date.now(), 'member-2');
+  assertEquals(await client.zcard('events:conn:attacker'), 2);
+  await new Promise((r) => setTimeout(r, 100));
+
+  assertEquals(await client.zcard('events:conn:attacker'), 0);
+  await client.close();
+});
+
 Deno.test('kv incr preserves an existing TTL', async () => {
   const client = await createKvClient({ path: ':memory:' });
 
   assertEquals(await client.incr('counter-with-ttl'), 1);
-  await client.expire('counter-with-ttl', 0.08);
-  await new Promise((r) => setTimeout(r, 30));
+  await client.expire('counter-with-ttl', 0.5);
+  await new Promise((r) => setTimeout(r, 50));
   assertEquals(await client.incr('counter-with-ttl'), 2);
-  await new Promise((r) => setTimeout(r, 70));
+  await new Promise((r) => setTimeout(r, 460));
 
   assertEquals(await client.get('counter-with-ttl'), null);
   await client.close();

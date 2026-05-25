@@ -168,7 +168,6 @@ async function serveStaticFile(filePath: string): Promise<Response> {
 export function createAdminApp(
   state: AdminState,
 ): (req: Request) => Promise<Response> {
-  const authToken = state.config.admin?.auth_token;
   const adminPath = '/admin';
 
   const app = new App({ root: STATIC_DIR } as Record<string, unknown> as any);
@@ -200,7 +199,7 @@ export function createAdminApp(
     }
 
     const credential = getCredentialFromRequest(ctx.req);
-    if (!credential || credential.token !== authToken) {
+    if (!credential || credential.token !== state.config.admin?.auth_token) {
       // For API routes, return 401 JSON
       if (path.startsWith(`${adminPath}/api/`)) {
         return json({ error: 'unauthorized' }, 401);
@@ -229,7 +228,7 @@ export function createAdminApp(
   app.post(`${adminPath}/login`, async (ctx) => {
     const form = await ctx.req.formData();
     const token = form.get('token');
-    if (typeof token === 'string' && token === authToken) {
+    if (typeof token === 'string' && token === state.config.admin?.auth_token) {
       const next = new URL(ctx.req.url).searchParams.get('next') ??
         `${adminPath}/`;
       const safeNext = (next.startsWith(adminPath + '/') || next === adminPath) ? next : `${adminPath}/`;

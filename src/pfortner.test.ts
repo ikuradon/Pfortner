@@ -1,8 +1,12 @@
 import { assertEquals } from 'jsr:@std/assert@1.0.18';
 import { nostrTools } from './deps.ts';
 import { pfortnerInit } from './pfortner.ts';
+import { acceptPolicy } from './policies/AcceptPolicy.ts';
+import { kindFilterPlugin } from './policies/KindFilterPolicy.ts';
+import { buildInfraContext } from './infra/context.ts';
 
 const sk = nostrTools.generateSecretKey();
+const pk = nostrTools.getPublicKey(sk);
 
 function currUnixtime(): number {
   return Math.floor(Date.now() / 1000);
@@ -48,6 +52,8 @@ async function waitFor(
 }
 
 async function createEnv(opts: Record<string, unknown> = {}) {
+  const upstreamMessages: string[] = [];
+
   // Mock upstream relay
   const relayAc = new AbortController();
   const relayPort = await new Promise<number>((resolve) => {
@@ -59,7 +65,11 @@ async function createEnv(opts: Record<string, unknown> = {}) {
       },
     }, (req) => {
       if (req.headers.get('upgrade') === 'websocket') {
-        return Deno.upgradeWebSocket(req).response;
+        const { socket, response } = Deno.upgradeWebSocket(req);
+        socket.addEventListener('message', ({ data }) => {
+          upstreamMessages.push(data as string);
+        });
+        return response;
       }
       return new Response('ok');
     });
@@ -108,6 +118,7 @@ async function createEnv(opts: Record<string, unknown> = {}) {
     ws,
     challenge,
     upstreamUrl,
+    upstreamMessages,
     async cleanup() {
       ws.close();
       proxy.closeSocket();
@@ -149,6 +160,15 @@ function sendAuth(
 }
 
 Deno.test({
+  name: 'pfortnerInit: leaves connectionIpAddr empty when clientIp is absent',
+  fn: () => {
+    const proxy = pfortnerInit('ws://127.0.0.1:1');
+
+    assertEquals(proxy.connectionInfo.connectionIpAddr, '');
+  },
+});
+
+Deno.test({
   name: 'createSession: rejects a second WebSocket on the same proxy instance',
   sanitizeResources: false,
   sanitizeOps: false,
@@ -182,6 +202,42 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name: 'client message handler: rejects malformed three-element EVENT before policy forwarding',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const env = await createEnv();
+    try {
+      const factory = await kindFilterPlugin.initialize(
+        { mode: 'deny', kinds: [4], require_auth_for: [4] },
+        buildInfraContext({}),
+      );
+      const kindFilter = factory(env.proxy);
+      env.proxy.registerClientPipeline([kindFilter, acceptPolicy]);
+      const clientMessages: string[] = [];
+      env.ws.onmessage = ({ data }) => {
+        clientMessages.push(data as string);
+      };
+
+      const forbiddenEvent = { id: 'forbidden', pubkey: 'pk', kind: 4, created_at: 0, tags: [], content: '', sig: '' };
+      const allowedDummyEvent = { id: 'allowed', pubkey: 'pk', kind: 1, created_at: 0, tags: [], content: '', sig: '' };
+
+      env.ws.send(JSON.stringify(['EVENT', forbiddenEvent, allowedDummyEvent]));
+      await waitFor(
+        () => clientMessages.includes(JSON.stringify(['NOTICE', 'ERROR: bad msg: invalid EVENT message'])),
+        1000,
+        'client did not receive invalid EVENT NOTICE',
+      );
+
+      assertEquals(env.upstreamMessages, []);
+      assertEquals(clientMessages, [JSON.stringify(['NOTICE', 'ERROR: bad msg: invalid EVENT message'])]);
+    } finally {
+      await env.cleanup();
+    }
+  },
+});
+
 // =============================
 // AUTH リプレイ攻撃防止
 // =============================
@@ -197,6 +253,24 @@ Deno.test({
       const result = await sendAuth(env.ws, env.proxy, event);
       assertEquals(result, 'success');
       assertEquals(env.proxy.connectionInfo.clientAuthorized, true);
+    } finally {
+      await env.cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: 'verifyAuthMessage: blacklisted AUTH pubkey fails',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const env = await createEnv({ pubkeyBlacklist: new Set([pk]) });
+    try {
+      const event = makeAuthEvent(env.challenge, env.upstreamUrl);
+      const result = await sendAuth(env.ws, env.proxy, event);
+      assertEquals(result, 'failed');
+      assertEquals(env.proxy.connectionInfo.clientAuthorized, false);
+      assertEquals(env.proxy.connectionInfo.clientPubkey, '');
     } finally {
       await env.cleanup();
     }
@@ -235,6 +309,160 @@ Deno.test({
     } finally {
       globalThis.removeEventListener('unhandledrejection', onUnhandledRejection);
       await env.cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: 'client message handler: blacklisted authenticated client is not forwarded',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const pubkeyBlacklist = new Set<string>();
+    const env = await createEnv({ pubkeyBlacklist });
+    try {
+      const event = makeAuthEvent(env.challenge, env.upstreamUrl);
+      const authResult = await sendAuth(env.ws, env.proxy, event);
+      assertEquals(authResult, 'success');
+
+      let policyRan = false;
+      env.proxy.registerClientPipeline([(_msg) => {
+        policyRan = true;
+        return { message: _msg, action: 'next' };
+      }]);
+
+      pubkeyBlacklist.add(pk);
+      env.ws.send(JSON.stringify(['REQ', 'sub1', { kinds: [1] }]));
+      await delay(100);
+
+      assertEquals(policyRan, false);
+    } finally {
+      await env.cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: 'client message handler: blacklisted EVENT author is not forwarded',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const env = await createEnv({ pubkeyBlacklist: new Set([pk]) });
+    try {
+      let policyRan = false;
+      env.proxy.registerClientPipeline([(_msg) => {
+        policyRan = true;
+        return { message: _msg, action: 'next' };
+      }]);
+
+      const event = nostrTools.finalizeEvent({
+        kind: 1,
+        created_at: currUnixtime(),
+        tags: [],
+        content: 'blocked',
+      }, sk);
+      env.ws.send(JSON.stringify(['EVENT', event]));
+      await delay(100);
+
+      assertEquals(policyRan, false);
+    } finally {
+      await env.cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: 'server message handler: blacklisted authenticated client is closed before relay',
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+    const pubkeyBlacklist = new Set<string>();
+    let upstreamSocket: WebSocket | null = null;
+
+    const relayAc = new AbortController();
+    const relayPort = await new Promise<number>((resolve) => {
+      Deno.serve({
+        port: 0,
+        signal: relayAc.signal,
+        onListen({ port }) {
+          resolve(port);
+        },
+      }, (req) => {
+        if (req.headers.get('upgrade') === 'websocket') {
+          const { socket, response } = Deno.upgradeWebSocket(req);
+          socket.addEventListener('open', () => {
+            upstreamSocket = socket;
+          });
+          return response;
+        }
+        return new Response('ok');
+      });
+    });
+
+    const upstreamUrl = `ws://127.0.0.1:${relayPort}`;
+    const proxy = pfortnerInit(upstreamUrl, {
+      sendAuthOnConnect: true,
+      upstreamRawAddress: upstreamUrl,
+      pubkeyBlacklist,
+    });
+    proxy.registerClientPipeline([(msg) => ({ message: msg, action: 'accept' })]);
+    proxy.registerServerPipeline([(msg) => ({ message: msg, action: 'accept' })]);
+
+    const proxyAc = new AbortController();
+    const proxyPort = await new Promise<number>((resolve) => {
+      Deno.serve({
+        port: 0,
+        signal: proxyAc.signal,
+        onListen({ port }) {
+          resolve(port);
+        },
+      }, (req) => proxy.createSession(req));
+    });
+
+    const messages: string[] = [];
+    let closeCode: number | null = null;
+    const { ws, challenge } = await new Promise<{ ws: WebSocket; challenge: string }>((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${proxyPort}`);
+      ws.onmessage = ({ data }) => {
+        const text = data as string;
+        try {
+          const msg = JSON.parse(text);
+          if (msg[0] === 'AUTH') {
+            resolve({ ws, challenge: msg[1] });
+            return;
+          }
+        } catch { /* ignore */ }
+        messages.push(text);
+      };
+      ws.onclose = (event) => {
+        closeCode = event.code;
+      };
+      ws.onerror = () => reject(new Error('Client WebSocket connection failed'));
+      setTimeout(() => reject(new Error('Timeout waiting for AUTH challenge')), 5000);
+    });
+
+    try {
+      const authEvent = makeAuthEvent(challenge, upstreamUrl);
+      assertEquals(await sendAuth(ws, proxy, authEvent), 'success');
+      await waitFor(() => upstreamSocket != null, 3000, 'Timed out waiting for upstream socket');
+
+      pubkeyBlacklist.add(pk);
+      const relayEvent = nostrTools.finalizeEvent({
+        kind: 1,
+        created_at: currUnixtime(),
+        tags: [],
+        content: 'server event',
+      }, nostrTools.generateSecretKey());
+      upstreamSocket!.send(JSON.stringify(['EVENT', 'sub1', relayEvent]));
+
+      await waitFor(() => closeCode === 1008, 3000, 'Timed out waiting for blacklisted client close');
+      assertEquals(messages, []);
+    } finally {
+      ws.close();
+      proxy.closeSocket();
+      proxyAc.abort();
+      relayAc.abort();
+      await delay(100);
     }
   },
 });
@@ -418,6 +646,70 @@ Deno.test({
 // =============================
 // 接続ライフサイクル
 // =============================
+
+Deno.test({
+  name: 'createSession: emits clientDisconnect when upstream fails after client socket already closed',
+  fn: async () => {
+    const originalUpgradeWebSocket = Object.getOwnPropertyDescriptor(Deno, 'upgradeWebSocket');
+    const originalWebSocketStream = Object.getOwnPropertyDescriptor(globalThis, 'WebSocketStream');
+    let resolveClosed: (() => void) | undefined;
+
+    const clientSocket = {
+      CONNECTING: 0,
+      OPEN: 1,
+      CLOSING: 2,
+      CLOSED: 3,
+      readyState: 3,
+      addEventListener: () => {},
+      close: () => {},
+      send: () => {},
+    };
+
+    Object.defineProperty(Deno, 'upgradeWebSocket', {
+      configurable: true,
+      value: () => ({
+        socket: clientSocket,
+        response: new Response('upgrade accepted'),
+      }),
+    });
+    Object.defineProperty(globalThis, 'WebSocketStream', {
+      configurable: true,
+      value: class {
+        opened = Promise.reject(new Error('upstream failed'));
+        closed = new Promise<void>((resolve) => {
+          resolveClosed = resolve;
+        });
+        close() {
+          resolveClosed?.();
+        }
+      },
+    });
+
+    try {
+      const proxy = pfortnerInit('ws://127.0.0.1:1', {
+        sendAuthOnConnect: false,
+      });
+      let disconnects = 0;
+      proxy.on('clientDisconnect', () => {
+        disconnects++;
+      });
+
+      proxy.createSession(new Request('http://localhost'));
+      await waitFor(() => disconnects === 1, 1000, 'Timed out waiting for clientDisconnect');
+
+      assertEquals(disconnects, 1);
+    } finally {
+      if (originalUpgradeWebSocket) {
+        Object.defineProperty(Deno, 'upgradeWebSocket', originalUpgradeWebSocket);
+      }
+      if (originalWebSocketStream) {
+        Object.defineProperty(globalThis, 'WebSocketStream', originalWebSocketStream);
+      } else {
+        delete (globalThis as Record<string, unknown>).WebSocketStream;
+      }
+    }
+  },
+});
 
 Deno.test({
   name: 'closeSocket: emits clientDisconnect exactly once for local closes',
