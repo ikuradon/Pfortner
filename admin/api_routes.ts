@@ -89,9 +89,10 @@ export function registerAdminApiRoutes(
       if (!Array.isArray(message)) {
         return json({ error: 'message must be an array' }, 400);
       }
-      const pipeline = direction === 'server'
+      const postedPipeline = Array.isArray(body.pipeline) ? body.pipeline : null;
+      const pipeline = postedPipeline ?? (direction === 'server'
         ? (state.config.pipelines?.server ?? [])
-        : (state.config.pipelines?.client ?? []);
+        : (state.config.pipelines?.client ?? []));
       const result = await simulatePipeline(pipeline, message, connectionInfo);
       return json(result);
     } catch (e) {

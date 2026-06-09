@@ -80,3 +80,27 @@ Deno.test('API route registrar blocklist handlers mutate runtime state', async (
   assertEquals(state.blocklist.ips.has('203.0.113.10'), true);
   assertEquals(state.blocklist.pubkeys.has('pk-blocked'), false);
 });
+
+Deno.test('playground evaluate can use request pipeline instead of server config', async () => {
+  const app = new RecordedRoutes();
+  const state = makeState();
+  registerAdminApiRoutes(app, '/admin', state);
+
+  const res = await app.postRoutes.get('/admin/api/playground/evaluate')!(
+    makeContext('/admin/api/playground/evaluate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        direction: 'client',
+        pipeline: [{ policy: 'kind-filter', config: { allow_kinds: [2] } }],
+        message: ['EVENT', { kind: 1 }],
+        connectionInfo: { authenticated: false, pubkey: '', clientIp: '127.0.0.1' },
+      }),
+    }),
+  );
+
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(body.finalAction, 'reject');
+  assertEquals(body.steps[0].policy, 'kind-filter');
+});
