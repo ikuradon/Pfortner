@@ -247,6 +247,14 @@ function isStartNode(node) {
   return node?.type === 'start' || node?.policy === 'start';
 }
 
+export function shouldRenderInputPort(node) {
+  return !isStartNode(node);
+}
+
+export function isMovablePipelineNode(node) {
+  return Boolean(node);
+}
+
 function policyNodes(graph) {
   return (graph?.nodes ?? []).filter((node) => !isStartNode(node));
 }
@@ -745,7 +753,7 @@ function handlePointerMove(event) {
     const graph = currentGraph();
     for (const start of dragState.nodeStarts) {
       const node = findNode(graph, start.id);
-      if (!node || isStartNode(node)) continue;
+      if (!isMovablePipelineNode(node)) continue;
       node.x = Math.round((start.x + dx) / 8) * 8;
       node.y = Math.round((start.y + dy) / 8) * 8;
     }
@@ -882,14 +890,16 @@ function renderNode(group, node) {
     y: 44,
   }, [document.createTextNode(configText || node.id)]));
 
-  const input = portPosition({ ...node, x: 0, y: 0 }, 'in', 'input');
-  nodeGroup.appendChild(svgEl('circle', {
-    class: 'pipeline-port pipeline-port-input',
-    cx: input.x,
-    cy: input.y,
-    r: 6,
-    dataset: { nodeId: node.id, portRole: 'input' },
-  }));
+  if (shouldRenderInputPort(node)) {
+    const input = portPosition({ ...node, x: 0, y: 0 }, 'in', 'input');
+    nodeGroup.appendChild(svgEl('circle', {
+      class: 'pipeline-port pipeline-port-input',
+      cx: input.x,
+      cy: input.y,
+      r: 6,
+      dataset: { nodeId: node.id, portRole: 'input' },
+    }));
+  }
 
   for (const port of outputPortsFor(node)) {
     const pos = portPosition({ ...node, x: 0, y: 0 }, port.id, 'output');

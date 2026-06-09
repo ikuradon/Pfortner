@@ -7,6 +7,11 @@ import {
 } from '../../admin/static/pipeline_graph.js';
 import { buildYamlPreview, defaultConfigForPolicy } from '../../admin/static/pipelines.js';
 
+const pipelineEditor = await import('../../admin/static/pipelines.js') as unknown as Record<
+  string,
+  (node: unknown) => boolean
+>;
+
 Deno.test('pipeline editor defaults protected-event to require authentication', () => {
   assertEquals(defaultConfigForPolicy('protected-event'), { require_auth: true });
 });
@@ -55,6 +60,16 @@ Deno.test('pipeline editor YAML preview serializes ip-filter blocklist schema', 
   assertStringIncludes(yaml, 'blocklist:');
   assertStringIncludes(yaml, 'ips: []');
   assertStringIncludes(yaml, 'cidrs: []');
+});
+
+Deno.test('pipeline editor does not render an input port for the start node', () => {
+  assertEquals(pipelineEditor.shouldRenderInputPort?.({ type: 'start', policy: 'start' }), false);
+  assertEquals(pipelineEditor.shouldRenderInputPort?.({ type: 'policy', policy: 'accept' }), true);
+});
+
+Deno.test('pipeline editor allows the start node to move', () => {
+  assertEquals(pipelineEditor.isMovablePipelineNode?.({ type: 'start', policy: 'start' }), true);
+  assertEquals(pipelineEditor.isMovablePipelineNode?.({ type: 'policy', policy: 'accept' }), true);
 });
 
 Deno.test('pipeline graph converts linear client and server pipelines round trip', () => {
