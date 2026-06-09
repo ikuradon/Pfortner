@@ -1,54 +1,11 @@
 import { log, nostrTools } from './deps.ts';
-
-type SocketEvent = {
-  authSuccess: (event: nostrTools.Event) => void | Promise<void>;
-  authFailed: () => void | Promise<void>;
-
-  clientConnect: () => void | Promise<void>;
-  clientDisconnect: () => void | Promise<void>;
-  clientError: () => void | Promise<void>;
-  clientMsg: (message: string) => void | Promise<void>;
-  clientAuth: (event: nostrTools.Event) => void | Promise<void>;
-  clientEvent: (event: nostrTools.Event) => void | Promise<void>;
-  clientRequest: (subscriptionId: string, filter: nostrTools.Filter) => void | Promise<void>;
-  clientClose: (subscriptionId: string) => void | Promise<void>;
-
-  serverConnect: () => void | Promise<void>;
-  serverDisconnect: () => void | Promise<void>;
-  serverError: () => void | Promise<void>;
-  serverMsg: (message: string) => void | Promise<void>;
-  serverEvent: (subscriptionId: string, event: nostrTools.Event) => void | Promise<void>;
-  serverOk: (eventId: string, isPublished: boolean, message: string) => void | Promise<void>;
-  serverEose: (subscriptionId: string) => void | Promise<void>;
-  serverClosed: (subscriptionId: string, message: string) => void | Promise<void>;
-  serverNotice: (message: string) => void | Promise<void>;
-};
+import { createAuthVerifier, resolveAuthRelayAddress } from './session/auth.ts';
+import { parseClientMessagePayload } from './session/client-session.ts';
+import { createSocketEventBus } from './session/events.ts';
+import { type Policies, runPolicyPipeline } from './session/pipeline-runner.ts';
+import { closeUpstreamSocket, createUpstreamHeaders } from './session/upstream.ts';
 
 const POLICY_VIOLATION_CLOSE_CODE = 1008;
-
-const newListeners = (): { [TK in keyof SocketEvent]: SocketEvent[TK][] } => ({
-  authSuccess: [],
-  authFailed: [],
-
-  clientConnect: [],
-  clientDisconnect: [],
-  clientError: [],
-  clientMsg: [],
-  clientAuth: [],
-  clientEvent: [],
-  clientRequest: [],
-  clientClose: [],
-
-  serverConnect: [],
-  serverDisconnect: [],
-  serverError: [],
-  serverMsg: [],
-  serverEvent: [],
-  serverOk: [],
-  serverEose: [],
-  serverClosed: [],
-  serverNotice: [],
-});
 
 export interface OutputMessage {
   message: any;
@@ -68,11 +25,6 @@ export type Policy<Options = unknown> = (
   connectionInfo: ConnectionInfo,
   options?: Options,
 ) => Promise<OutputMessage> | OutputMessage;
-type PolicyTuple<P extends Policy = Policy> = [policy: P, options?: InferPolicyOptions<P>];
-type InferPolicyOptions<P> = P extends Policy<infer Options> ? Options : never;
-type Policies<T extends any[]> = {
-  [K in keyof T]: PolicyTuple<T[K]> | Policy<T[K]>;
-};
 
 export const pfortnerInit = (
   upstreamAddress: string,
@@ -117,15 +69,6 @@ export const pfortnerInit = (
   const sendAuthOnConnect = options.sendAuthOnConnect ?? false;
   const idleTimeout = Math.max(options.idleTimeout ?? 10 * 60, 1) * 1000;
 
-  let relayAddress: string | null = null;
-  try {
-    relayAddress = new URL(options.upstreamRawAddress || upstreamAddress).href;
-  } catch {
-    // Will be checked in verifyAuthMessage
-  }
-
-  const usedAuthEventIds = new Set<string>();
-
   function isBlockedPubkey(pubkey: unknown): boolean {
     return typeof pubkey === 'string' && options.pubkeyBlocklist?.has(pubkey) === true;
   }
@@ -144,13 +87,21 @@ export const pfortnerInit = (
   function closeBlockedConnection(): void {
     closeSocket(POLICY_VIOLATION_CLOSE_CODE);
   }
-  let authAttemptCount = 0;
 
-  const headers: HeadersInit = {};
-  if (options.clientIp) {
-    headers['X-Forwarded-For'] = options.clientIp;
-  }
-  const listeners = newListeners();
+  const headers = createUpstreamHeaders(options.clientIp);
+  const eventBus = createSocketEventBus(() => connectionInfo.connectionId);
+  const { listeners, on, off, emit } = eventBus;
+  const verifyAuthMessage = createAuthVerifier({
+    connectionInfo,
+    relayAddress: resolveAuthRelayAddress(upstreamAddress, options.upstreamRawAddress),
+    allowedAuthTimeDuration,
+    allowedAuthFutureTimeDuration,
+    maxAuthAttempts,
+    isBlockedPubkey,
+    onAuthSuccess: (event) => listeners.authSuccess.forEach((cb) => cb(event)),
+    onAuthFailed: () => listeners.authFailed.forEach((cb) => cb()),
+    onBlocked: closeBlockedConnection,
+  });
 
   if (sendAuthOnConnect) {
     on('clientConnect', sendAuthMessage);
@@ -185,24 +136,15 @@ export const pfortnerInit = (
         return;
       }
 
-      if (typeof json != 'string') {
-        sendMessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: non-string message']));
-        return;
-      }
-
-      let msg: unknown[];
-      try {
-        const parsed = JSON.parse(json);
-        if (!Array.isArray(parsed) || parsed.length === 0) {
-          sendMessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: expected JSON array']));
-          return;
+      const parsedMessage = parseClientMessagePayload(json);
+      if (!parsedMessage.ok) {
+        if (parsedMessage.warning) {
+          log.warn(`${parsedMessage.warning} connectionId=${connectionInfo.connectionId}`);
         }
-        msg = parsed;
-      } catch (e) {
-        log.warn(`Failed to parse client message: ${e} connectionId=${connectionInfo.connectionId}`);
-        sendMessageToClient(JSON.stringify(['NOTICE', 'ERROR: bad msg: unparsable JSON']));
+        sendMessageToClient(JSON.stringify(['NOTICE', parsedMessage.notice]));
         return;
       }
+      const msg = parsedMessage.message;
 
       setIdleTimeout();
 
@@ -221,7 +163,7 @@ export const pfortnerInit = (
               const event = msg[1] as nostrTools.Event;
               await emit('clientAuth', event);
             }
-            return; // Terminate at proxy (Do not send message to upstream relay.)
+            return; // proxy で終端し、upstream relay には送らない。
           case 'CLOSE': // NIP-01
             if (msg.length >= 2) {
               const subscriptionId = msg[1] as string;
@@ -247,7 +189,10 @@ export const pfortnerInit = (
             break;
         }
 
-        await runPipeline(clientPolicies, msg, sendMessageToServer);
+        await runPolicyPipeline(clientPolicies, msg, connectionInfo, {
+          sendAccepted: sendMessageToServer,
+          sendRejected: sendMessageToClient,
+        });
       } catch (e) {
         log.error(`Client message handling error: ${e} connectionId=${connectionInfo.connectionId}`);
       }
@@ -384,30 +329,8 @@ export const pfortnerInit = (
     return opts.response;
   }
 
-  function on<T extends keyof SocketEvent, U extends SocketEvent[T]>(type: T, cb: U): void {
-    listeners[type].push(cb);
-  }
-  function off<T extends keyof SocketEvent, U extends SocketEvent[T]>(type: T, cb: U): void {
-    const index = listeners[type].indexOf(cb);
-    if (index !== -1) listeners[type].splice(index, 1);
-  }
   function clearAllListeners(): void {
-    (Object.keys(listeners) as (keyof SocketEvent)[]).forEach((key) => {
-      listeners[key] = [] as any;
-    });
-  }
-  async function emit<T extends keyof SocketEvent>(
-    type: T,
-    ...args: Parameters<SocketEvent[T]>
-  ): Promise<void> {
-    const callbacks = listeners[type] as Array<(...args: Parameters<SocketEvent[T]>) => void | Promise<void>>;
-    for (const cb of callbacks) {
-      try {
-        await cb(...args);
-      } catch (e) {
-        log.error(`Listener error: ${e} type=${type} connectionId=${connectionInfo.connectionId}`);
-      }
-    }
+    eventBus.clear();
   }
 
   function emitClientDisconnect(): void {
@@ -424,88 +347,6 @@ export const pfortnerInit = (
 
   function sendAuthMessage(): void {
     sendMessageToClient(JSON.stringify(['AUTH', connectionInfo.connectionId]));
-  }
-
-  function currUnixtime(): number {
-    return Math.floor(Date.now() / 1000);
-  }
-
-  function validateEventTime(event: nostrTools.Event): boolean {
-    const now = currUnixtime();
-    return (
-      event.created_at > now - allowedAuthTimeDuration &&
-      event.created_at < now + allowedAuthFutureTimeDuration
-    );
-  }
-
-  function verifyAuthMessage(event: nostrTools.Event): void {
-    // Rate limit: reject if too many AUTH attempts on this connection
-    authAttemptCount++;
-    if (authAttemptCount > maxAuthAttempts) {
-      log.warn(`AUTH rate limit exceeded connectionId=${connectionInfo.connectionId}`);
-      listeners.authFailed.forEach((cb) => cb());
-      return;
-    }
-
-    // Replay prevention: reject if this AUTH event ID was already used
-    if (usedAuthEventIds.has(event.id)) {
-      log.warn(`AUTH replay detected eventId=${event.id} connectionId=${connectionInfo.connectionId}`);
-      listeners.authFailed.forEach((cb) => cb());
-      return;
-    }
-
-    if (relayAddress == null) {
-      log.error('Invalid relay address for AUTH verification');
-      listeners.authFailed.forEach((cb) => cb());
-      return;
-    }
-
-    if (
-      nostrTools.validateEvent(event) &&
-      nostrTools.verifyEvent(event) &&
-      event.kind === 22242 &&
-      validateEventTime(event)
-    ) {
-      let checkChallenge = false;
-      let checkRelay = false;
-
-      for (const tag of event.tags) {
-        if (
-          tag.length === 2 &&
-          tag[0] === 'challenge' &&
-          tag[1] === connectionInfo.connectionId
-        ) {
-          checkChallenge = true;
-        } else if (tag.length === 2 && tag[0] === 'relay') {
-          try {
-            if (new URL(tag[1]).href === relayAddress) {
-              checkRelay = true;
-            }
-          } catch {
-            // Invalid relay URL in tag
-          }
-        }
-      }
-      if (checkChallenge && checkRelay) {
-        if (isBlockedPubkey(event.pubkey)) {
-          log.warn(
-            `AUTH blocked: pubkey in blocklist pubkey=${event.pubkey} connectionId=${connectionInfo.connectionId}`,
-          );
-          listeners.authFailed.forEach((cb) => cb());
-          closeBlockedConnection();
-          return;
-        }
-        // Record used event ID to prevent replay
-        usedAuthEventIds.add(event.id);
-        connectionInfo.clientPubkey = event.pubkey;
-        connectionInfo.clientAuthorized = true;
-        listeners.authSuccess.forEach((cb) => cb(event));
-      } else {
-        listeners.authFailed.forEach((cb) => cb());
-      }
-    } else {
-      listeners.authFailed.forEach((cb) => cb());
-    }
   }
 
   async function sendMessageToClient(message: string): Promise<void> {
@@ -549,14 +390,6 @@ export const pfortnerInit = (
     await serverWriter.write(message);
   }
 
-  function closeUpstreamSocket(socket: WebSocketStream): void {
-    try {
-      socket.close();
-    } catch {
-      // Socket may already be closing or closed
-    }
-  }
-
   function closeClientSocket(code = 1000): void {
     clearIdleTimeout();
     const socket = clientSocket;
@@ -566,7 +399,7 @@ export const pfortnerInit = (
       try {
         socket.close(code);
       } catch {
-        // Socket may already be closing or closed
+        // socket が既に closing/closed の場合は何もしない。
       }
     }
     emitClientDisconnect();
@@ -583,7 +416,7 @@ export const pfortnerInit = (
       try {
         serverWriter.releaseLock();
       } catch {
-        // Writer may already be released
+        // writer が既に release 済みの場合は何もしない。
       }
       serverWriter = null;
     }
@@ -627,36 +460,15 @@ export const pfortnerInit = (
     serverPolicies = policies;
   }
 
-  function toTuple<P extends Policy>(item: PolicyTuple<P> | P): PolicyTuple<P> {
-    return typeof item === 'function' ? [item] : item;
-  }
-
   async function relayServerMessageToClient(message: unknown[]): Promise<void> {
     if (isBlockedPubkey(connectionInfo.clientPubkey)) {
       closeBlockedConnection();
       return;
     }
-    await runPipeline(serverPolicies, message, sendMessageToClient);
-  }
-
-  async function runPipeline(
-    policies: Policies<any[]>,
-    msg: unknown[],
-    sendAccepted: (message: string) => Promise<void>,
-  ): Promise<void> {
-    for (const item of policies as (Policy | PolicyTuple)[]) {
-      const [policy, options] = toTuple(item);
-      const result = await policy(msg, connectionInfo, options);
-      if (result.action === 'accept') {
-        await sendAccepted(JSON.stringify(result.message));
-        break;
-      } else if (result.action === 'reject') {
-        if (result.response != null) {
-          await sendMessageToClient(result.response);
-        }
-        break;
-      }
-    }
+    await runPolicyPipeline(serverPolicies, message, connectionInfo, {
+      sendAccepted: sendMessageToClient,
+      sendRejected: sendMessageToClient,
+    });
   }
 
   return {
