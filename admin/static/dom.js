@@ -9,12 +9,29 @@ export function append(parent, child) {
   );
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const SVG_TAGS = new Set([
+  'circle',
+  'defs',
+  'g',
+  'line',
+  'marker',
+  'path',
+  'polygon',
+  'polyline',
+  'rect',
+  'svg',
+  'text',
+]);
+
 export function el(tag, props = {}, children = []) {
-  const node = document.createElement(tag);
+  const node = SVG_TAGS.has(tag) ? document.createElementNS(SVG_NS, tag) : document.createElement(tag);
+  const isSvg = node.namespaceURI === SVG_NS;
   for (const [key, value] of Object.entries(props)) {
     if (value === null || value === undefined || value === false) continue;
     if (key === 'className' || key === 'class') {
-      node.className = String(value);
+      if (isSvg) node.setAttribute('class', String(value));
+      else node.className = String(value);
     } else if (key === 'dataset') {
       for (const [dataKey, dataValue] of Object.entries(value)) {
         node.dataset[dataKey] = String(dataValue);
