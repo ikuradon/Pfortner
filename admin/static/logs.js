@@ -26,7 +26,11 @@ async function fetchInfo() {
     safeFetch('/admin/api/health/detail'),
   ]);
 
-  const logLevel = configData?.log?.level || configData?.logging?.level || configData?.log_level || '—';
+  const logLevel = configData?.infra?.metrics?.logging?.level ||
+    configData?.log?.level ||
+    configData?.logging?.level ||
+    configData?.log_level ||
+    '—';
 
   const logLevelEl = document.getElementById('log-level-display');
   if (logLevelEl) logLevelEl.textContent = String(logLevel);
