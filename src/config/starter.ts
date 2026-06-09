@@ -1,62 +1,14 @@
 import { pfortnerInit } from '../pfortner.ts';
-import type { InfraContext, PolicyFactory } from '../plugins/types.ts';
+import type { InfraContext } from '../plugins/types.ts';
 import type { PluginRegistry } from '../plugins/registry.ts';
 import type { PfortnerConfig, PipelineEntry } from './loader.ts';
-import type { ManagedConnection } from '../connections/types.ts';
-import type { ConnectionManager } from '../connections/manager.ts';
-import type { ShutdownManager } from '../shutdown/manager.ts';
-import { remoteHostnameFromConn, selectClientIp } from '../net/client-ip.ts';
-import AjvModule from 'ajv';
-// deno-lint-ignore no-explicit-any
-const AjvClass = (AjvModule as any).default ?? AjvModule;
-const ajv = new AjvClass({ allErrors: true });
+import { createManagedConnection, registerManagedConnectionDisconnect } from './managed-connection-adapter.ts';
+import { resolvePipeline } from './pipeline-resolver.ts';
+import { evaluateRuntimeGuards } from './runtime-guards.ts';
+import type { RequestHandler, RequestHandlerHooks } from './request-handler-types.ts';
 
-interface ResolvedPipeline {
-  factories: PolicyFactory[];
-  direction: 'client' | 'server';
-}
-
-export interface RequestHandlerHooks {
-  onConnect?: (managed: ManagedConnection) => void;
-  onDisconnect?: (connectionId: string) => void;
-  blocklist?: { pubkeys: Set<string>; ips: Set<string> };
-  connectionManager?: ConnectionManager;
-  shutdownManager?: ShutdownManager;
-}
-
-export async function resolvePipeline(
-  entries: PipelineEntry[],
-  direction: 'client' | 'server',
-  registry: PluginRegistry,
-  infra: InfraContext,
-): Promise<ResolvedPipeline> {
-  const factories: PolicyFactory[] = [];
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    const plugin = registry.resolve(entry.policy);
-    if (plugin.direction !== 'both' && plugin.direction !== direction) {
-      throw new Error(
-        `Plugin "${plugin.name}" has direction "${plugin.direction}" but is placed in "${direction}" pipeline (pipelines.${direction}[${i}])`,
-      );
-    }
-    const pluginConfig = entry.config ?? {};
-    if (Object.keys(plugin.configSchema).length > 0) {
-      const validate = ajv.compile(plugin.configSchema);
-      if (!validate(pluginConfig)) {
-        const errors = validate.errors?.map((e: any) => `${e.instancePath} ${e.message}`).join('; ');
-        throw new Error(
-          `Config validation failed for plugin "${plugin.name}" at pipelines.${direction}[${i}]: ${errors}`,
-        );
-      }
-    }
-    const infraForPlugin: InfraContext = { ...infra, currentDirection: direction };
-    const factory = await plugin.initialize(pluginConfig, infraForPlugin);
-    factories.push(factory);
-  }
-  return { factories, direction };
-}
-
-export type RequestHandler = (req: Request, conn: Deno.ServeHandlerInfo<Deno.NetAddr>) => Response;
+export { resolvePipeline } from './pipeline-resolver.ts';
+export type { RequestHandler, RequestHandlerHooks } from './request-handler-types.ts';
 
 export async function buildRequestHandler(
   config: PfortnerConfig,
@@ -79,29 +31,10 @@ export async function buildRequestHandler(
   const clientPipeline = await resolvePipeline(config.pipelines.client, 'client', registry, infraWithResolver);
   const serverPipeline = await resolvePipeline(config.pipelines.server, 'server', registry, infraWithResolver);
 
-  return (req: Request, conn: Deno.ServeHandlerInfo<Deno.NetAddr>) => {
-    const clientIp = selectClientIp(req, {
-      remoteHostname: remoteHostnameFromConn(conn),
-      trustForwardedFor: config.server.x_forwarded_for === true,
-    });
-
-    // Draining check
-    if (hooks?.shutdownManager?.isDraining()) {
-      return new Response('Service Unavailable', { status: 503 });
-    }
-
-    // Connection limit check
-    if (hooks?.connectionManager) {
-      const result = hooks.connectionManager.canAccept(clientIp);
-      if (!result.allowed) {
-        return new Response(result.reason ?? 'Too Many Requests', { status: result.statusCode ?? 429 });
-      }
-    }
-
-    // Runtime blocklist check
-    if (hooks?.blocklist?.ips.has(clientIp)) {
-      return new Response('Forbidden', { status: 403 });
-    }
+  return (req, conn) => {
+    const guard = evaluateRuntimeGuards({ config, hooks, req, conn });
+    if (guard.response) return guard.response;
+    const { clientIp } = guard;
 
     const instance = pfortnerInit(config.server.upstream_relay, {
       clientIp,
@@ -118,30 +51,13 @@ export async function buildRequestHandler(
     instance.registerClientPipeline(clientPolicies);
     instance.registerServerPipeline(serverPolicies);
 
-    const managed: ManagedConnection = {
-      info: instance.connectionInfo,
-      clientIp,
-      connectedAt: new Date().toISOString(),
-      sendNotice: (msg) => instance.sendMessageToClient(JSON.stringify(['NOTICE', msg])),
-      close: (code) => instance.closeSocket(code),
-      sendAuthChallenge: () => instance.sendAuthMessage(),
-    };
-
-    // Always register disconnect handler if connectionManager OR onDisconnect OR upstreamPool exists
-    if (hooks?.connectionManager || hooks?.onDisconnect || infra.upstreamPool) {
-      const connectionId = instance.connectionInfo.connectionId;
-      instance.on('clientDisconnect', () => {
-        hooks?.connectionManager?.unregister(connectionId);
-        hooks?.onDisconnect?.(connectionId);
-        infra.upstreamPool?.notifyClientDisconnect(connectionId);
-      });
-    }
+    const managed = createManagedConnection(instance, clientIp);
+    registerManagedConnectionDisconnect(instance, { hooks, infra });
 
     let session: Response;
     try {
       session = instance.createSession(req);
     } catch (e) {
-      // Deno exposes malformed WebSocket upgrade failures only as TypeError messages.
       if (e instanceof TypeError && e.message.startsWith('Invalid Header:')) {
         return new Response('Bad Request', { status: 400 });
       }
