@@ -132,18 +132,26 @@ function simulatePolicyStep(
       return { policy: policyName, action: 'accept' };
 
     case 'kind-filter': {
+      const mode = cfg['mode'] as string | undefined;
+      const kinds = cfg['kinds'] as number[] | undefined;
       const allowKinds = cfg['allow_kinds'] as number[] | undefined;
       const denyKinds = cfg['deny_kinds'] as number[] | undefined;
       const requireAuthFor = cfg['require_auth_for'] as number[] | undefined;
       if (messageType === 'EVENT' && ctx.eventKind !== null) {
+        if (requireAuthFor && requireAuthFor.includes(ctx.eventKind) && !connectionInfo.clientAuthorized) {
+          return { policy: policyName, action: 'reject', response: 'authentication required' };
+        }
+        if (mode === 'deny' && kinds?.includes(ctx.eventKind)) {
+          return { policy: policyName, action: 'reject', response: `kind ${ctx.eventKind} is not allowed` };
+        }
+        if (mode === 'allow' && kinds && !kinds.includes(ctx.eventKind)) {
+          return { policy: policyName, action: 'reject', response: `kind ${ctx.eventKind} is not allowed` };
+        }
         if (denyKinds && denyKinds.includes(ctx.eventKind)) {
           return { policy: policyName, action: 'reject', response: `kind ${ctx.eventKind} is not allowed` };
         }
         if (allowKinds && !allowKinds.includes(ctx.eventKind)) {
           return { policy: policyName, action: 'reject', response: `kind ${ctx.eventKind} is not allowed` };
-        }
-        if (requireAuthFor && requireAuthFor.includes(ctx.eventKind) && !connectionInfo.clientAuthorized) {
-          return { policy: policyName, action: 'reject', response: 'authentication required' };
         }
       }
       return { policy: policyName, action: 'next' };

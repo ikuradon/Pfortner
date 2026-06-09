@@ -16,6 +16,25 @@ Deno.test('pipeline editor defaults ip-filter to runtime blocklist schema', () =
   assertEquals(config, { blocklist: { ips: [], cidrs: [] } });
 });
 
+Deno.test('pipeline editor defaults kind-filter to runtime mode schema', () => {
+  assertEquals(defaultConfigForPolicy('kind-filter'), { mode: 'allow', kinds: [1, 3, 6, 7] });
+});
+
+Deno.test('pipeline editor defaults rate-limit to runtime window schema', () => {
+  assertEquals(defaultConfigForPolicy('rate-limit'), {
+    scope: 'connection',
+    window: 60,
+    max_events: 60,
+    max_requests: 120,
+  });
+});
+
+Deno.test('pipeline editor defaults content and route policies to runtime schemas', () => {
+  assertEquals(defaultConfigForPolicy('spam-filter'), { max_content_length: 1000 });
+  assertEquals(defaultConfigForPolicy('content-filter'), { blocked_words: [], blocked_patterns: [] });
+  assertEquals(defaultConfigForPolicy('route'), { upstream: '', condition: { message_type: 'REQ' } });
+});
+
 Deno.test('pipeline editor YAML preview includes protected-event config', () => {
   const yaml = buildYamlPreview({
     client: [],

@@ -768,31 +768,7 @@ body {
   background: var(--color-surface-2);
 }
 
-/* Playground */
-.playground-layout {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  height: calc(100vh - 120px);
-}
-
-.playground-panel {
-  display: flex;
-  flex-direction: column;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.playground-panel-header {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface-2);
-  font-weight: 600;
-  font-size: 13px;
-}
-
+/* Pipeline test run */
 .playground-panel-body {
   flex: 1;
   overflow-y: auto;
@@ -866,36 +842,6 @@ body {
   font-size: 12px;
   font-family: monospace;
   width: 100%;
-}
-
-.pipeline-direction-tabs {
-  display: flex;
-  gap: 0;
-}
-
-.dir-tab {
-  padding: 6px 14px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface-2);
-  color: var(--color-text-muted);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.dir-tab:first-child {
-  border-radius: 4px 0 0 4px;
-}
-
-.dir-tab:last-child {
-  border-radius: 0 4px 4px 0;
-  border-left: none;
-}
-
-.dir-tab.active {
-  background: var(--color-accent);
-  color: #ffffff;
-  border-color: var(--color-accent);
 }
 
 .step-list {
@@ -1036,6 +982,370 @@ body {
   border: 1px solid rgba(250, 82, 82, 0.3);
 }
 
+/* Pipeline workbench */
+.pipeline-workbench {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: calc(100vh - 48px);
+}
+
+.pipeline-workbench .page-header {
+  gap: 12px;
+  margin-bottom: 0;
+  flex-wrap: wrap;
+}
+
+.workbench-status {
+  min-height: 28px;
+}
+
+.workbench-grid {
+  display: grid;
+  grid-template-columns: 260px minmax(420px, 1fr) 320px;
+  gap: 12px;
+  min-height: min(62vh, 680px);
+  flex: 1;
+}
+
+.workbench-panel,
+.canvas-shell,
+.test-run-drawer {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.workbench-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.workbench-panel-header,
+.canvas-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.workbench-panel-body {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+}
+
+.policy-palette {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.policy-palette-item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 24px;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  min-height: 42px;
+  padding: 7px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: grab;
+  text-align: left;
+}
+
+.policy-palette-item:hover {
+  border-color: var(--color-accent);
+  background: var(--color-surface-2);
+}
+
+.policy-palette-icon,
+.policy-palette-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--color-surface-2);
+  font-size: 13px;
+}
+
+.policy-palette-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-shell {
+  display: flex;
+  min-width: 0;
+  min-height: 460px;
+  flex-direction: column;
+}
+
+.pipeline-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 420px;
+  overflow: hidden;
+  background:
+    linear-gradient(var(--color-border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-border) 1px, transparent 1px),
+    var(--color-surface);
+  background-size: 24px 24px;
+  outline: none;
+}
+
+.pipeline-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.pipeline-edge {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-linecap: round;
+  stroke-width: 2.5;
+}
+
+.pipeline-edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14;
+  cursor: pointer;
+}
+
+.pipeline-edge-preview {
+  stroke-dasharray: 7 5;
+  opacity: 0.75;
+}
+
+.pipeline-node {
+  cursor: grab;
+}
+
+.pipeline-node:active {
+  cursor: grabbing;
+}
+
+.pipeline-node-card {
+  fill: var(--color-surface);
+  stroke: var(--color-border);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 3px 10px rgba(0, 0, 0, 0.08));
+}
+
+.pipeline-node.selected .pipeline-node-card {
+  stroke: var(--color-accent);
+  stroke-width: 2.5;
+}
+
+.pipeline-node.executed .pipeline-node-card {
+  stroke: var(--color-success);
+  stroke-width: 2.5;
+}
+
+.pipeline-node-start .pipeline-node-card {
+  fill: var(--color-surface-2);
+}
+
+.pipeline-node-icon,
+.pipeline-node-title,
+.pipeline-node-subtitle,
+.pipeline-port-label {
+  pointer-events: none;
+  user-select: none;
+}
+
+.pipeline-node-icon {
+  fill: var(--color-accent);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.pipeline-node-title {
+  fill: var(--color-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pipeline-node-subtitle {
+  fill: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.pipeline-port {
+  stroke: var(--color-surface);
+  stroke-width: 2;
+}
+
+.pipeline-port-input {
+  fill: var(--color-text-muted);
+}
+
+.pipeline-port-output {
+  fill: var(--color-accent);
+  cursor: crosshair;
+}
+
+.pipeline-port-label {
+  fill: var(--color-text-muted);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.selection-marquee {
+  position: absolute;
+  z-index: 2;
+  display: none;
+  border: 1px solid var(--color-accent);
+  background: rgba(76, 110, 245, 0.12);
+  pointer-events: none;
+}
+
+.canvas-minimap {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 160px;
+  height: 96px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+}
+
+.minimap-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.minimap-bg {
+  fill: var(--color-surface);
+}
+
+.minimap-edge {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.minimap-node {
+  fill: var(--color-text-muted);
+  opacity: 0.5;
+}
+
+.minimap-node.selected {
+  fill: var(--color-accent);
+  opacity: 0.95;
+}
+
+.node-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.inspector-title {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.inspector-muted {
+  color: var(--color-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 11px;
+}
+
+.inspector-action {
+  justify-content: center;
+  width: 100%;
+}
+
+.inspector-branches {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+}
+
+.pipeline-empty.compact {
+  padding: 16px;
+}
+
+.test-run-drawer {
+  flex-shrink: 0;
+}
+
+.drawer-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.drawer-content {
+  display: grid;
+  grid-template-columns: 320px minmax(260px, 1fr) 320px;
+  gap: 12px;
+  max-height: 360px;
+  padding: 12px;
+}
+
+.test-run-drawer.collapsed .drawer-content {
+  display: none;
+}
+
+.test-run-inputs,
+.test-run-results,
+.yaml-drawer-panel {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+}
+
+.test-run-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.test-run-results,
+.yaml-drawer-panel {
+  display: flex;
+  flex-direction: column;
+}
+
 .section-title {
   font-size: 12px;
   font-weight: 600;
@@ -1046,15 +1356,27 @@ body {
 }
 
 @media (max-width: 900px) {
-  .pipelines-layout,
-  .playground-layout {
+  .pipelines-layout {
     grid-template-columns: 1fr;
     height: auto;
   }
 
-  .pipeline-panel,
-  .playground-panel {
+  .pipeline-panel {
     min-height: 360px;
+  }
+
+  .workbench-grid,
+  .drawer-content {
+    grid-template-columns: 1fr;
+  }
+
+  .canvas-shell,
+  .pipeline-canvas {
+    min-height: 420px;
+  }
+
+  .canvas-minimap {
+    display: none;
   }
 }
 

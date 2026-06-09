@@ -31,3 +31,14 @@ Deno.test('admin pipeline simulator uses runtime ip-filter blocklist schema', as
   assertEquals(result.finalAction, 'reject');
   assertEquals(result.finalResponse, 'IP is blocked');
 });
+
+Deno.test('admin pipeline simulator uses runtime kind-filter mode schema', async () => {
+  const result = await simulatePipeline(
+    [{ policy: 'kind-filter', config: { mode: 'allow', kinds: [1] } }],
+    ['EVENT', { id: 'e1', pubkey: 'pk', kind: 4, created_at: 0, tags: [], content: '', sig: '' }],
+    { clientAuthorized: false, clientPubkey: '', connectionIpAddr: '127.0.0.1' },
+  );
+
+  assertEquals(result.finalAction, 'reject');
+  assertEquals(result.finalResponse, 'kind 4 is not allowed');
+});

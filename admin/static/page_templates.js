@@ -165,56 +165,170 @@ export function renderConnectionsPage(root) {
 
 export function renderPipelinesPage(root) {
   root.replaceChildren(
-    pageHeader('Pipelines', [
-      button('↺ Refresh', 'btn btn-ghost', { id: 'btn-refresh-pipelines' }),
-      button('✓ Apply Config', 'btn btn-primary', { id: 'btn-apply-pipeline' }),
-    ]),
-    el('div', {
-      id: 'pipeline-status',
-      style: 'margin-bottom:12px;min-height:28px',
-    }),
-    el('div', { className: 'pipeline-tabs' }, [
-      button('Client Pipeline', 'pipeline-tab active', {
-        id: 'tab-client',
-        dataset: { pipeline: 'client' },
-      }),
-      button('Server Pipeline', 'pipeline-tab', {
-        id: 'tab-server',
-        dataset: { pipeline: 'server' },
-      }),
-    ]),
-    el('div', { className: 'pipelines-layout' }, [
-      el('div', { className: 'pipeline-panel' }, [
-        el('div', { className: 'pipeline-panel-header' }, [
-          el('span', { id: 'tree-panel-title' }, [
-            'Client Pipeline — Visual Tree',
-          ]),
+    el('div', { className: 'pipeline-workbench', id: 'pipeline-workbench' }, [
+      el('div', { className: 'page-header' }, [
+        el('h1', { className: 'page-title' }, ['Pipelines']),
+        el('div', { className: 'flex gap-2 items-center' }, [
+          button('Client', 'btn btn-primary pipeline-mode-tab', {
+            id: 'tab-client',
+            dataset: { pipeline: 'client' },
+          }),
+          button('Server', 'btn btn-ghost pipeline-mode-tab', {
+            id: 'tab-server',
+            dataset: { pipeline: 'server' },
+          }),
+          button('↺ Refresh', 'btn btn-ghost', { id: 'btn-refresh-pipelines' }),
+          button('⛶ Fit', 'btn btn-ghost', { id: 'btn-fit-canvas' }),
+          button('−', 'btn btn-ghost', {
+            id: 'btn-zoom-out',
+            title: 'Zoom out',
+          }),
+          button('+', 'btn btn-ghost', { id: 'btn-zoom-in', title: 'Zoom in' }),
+          button('▷ Run', 'btn btn-ghost', { id: 'btn-run-toolbar' }),
+          button('↺ Reload Config', 'btn btn-primary', {
+            id: 'btn-apply-pipeline',
+          }),
         ]),
-        el('div', {
-          className: 'pipeline-panel-body',
-          id: 'pipeline-tree-container',
-        }, [
-          el('div', { className: 'pipeline-empty' }, ['Loading...']),
-        ]),
-        el('div', {
-          className: 'add-policy-row',
-          style: 'padding:12px 16px;border-top:1px solid var(--color-border)',
-        }, [
-          el('select', { id: 'add-policy-select', className: 'add-policy-select' }, [
-            el('option', { value: '' }, ['— Select policy to add —']),
-          ]),
-          button('+ Add', 'btn btn-ghost', { id: 'btn-add-policy' }),
-        ]),
-        el('div', { className: 'pipeline-status', id: 'pipeline-tree-status' }),
+        el(
+          'span',
+          { className: 'text-muted', id: 'workbench-status-summary' },
+          ['Ready'],
+        ),
       ]),
-      el('div', { className: 'pipeline-panel' }, [
-        el('div', { className: 'pipeline-panel-header' }, ['YAML Preview']),
-        el('div', {
-          className: 'pipeline-panel-body',
-          style: 'padding:0;display:flex;flex-direction:column',
+      el('div', { id: 'pipeline-status', className: 'workbench-status' }),
+      el('div', { className: 'workbench-grid' }, [
+        el('aside', { className: 'workbench-panel palette-panel' }, [
+          el('div', { className: 'workbench-panel-header' }, [
+            'Policy Palette',
+          ]),
+          el('div', {
+            className: 'workbench-panel-body policy-palette',
+            id: 'policy-palette',
+          }, [
+            el('div', { className: 'pipeline-empty' }, ['Loading policies...']),
+          ]),
+        ]),
+        el('section', { className: 'canvas-shell' }, [
+          el('div', { className: 'canvas-toolbar' }, [
+            el('span', { id: 'canvas-title' }, ['Client Pipeline']),
+            el('span', { className: 'text-muted', id: 'canvas-zoom-label' }, [
+              '100%',
+            ]),
+          ]),
+          el('div', {
+            className: 'pipeline-canvas',
+            id: 'pipeline-canvas',
+            tabindex: '0',
+          }, [
+            el('svg', {
+              id: 'pipeline-svg',
+              className: 'pipeline-svg',
+              attrs: {
+                role: 'application',
+                'aria-label': 'Pipeline graph editor',
+              },
+            }),
+            el('div', {
+              className: 'selection-marquee',
+              id: 'selection-marquee',
+            }),
+            el('div', { className: 'canvas-minimap', id: 'canvas-minimap' }, [
+              el('svg', { id: 'minimap-svg', className: 'minimap-svg' }),
+            ]),
+          ]),
+        ]),
+        el('aside', { className: 'workbench-panel inspector-panel' }, [
+          el('div', { className: 'workbench-panel-header' }, ['Inspector']),
+          el('div', {
+            className: 'workbench-panel-body node-inspector',
+            id: 'node-inspector',
+          }, [
+            el('div', { className: 'pipeline-empty' }, [
+              'Select a node to edit its config.',
+            ]),
+          ]),
+        ]),
+      ]),
+      el('section', {
+        className: 'test-run-drawer collapsed',
+        id: 'test-run-drawer',
+      }, [
+        el('button', {
+          type: 'button',
+          className: 'drawer-toggle',
+          id: 'btn-toggle-test-run',
         }, [
-          el('pre', { className: 'yaml-preview', id: 'yaml-preview' }, [
-            'Loading...',
+          el('span', {}, ['Test Run']),
+          el('span', { className: 'text-muted', id: 'test-run-summary' }, [
+            'No run yet',
+          ]),
+        ]),
+        el('div', { className: 'drawer-content' }, [
+          el('div', { className: 'test-run-inputs' }, [
+            el('div', {}, [
+              el('div', { className: 'section-title' }, ['Presets']),
+              el('div', { className: 'preset-buttons', id: 'preset-buttons' }),
+            ]),
+            el('label', {
+              className: 'section-title',
+              htmlFor: 'message-input',
+            }, ['Message JSON']),
+            el('textarea', {
+              id: 'message-input',
+              className: 'message-textarea',
+              spellcheck: false,
+              placeholder: '["EVENT", {...}]',
+            }),
+            el('div', { className: 'context-grid' }, [
+              el('label', {
+                className: 'context-label',
+                htmlFor: 'ctx-authenticated',
+              }, ['Authenticated']),
+              el('input', { type: 'checkbox', id: 'ctx-authenticated' }),
+              el(
+                'label',
+                { className: 'context-label', htmlFor: 'ctx-pubkey' },
+                ['Pubkey'],
+              ),
+              el('input', {
+                type: 'text',
+                id: 'ctx-pubkey',
+                className: 'context-input',
+                placeholder: '(hex pubkey)',
+              }),
+              el('label', { className: 'context-label', htmlFor: 'ctx-ip' }, [
+                'Client IP',
+              ]),
+              el('input', {
+                type: 'text',
+                id: 'ctx-ip',
+                className: 'context-input',
+                placeholder: '127.0.0.1',
+                value: '127.0.0.1',
+              }),
+            ]),
+            button('▷ Run', 'btn btn-primary', { id: 'btn-run' }),
+          ]),
+          el('div', { className: 'test-run-results' }, [
+            el('div', { className: 'workbench-panel-header' }, [
+              'Execution Result',
+            ]),
+            el('div', {
+              className: 'playground-panel-body',
+              id: 'result-panel',
+            }, [
+              el('div', { className: 'playground-empty', id: 'result-empty' }, [
+                'Enter a message and run it against the selected pipeline.',
+              ]),
+            ]),
+          ]),
+          el('div', { className: 'yaml-drawer-panel' }, [
+            el('div', { className: 'workbench-panel-header' }, [
+              'YAML Preview',
+            ]),
+            el('pre', { className: 'yaml-preview', id: 'yaml-preview' }, [
+              'Loading...',
+            ]),
           ]),
         ]),
       ]),
