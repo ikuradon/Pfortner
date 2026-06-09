@@ -38,6 +38,10 @@ const CONTENT_TYPES: Record<string, string> = {
   svg: 'image/svg+xml',
 };
 
+function getStaticCacheControl(ext: string): string {
+  return ext === 'js' || ext === 'css' ? 'no-cache' : 'public, max-age=3600';
+}
+
 function renderHtml(component: h.JSX.Element): Response {
   const html = '<!DOCTYPE html>' + render(component);
   return new Response(html, {
@@ -139,12 +143,13 @@ const staticFileCache = new Map<string, { data: Uint8Array<ArrayBuffer>; content
 async function serveStaticFile(filePath: string): Promise<Response> {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
   const contentType = CONTENT_TYPES[ext] ?? 'application/octet-stream';
+  const cacheControl = getStaticCacheControl(ext);
   const cached = staticFileCache.get(filePath);
   if (cached) {
     return new Response(cached.data, {
       headers: {
         'Content-Type': cached.contentType,
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': cacheControl,
       },
     });
   }
@@ -154,7 +159,7 @@ async function serveStaticFile(filePath: string): Promise<Response> {
     return new Response(data, {
       headers: {
         'Content-Type': contentType,
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': cacheControl,
       },
     });
   } catch {

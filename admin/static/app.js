@@ -2,6 +2,14 @@ globalThis.__PFORTNER_SPA__ = true;
 
 let currentCleanup = null;
 let renderVersion = 0;
+const assetVersion = new URL(import.meta.url).searchParams.get('v') ?? '';
+
+export function versionStaticAssetPath(path, version = assetVersion) {
+  if (!version) return path;
+  const url = new URL(path, 'http://pfortner.local');
+  url.searchParams.set('v', version);
+  return url.pathname + url.search + url.hash;
+}
 
 const routes = {
   '/admin/': {
@@ -745,7 +753,7 @@ async function renderRoute(pathname) {
   route.render(root);
 
   try {
-    const pageModule = await import(route.module);
+    const pageModule = await import(versionStaticAssetPath(route.module));
     if (version !== renderVersion) return;
     const init = pageModule[route.init];
     if (typeof init !== 'function') {
@@ -801,8 +809,10 @@ function boot() {
   renderRoute(window.location.pathname);
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', boot);
-} else {
-  boot();
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
 }

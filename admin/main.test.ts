@@ -63,8 +63,16 @@ Deno.test('admin app page routes render SPA shell', async () => {
   assertEquals(res.status, 200);
   const html = await res.text();
   assertEquals(html.includes('id="admin-app"'), true);
-  assertEquals(html.includes('/admin/static/app.js'), true);
+  assertEquals(html.includes('/admin/static/app.js?v='), true);
   assertEquals(html.includes('/admin/static/connections.js'), false);
+});
+
+Deno.test('admin app static JavaScript requires revalidation', async () => {
+  const handler = createAdminApp(makeState());
+  const res = await handler(makeRequest('/admin/static/dashboard.js?v=test', 'test-token'));
+
+  assertEquals(res.status, 200);
+  assertEquals(res.headers.get('Cache-Control'), 'no-cache');
 });
 
 Deno.test('admin app GET /admin/api/connections returns connection DTOs', async () => {
