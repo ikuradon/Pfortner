@@ -41,6 +41,7 @@ Deno.test('page route registrar redirects root and registers SPA shell pages', a
   assertEquals(app.getRoutes.has('/admin/connections'), true);
   assertEquals(app.getRoutes.has('/admin/blocklist'), true);
   assertEquals(app.getRoutes.has('/admin/logs'), true);
+  assertEquals(app.getRoutes.has('/admin/playground'), false);
 
   const redirect = await app.getRoutes.get('/admin')!(makeContext('/admin'));
   assertEquals(redirect.status, 302);

@@ -11,7 +11,6 @@ export const NAV_ITEMS: NavItem[] = [
   { href: '/admin/', label: 'Dashboard', icon: '◈' },
   { href: '/admin/connections', label: 'Connections', icon: '⟺' },
   { href: '/admin/pipelines', label: 'Pipelines', icon: '⫶' },
-  { href: '/admin/playground', label: 'Playground', icon: '▷' },
   { href: '/admin/metrics', label: 'Metrics', icon: '∿' },
   { href: '/admin/blocklist', label: 'Blocklist', icon: '⊘' },
   { href: '/admin/config', label: 'Config', icon: '⚙' },

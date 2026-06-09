@@ -88,6 +88,13 @@ Deno.test('admin app does not keep legacy deny-list page route', async () => {
   assertEquals(res.status, 404);
 });
 
+Deno.test('admin app does not keep standalone playground page route', async () => {
+  const handler = createAdminApp(makeState());
+  const res = await handler(makeRequest('/admin/playground', 'test-token'));
+
+  assertEquals(res.status, 404);
+});
+
 Deno.test('admin app static JavaScript requires revalidation', async () => {
   const handler = createAdminApp(makeState());
   const res = await handler(makeRequest('/admin/static/dashboard.js?v=test', 'test-token'));

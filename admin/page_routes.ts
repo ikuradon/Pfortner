@@ -6,7 +6,6 @@ const SPA_PAGE_PATHS = [
   '/',
   '/connections',
   '/pipelines',
-  '/playground',
   '/metrics',
   '/blocklist',
   '/config',

@@ -30,12 +30,6 @@ export function createPageRoutes() {
       module: '/admin/static/pipelines.js',
       init: 'initPipelinesPage',
     },
-    '/admin/playground': {
-      title: 'Playground',
-      render: renderPlaygroundPage,
-      module: '/admin/static/playground.js',
-      init: 'initPlaygroundPage',
-    },
     '/admin/metrics': {
       title: 'Metrics',
       render: renderMetricsPage,
@@ -221,118 +215,6 @@ export function renderPipelinesPage(root) {
         }, [
           el('pre', { className: 'yaml-preview', id: 'yaml-preview' }, [
             'Loading...',
-          ]),
-        ]),
-      ]),
-    ]),
-  );
-}
-
-export function renderPlaygroundPage(root) {
-  root.replaceChildren(
-    pageHeader(
-      'Playground',
-      [],
-      el('span', { className: 'text-muted', style: 'font-size:13px' }, [
-        'Test messages against the current pipeline',
-      ]),
-    ),
-    el('div', { className: 'playground-layout' }, [
-      el('div', { className: 'playground-panel' }, [
-        el('div', { className: 'playground-panel-header' }, ['Message Input']),
-        el('div', { className: 'playground-panel-body' }, [
-          el('div', {}, [
-            el('div', { className: 'section-title' }, ['Pipeline Direction']),
-            el('div', { className: 'pipeline-direction-tabs' }, [
-              button('Client', 'dir-tab active', {
-                id: 'dir-client',
-                dataset: { direction: 'client' },
-              }),
-              button('Server', 'dir-tab', {
-                id: 'dir-server',
-                dataset: { direction: 'server' },
-              }),
-            ]),
-          ]),
-          el('div', {}, [
-            el('div', { className: 'section-title' }, ['Presets']),
-            el('div', { className: 'preset-buttons', id: 'preset-buttons' }, [
-              button('EVENT kind:1', 'preset-btn', {
-                dataset: { preset: 'event-1' },
-              }),
-              button('EVENT kind:4 (DM)', 'preset-btn', {
-                dataset: { preset: 'event-4' },
-              }),
-              button('EVENT kind:1059', 'preset-btn', {
-                dataset: { preset: 'event-1059' },
-              }),
-              button('REQ basic', 'preset-btn', {
-                dataset: { preset: 'req-basic' },
-              }),
-              button('REQ with search', 'preset-btn', {
-                dataset: { preset: 'req-search' },
-              }),
-              button('CLOSE', 'preset-btn', {
-                dataset: { preset: 'close' },
-              }),
-            ]),
-          ]),
-          el('div', { style: 'flex:1;display:flex;flex-direction:column' }, [
-            el('div', { className: 'section-title' }, ['Message JSON']),
-            el('textarea', {
-              id: 'message-input',
-              className: 'message-textarea',
-              spellcheck: false,
-              style: 'flex:1;min-height:120px',
-              placeholder: '["EVENT", {...}]',
-            }),
-          ]),
-          el('div', {}, [
-            el('div', { className: 'section-title' }, ['Connection Context']),
-            el('div', { className: 'context-grid' }, [
-              el('label', {
-                className: 'context-label',
-                htmlFor: 'ctx-authenticated',
-              }, ['Authenticated']),
-              el('input', {
-                type: 'checkbox',
-                id: 'ctx-authenticated',
-                style: 'width:auto',
-              }),
-              el('label', { className: 'context-label', htmlFor: 'ctx-pubkey' }, [
-                'Pubkey',
-              ]),
-              el('input', {
-                type: 'text',
-                id: 'ctx-pubkey',
-                className: 'context-input',
-                placeholder: '(hex pubkey)',
-              }),
-              el('label', { className: 'context-label', htmlFor: 'ctx-ip' }, [
-                'Client IP',
-              ]),
-              el('input', {
-                type: 'text',
-                id: 'ctx-ip',
-                className: 'context-input',
-                placeholder: '127.0.0.1',
-                value: '127.0.0.1',
-              }),
-            ]),
-          ]),
-          button('▷ Run', 'btn btn-primary', {
-            id: 'btn-run',
-            style: 'width:100%',
-          }),
-        ]),
-      ]),
-      el('div', { className: 'playground-panel' }, [
-        el('div', { className: 'playground-panel-header' }, [
-          'Pipeline Execution Result',
-        ]),
-        el('div', { className: 'playground-panel-body', id: 'result-panel' }, [
-          el('div', { className: 'playground-empty', id: 'result-empty' }, [
-            'Enter a message and click Run to see results.',
           ]),
         ]),
       ]),
