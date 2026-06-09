@@ -52,7 +52,7 @@ Configured in `deno.json`: 2-space indent, 120-char line width, semicolons requi
 - Client-side JS (`admin/static/*.js`): use `createElement`/`textContent` only, never `innerHTML` (XSS prevention)
 - Static file paths: validate with `resolve()` + `startsWith()`, not string `..` check (path traversal)
 - Shared client utilities in `admin/static/utils.js` (formatUptime, safeFetch) — loaded via `<script>` tag
-- `admin/main.ts` serves as the Fresh app entry point with routing, middleware, and API endpoints
+- `admin/main.ts` is the Fresh app composition root; static serving, security helpers, page routes, and API routes live in `admin/static_files.ts`, `admin/security.ts`, `admin/page_routes.ts`, and `admin/api_routes.ts`
 
 ## Architecture
 
@@ -67,6 +67,8 @@ Configured in `deno.json`: 2-space indent, 120-char line width, semicolons requi
 5. Manages idle timeouts and connection lifecycle
 
 Returns an object with: `createSession`, `registerClientPipeline`, `registerServerPipeline`, `on`/`off` event listeners, `connectionInfo`, and direct message senders.
+
+Core session internals are split under `src/session/`: `auth.ts` verifies NIP-42 AUTH, `events.ts` owns the listener registry, `pipeline-runner.ts` executes policy tuples, `client-session.ts` parses client payloads, and `upstream.ts` contains upstream socket helpers. Keep these modules internal unless intentionally expanding the public API.
 
 ### Policy System
 
@@ -103,7 +105,7 @@ Policies are registered as arrays via `registerClientPipeline` (client→relay) 
 
 ### Config System (`src/config/`)
 
-YAML config loader (`loader.ts`) with env var expansion (`${VAR}`), ajv schema validation, and hot reload via `ConfigManager`. `starter.ts` builds request handlers from config with `pipelineResolver` for recursive sub-pipeline resolution.
+YAML config loader (`loader.ts`) with env var expansion (`${VAR}`), ajv schema validation, and hot reload via `ConfigManager`. `starter.ts` is the request handler composition root. Plugin validation and recursive sub-pipeline resolution live in `pipeline-resolver.ts`; request-time drain, connection pressure, client IP, and runtime blocklist checks live in `runtime-guards.ts`; `managed-connection-adapter.ts` adapts `pfortnerInit()` instances for operational tracking.
 
 ### Infrastructure (`src/infra/`)
 
@@ -127,7 +129,7 @@ YAML config loader (`loader.ts`) with env var expansion (`${VAR}`), ajv schema v
 
 ### Admin UI (`admin/`)
 
-Fresh 2.x + Preact SSR served at `/admin` on the main port. Cookie auth (HttpOnly, SameSite=Strict). 10 pages: Dashboard, Connections, Pipelines, Playground, Metrics, Blocklist, Config, Logs, Login. Business logic in `src/admin/service.ts`. Dark/light theme via CSS variables.
+Fresh 2.x + Preact serves `/admin` on the main port. Login remains SSR; authenticated pages return the shared `AdminAppShell`, and the browser SPA router renders Dashboard, Connections, Pipelines, Playground, Metrics, Blocklist, Config, and Logs. `admin/static/app.js` only boots the SPA and propagates asset versions; routing is in `admin/static/router.js`; DOM templates are in `admin/static/page_templates.js`; shared DOM helpers are in `admin/static/dom.js`. Admin API read models and mutations are split across `src/admin/health.ts`, `connections.ts`, `logs.ts`, `config_view.ts`, `throughput.ts`, and `pipeline_simulator.ts`; `src/admin/service.ts` is a compatibility barrel.
 
 ### Event System
 
@@ -135,7 +137,7 @@ The `on()`/`off()` methods subscribe to lifecycle events: `authSuccess`, `authFa
 
 ### Public API (`mod.ts`)
 
-Exports 49 symbols: core API, plugin system, infra, policies, conditions, routing, operational, admin.
+Exports the intended public surface: core API, config loading/request handling, plugin types and registry, infra helpers, policy plugins, condition helpers, upstream routing, operational managers, and admin handler/state types. Internal session, admin routing, and bootstrap helper modules are not exported directly.
 
 ### Example Server (`scripts/serve.ts`)
 
@@ -154,4 +156,4 @@ YAML config mode (preferred): copy `pfortner.sample.yaml` to `pfortner.yaml`. Se
 
 ## Documentation
 
-Design specs and implementation plans are in `docs/superpowers/` (gitignored). Key specs: plugin-system, operational-hardening, conditional-pipelines, dynamic-routing, load-testing, admin-ui-c1.
+Current architecture is summarized in `docs/current-architecture.md`. Design specs and implementation plans are in `docs/superpowers/` (gitignored). Historical goal plans under `docs/*-goal-plan.md` record decisions and migration context.

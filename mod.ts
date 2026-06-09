@@ -31,7 +31,8 @@ export { ConfigManager } from './src/config/manager.ts';
 // Admin service
 export { ThroughputTracker } from './src/infra/throughput-tracker.ts';
 export type { ThroughputBucket } from './src/infra/throughput-tracker.ts';
-export type { AdminConnectionDto, AdminServiceState } from './src/admin/service.ts';
+export type { AdminConnectionDto } from './src/admin/connections.ts';
+export type { AdminServiceState } from './src/admin/state.ts';
 
 // Operational hardening
 export { ShutdownManager } from './src/shutdown/manager.ts';

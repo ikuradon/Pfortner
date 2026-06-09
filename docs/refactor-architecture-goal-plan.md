@@ -6,6 +6,10 @@
 
 Pförtner の責務境界を明確化し、今後の Admin UI、policy runtime、connection lifecycle、config bootstrap の変更が互いに波及しにくい構造へ段階的に移行する。公開 API の破壊は必要な場合だけ明示的に行い、各 phase は単独で testable な atomic commit として完了させる。
 
+## 実装後の参照先
+
+このファイルは詳細な実行計画と計画作成時点の問題記録として残す。実装後の現在構造は `docs/current-architecture.md` を参照する。
+
 ## 現状の問題
 
 ### `admin/main.ts`
