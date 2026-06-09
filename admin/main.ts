@@ -5,42 +5,26 @@
 import { App } from '@fresh/core';
 import { render } from 'preact-render-to-string';
 import { h } from 'preact';
-import { resolve } from '@std/path';
 import { json } from '$admin/server.ts';
 import type { AdminState } from '$admin/server.ts';
-import {
-  closeConnectionBatch,
-  createLogStreamResponse,
-  getConnections,
-  getHealthDetail,
-  getHealthSimple,
-  getLogs,
-  getThroughputData,
-  maskSecrets,
-  parseLogLimit,
-  simulatePipeline,
-} from '$admin/service.ts';
 
 import { LoginPage } from './routes/login.tsx';
 import { AdminAppShell } from './routes/app.tsx';
+import { registerAdminApiRoutes } from './api_routes.ts';
+import { registerAdminPageRoutes } from './page_routes.ts';
+import {
+  buildAdminCookie,
+  clearAdminCookie,
+  getCredentialFromRequest,
+  getSafeLoginNext,
+  isSameOriginRequest,
+  needsCookieCsrfCheck,
+  redirectToLogin,
+} from './security.ts';
+import { createStaticFileServer } from './static_files.ts';
 
-const COOKIE_NAME = 'pfortner_admin_token';
 const STATIC_DIR = new URL('./static', import.meta.url).pathname;
-const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-
-const RESOLVED_STATIC_DIR = resolve(STATIC_DIR);
-
-const CONTENT_TYPES: Record<string, string> = {
-  css: 'text/css; charset=utf-8',
-  js: 'application/javascript; charset=utf-8',
-  ico: 'image/x-icon',
-  png: 'image/png',
-  svg: 'image/svg+xml',
-};
-
-function getStaticCacheControl(ext: string): string {
-  return ext === 'js' || ext === 'css' ? 'no-cache' : 'public, max-age=3600';
-}
+const staticFiles = createStaticFileServer(STATIC_DIR);
 
 function renderHtml(component: h.JSX.Element): Response {
   const html = '<!DOCTYPE html>' + render(component);
@@ -51,120 +35,6 @@ function renderHtml(component: h.JSX.Element): Response {
 
 function renderAdminShell(pathname: string): Response {
   return renderHtml(h(AdminAppShell, { currentPath: pathname }));
-}
-
-function getCredentialFromRequest(req: Request): { token: string; source: 'bearer' | 'cookie' } | undefined {
-  // Check Bearer token header
-  const auth = req.headers.get('Authorization');
-  if (auth?.startsWith('Bearer ')) return { token: auth.slice(7), source: 'bearer' };
-  // Check cookie
-  const cookie = req.headers.get('Cookie') ?? '';
-  for (const part of cookie.split(';')) {
-    const [k, v] = part.trim().split('=', 2);
-    if (k === COOKIE_NAME) return { token: decodeURIComponent(v ?? ''), source: 'cookie' };
-  }
-  return undefined;
-}
-
-function firstHeaderValue(value: string | null): string | undefined {
-  return value?.split(',', 1)[0]?.trim() || undefined;
-}
-
-function getForwardedValue(req: Request, key: string): string | undefined {
-  const forwarded = firstHeaderValue(req.headers.get('Forwarded'));
-  if (!forwarded) return undefined;
-
-  for (const part of forwarded.split(';')) {
-    const [rawName, rawValue] = part.trim().split('=', 2);
-    if (rawName?.toLowerCase() !== key) continue;
-    return rawValue?.replace(/^"|"$/g, '');
-  }
-  return undefined;
-}
-
-function buildOrigin(protocol: string | undefined, host: string | undefined): string | undefined {
-  const normalizedProtocol = protocol?.replace(/:$/, '').toLowerCase();
-  const normalizedHost = host?.trim();
-  if (!normalizedProtocol || !normalizedHost) return undefined;
-  if (normalizedProtocol !== 'http' && normalizedProtocol !== 'https') return undefined;
-  try {
-    return new URL(`${normalizedProtocol}://${normalizedHost}`).origin;
-  } catch {
-    return undefined;
-  }
-}
-
-function getAllowedRequestOrigins(req: Request, trustProxy: boolean): Set<string> {
-  const url = new URL(req.url);
-  const origins = new Set([url.origin]);
-  if (!trustProxy) return origins;
-
-  // Trust forwarded origin headers only when the deployment strips client-supplied values at the edge.
-  const forwardedProto = firstHeaderValue(req.headers.get('X-Forwarded-Proto')) ??
-    getForwardedValue(req, 'proto');
-  const forwardedHost = firstHeaderValue(req.headers.get('X-Forwarded-Host')) ??
-    getForwardedValue(req, 'host') ??
-    req.headers.get('Host') ??
-    url.host;
-  const forwardedOrigin = buildOrigin(forwardedProto, forwardedHost);
-  if (forwardedOrigin) origins.add(forwardedOrigin);
-  return origins;
-}
-
-function isSameOriginRequest(req: Request, trustProxy: boolean): boolean {
-  const allowedOrigins = getAllowedRequestOrigins(req, trustProxy);
-  const origin = req.headers.get('Origin');
-  if (origin !== null) return allowedOrigins.has(origin);
-
-  const referer = req.headers.get('Referer');
-  if (referer !== null) {
-    try {
-      return allowedOrigins.has(new URL(referer).origin);
-    } catch {
-      return false;
-    }
-  }
-
-  const fetchSite = req.headers.get('Sec-Fetch-Site');
-  return fetchSite === 'same-origin';
-}
-
-function redirectToLogin(req: Request): Response {
-  const url = new URL(req.url);
-  const next = encodeURIComponent(url.pathname + url.search);
-  return new Response(null, {
-    status: 302,
-    headers: { Location: `/admin/login?next=${next}` },
-  });
-}
-
-const staticFileCache = new Map<string, { data: Uint8Array<ArrayBuffer>; contentType: string }>();
-
-async function serveStaticFile(filePath: string): Promise<Response> {
-  const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
-  const contentType = CONTENT_TYPES[ext] ?? 'application/octet-stream';
-  const cacheControl = getStaticCacheControl(ext);
-  const cached = staticFileCache.get(filePath);
-  if (cached) {
-    return new Response(cached.data, {
-      headers: {
-        'Content-Type': cached.contentType,
-        'Cache-Control': cacheControl,
-      },
-    });
-  }
-  try {
-    const data = await Deno.readFile(filePath);
-    staticFileCache.set(filePath, { data, contentType });
-    return new Response(data, {
-      headers: {
-        'Content-Type': contentType,
-        'Cache-Control': cacheControl,
-      },
-    });
-  } catch {
-    return new Response('Not Found', { status: 404 });
-  }
 }
 
 /**
@@ -184,12 +54,7 @@ export function createAdminApp(
     const path = url.pathname;
     if (path.startsWith(`${adminPath}/static/`)) {
       const relativePath = path.slice(`${adminPath}/static`.length);
-      // Prevent path traversal: resolve the full path and verify it stays within STATIC_DIR
-      const resolvedPath = resolve(STATIC_DIR, relativePath.replace(/^\//, ''));
-      if (!resolvedPath.startsWith(RESOLVED_STATIC_DIR + '/') && resolvedPath !== RESOLVED_STATIC_DIR) {
-        return new Response('Forbidden', { status: 403 });
-      }
-      return await serveStaticFile(resolvedPath);
+      return await staticFiles.serve(relativePath);
     }
     return await ctx.next();
   });
@@ -210,12 +75,11 @@ export function createAdminApp(
       if (path.startsWith(`${adminPath}/api/`)) {
         return json({ error: 'unauthorized' }, 401);
       }
-      return redirectToLogin(ctx.req);
+      return redirectToLogin(ctx.req, adminPath);
     }
 
     if (
-      credential.source === 'cookie' &&
-      !SAFE_METHODS.has(ctx.req.method) &&
+      needsCookieCsrfCheck(ctx.req, credential) &&
       !isSameOriginRequest(ctx.req, state.config.admin?.trust_proxy === true)
     ) {
       return path.startsWith(`${adminPath}/api/`)
@@ -235,14 +99,13 @@ export function createAdminApp(
     const form = await ctx.req.formData();
     const token = form.get('token');
     if (typeof token === 'string' && token === state.config.admin?.auth_token) {
-      const next = new URL(ctx.req.url).searchParams.get('next') ??
-        `${adminPath}/`;
-      const safeNext = (next.startsWith(adminPath + '/') || next === adminPath) ? next : `${adminPath}/`;
+      const next = new URL(ctx.req.url).searchParams.get('next');
+      const safeNext = getSafeLoginNext(next, adminPath);
       return new Response(null, {
         status: 302,
         headers: {
           Location: safeNext,
-          'Set-Cookie': `${COOKIE_NAME}=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=${adminPath}`,
+          'Set-Cookie': buildAdminCookie(token, adminPath),
         },
       });
     }
@@ -255,213 +118,13 @@ export function createAdminApp(
       status: 302,
       headers: {
         Location: `${adminPath}/login`,
-        'Set-Cookie': `${COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=${adminPath}; Max-Age=0`,
+        'Set-Cookie': clearAdminCookie(adminPath),
       },
     });
   });
 
-  // ─── Page routes ───────────────────────────────────────────────────────
-  app.get(adminPath, (_ctx) => {
-    return new Response(null, {
-      status: 302,
-      headers: { Location: `${adminPath}/` },
-    });
-  });
-
-  app.get(`${adminPath}/`, (ctx) => {
-    const url = new URL(ctx.req.url);
-    return renderAdminShell(url.pathname);
-  });
-
-  app.get(`${adminPath}/connections`, (ctx) => {
-    const url = new URL(ctx.req.url);
-    return renderAdminShell(url.pathname);
-  });
-
-  app.get(`${adminPath}/pipelines`, (ctx) => {
-    const url = new URL(ctx.req.url);
-    return renderAdminShell(url.pathname);
-  });
-
-  app.get(`${adminPath}/playground`, (ctx) => {
-    const url = new URL(ctx.req.url);
-    return renderAdminShell(url.pathname);
-  });
-
-  app.get(`${adminPath}/metrics`, (ctx) => {
-    const url = new URL(ctx.req.url);
-    return renderAdminShell(url.pathname);
-  });
-
-  app.get(`${adminPath}/blocklist`, (ctx) => {
-    const url = new URL(ctx.req.url);
-    return renderAdminShell(url.pathname);
-  });
-
-  app.get(`${adminPath}/config`, (ctx) => {
-    const url = new URL(ctx.req.url);
-    return renderAdminShell(url.pathname);
-  });
-
-  app.get(`${adminPath}/logs`, (ctx) => {
-    const url = new URL(ctx.req.url);
-    return renderAdminShell(url.pathname);
-  });
-
-  // ─── API routes ────────────────────────────────────────────────────────
-  app.get(`${adminPath}/api/health`, (_ctx) => {
-    return json(getHealthSimple(state));
-  });
-
-  app.get(`${adminPath}/api/health/detail`, (_ctx) => {
-    return json(getHealthDetail(state));
-  });
-
-  app.get(`${adminPath}/api/connections`, (_ctx) => {
-    return json({ connections: getConnections(state) });
-  });
-
-  app.post(`${adminPath}/api/connections/disconnect-batch`, async (ctx) => {
-    const body = await ctx.req.json();
-    if (Array.isArray(body.ids)) {
-      return json(closeConnectionBatch(state, body.ids));
-    }
-    return json({ error: 'ids array required' }, 400);
-  });
-
-  app.get(`${adminPath}/api/metrics/throughput`, (_ctx) => {
-    return json(getThroughputData(state));
-  });
-
-  app.get(`${adminPath}/api/metrics/prometheus`, (_ctx) => {
-    if (!state.metrics) {
-      return new Response('# Prometheus metrics not enabled\n', {
-        status: 200,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-      });
-    }
-    return new Response(state.metrics.render(), {
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-    });
-  });
-
-  app.get(`${adminPath}/api/logs`, (ctx) => {
-    const url = new URL(ctx.req.url);
-    return json(getLogs(state, parseLogLimit(url.searchParams.get('limit'))));
-  });
-
-  app.get(`${adminPath}/api/logs/stream`, (ctx) => {
-    const url = new URL(ctx.req.url);
-    return createLogStreamResponse(state, {
-      signal: ctx.req.signal,
-      replay: parseLogLimit(url.searchParams.get('replay'), 100),
-    });
-  });
-
-  // ─── Config API ────────────────────────────────────────────────────────
-  app.get(`${adminPath}/api/config`, (_ctx) => {
-    return json(maskSecrets(state.config));
-  });
-
-  // ─── Plugins API ───────────────────────────────────────────────────────
-  app.get(`${adminPath}/api/plugins`, (_ctx) => {
-    return json({ plugins: state.pluginNames });
-  });
-
-  // ─── Playground API ────────────────────────────────────────────────────
-  app.post(`${adminPath}/api/playground/evaluate`, async (ctx) => {
-    try {
-      const body = await ctx.req.json();
-      const message = body.message;
-      const direction = body.direction ?? 'client';
-      const connectionInfo = {
-        clientAuthorized: body.connectionInfo?.authenticated ?? false,
-        clientPubkey: body.connectionInfo?.pubkey ?? '',
-        connectionIpAddr: body.connectionInfo?.clientIp ?? '127.0.0.1',
-      };
-      if (!Array.isArray(message)) {
-        return json({ error: 'message must be an array' }, 400);
-      }
-      const pipeline = direction === 'server'
-        ? (state.config.pipelines?.server ?? [])
-        : (state.config.pipelines?.client ?? []);
-      const result = await simulatePipeline(pipeline, message, connectionInfo);
-      return json(result);
-    } catch (e) {
-      return json({ error: `evaluation failed: ${(e as Error).message}` }, 500);
-    }
-  });
-
-  // ─── Blocklist API ─────────────────────────────────────────────────────
-  app.get(`${adminPath}/api/blocklist`, (_ctx) => {
-    return json({
-      pubkeys: [...state.blocklist.pubkeys],
-      ips: [...state.blocklist.ips],
-    });
-  });
-
-  app.post(`${adminPath}/api/blocklist/pubkey`, async (ctx) => {
-    const body = await ctx.req.json();
-    if (typeof body.pubkey === 'string' && body.pubkey.length > 0) {
-      state.blocklist.pubkeys.add(body.pubkey);
-      return json({ added: body.pubkey });
-    }
-    return json({ error: 'pubkey required' }, 400);
-  });
-
-  app.delete(`${adminPath}/api/blocklist/pubkey/:pk`, (ctx) => {
-    const pk = (ctx.params as Record<string, string>).pk ?? '';
-    if (pk) {
-      state.blocklist.pubkeys.delete(pk);
-      return json({ deleted: pk });
-    }
-    return json({ error: 'pubkey required' }, 400);
-  });
-
-  app.post(`${adminPath}/api/blocklist/ip`, async (ctx) => {
-    const body = await ctx.req.json();
-    if (typeof body.ip === 'string' && body.ip.length > 0) {
-      state.blocklist.ips.add(body.ip);
-      return json({ added: body.ip });
-    }
-    return json({ error: 'ip required' }, 400);
-  });
-
-  app.delete(`${adminPath}/api/blocklist/ip/:ip`, (ctx) => {
-    const ip = (ctx.params as Record<string, string>).ip ?? '';
-    if (ip) {
-      state.blocklist.ips.delete(ip);
-      return json({ deleted: ip });
-    }
-    return json({ error: 'ip required' }, 400);
-  });
-
-  app.post(`${adminPath}/api/reload`, async (_ctx) => {
-    if (!state.configPath || !state.reloadFn) {
-      return json({ error: 'reload not configured' }, 500);
-    }
-    try {
-      const content = await Deno.readTextFile(state.configPath);
-      await state.reloadFn(content);
-      return new Response(null, {
-        status: 302,
-        headers: { Location: `${adminPath}/` },
-      });
-    } catch (e) {
-      return json({ error: `reload failed: ${(e as Error).message}` }, 500);
-    }
-  });
-
-  app.post(`${adminPath}/api/shutdown`, (_ctx) => {
-    if (state.shutdownManager) {
-      state.shutdownManager.initiateShutdown().catch(console.error);
-      return new Response(null, {
-        status: 302,
-        headers: { Location: `${adminPath}/` },
-      });
-    }
-    return json({ error: 'shutdown not configured' }, 500);
-  });
+  registerAdminPageRoutes(app, adminPath, renderAdminShell);
+  registerAdminApiRoutes(app, adminPath, state);
 
   return app.handler();
 }
