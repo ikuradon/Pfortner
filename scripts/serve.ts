@@ -2,6 +2,7 @@ import { acceptPolicy, pfortnerInit, type Policy } from '../mod.ts';
 import { loadConfigFromFile } from '../src/config/loader.ts';
 import { buildRelayInfo } from '../src/config/relay-info.ts';
 import { buildInfraContext } from '../src/infra/context.ts';
+import { LogBuffer } from '../src/infra/log-buffer.ts';
 import { createPrometheusMetrics, type PrometheusMetrics } from '../src/infra/prometheus.ts';
 import { type AdminState, createAdminHandler } from '../src/admin/server.ts';
 import { createAdminApp } from '../admin/main.ts';
@@ -19,6 +20,7 @@ const configPath = Deno.args.find((arg) => arg.endsWith('.yaml') || arg.endsWith
 
 if (configPath) {
   const config = await loadConfigFromFile(configPath);
+  const logBuffer = new LogBuffer(1000);
 
   let prometheusMetrics: PrometheusMetrics | undefined;
   if (config.infra?.metrics?.prometheus?.enabled) {
@@ -30,6 +32,10 @@ if (configPath) {
     httpTimeout: config.infra?.http?.default_timeout,
     httpUserAgent: config.infra?.http?.user_agent,
     metrics: prometheusMetrics,
+    logSink: (line) => {
+      console.log(line);
+      logBuffer.push(line);
+    },
   });
   let infraWithRedis = infra;
   if (config.infra?.redis?.url) {
@@ -69,6 +75,7 @@ if (configPath) {
     blacklist: { pubkeys: new Set(), ips: new Set() },
     startTime: Date.now(),
     metrics: prometheusMetrics,
+    logBuffer,
   };
 
   // Create ConnectionManager with shared Map reference

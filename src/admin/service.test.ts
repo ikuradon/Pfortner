@@ -5,12 +5,14 @@ import {
   getConnections,
   getHealthDetail,
   getHealthSimple,
+  getLogs,
   getThroughputData,
   maskSecrets,
   simulatePipeline,
 } from './service.ts';
 import type { AdminServiceState } from './service.ts';
 import type { ManagedConnection } from '../connections/types.ts';
+import { LogBuffer } from '../infra/log-buffer.ts';
 import { ThroughputTracker } from '../infra/throughput-tracker.ts';
 
 function mockConn(id: string): ManagedConnection {
@@ -134,6 +136,25 @@ Deno.test('getThroughputData returns data when tracker exists', () => {
   const data = getThroughputData(state) as any[];
   assertEquals(data.length, 5);
   assertEquals(typeof data[0].timestamp, 'number');
+});
+
+Deno.test('getLogs returns empty result when no log buffer exists', () => {
+  const result = getLogs(makeState());
+  assertEquals(result.logs, []);
+  assertEquals(result.total, 0);
+  assertEquals(result.subscribers, 0);
+});
+
+Deno.test('getLogs returns buffered log entries', () => {
+  const logBuffer = new LogBuffer(5);
+  logBuffer.push('first');
+  logBuffer.push('second');
+  const result = getLogs(makeState({ logBuffer }), 1);
+
+  assertEquals(result.logs.length, 1);
+  assertEquals(result.logs[0].line, 'second');
+  assertEquals(result.total, 2);
+  assertEquals(result.subscribers, 0);
 });
 
 Deno.test('simulatePipeline with empty pipeline returns accept', async () => {

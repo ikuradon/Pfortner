@@ -10,11 +10,14 @@ import { json } from '$admin/server.ts';
 import type { AdminState } from '$admin/server.ts';
 import {
   closeConnectionBatch,
+  createLogStreamResponse,
   getConnections,
   getHealthDetail,
   getHealthSimple,
+  getLogs,
   getThroughputData,
   maskSecrets,
+  parseLogLimit,
   simulatePipeline,
 } from '$admin/service.ts';
 
@@ -350,6 +353,19 @@ export function createAdminApp(
     }
     return new Response(state.metrics.render(), {
       headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  });
+
+  app.get(`${adminPath}/api/logs`, (ctx) => {
+    const url = new URL(ctx.req.url);
+    return json(getLogs(state, parseLogLimit(url.searchParams.get('limit'))));
+  });
+
+  app.get(`${adminPath}/api/logs/stream`, (ctx) => {
+    const url = new URL(ctx.req.url);
+    return createLogStreamResponse(state, {
+      signal: ctx.req.signal,
+      replay: parseLogLimit(url.searchParams.get('replay'), 100),
     });
   });
 

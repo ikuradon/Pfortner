@@ -1,6 +1,7 @@
 import type { PfortnerConfig } from '../config/loader.ts';
 import type { ManagedConnection } from '../connections/types.ts';
 import type { ConnectionManager } from '../connections/manager.ts';
+import type { LogBuffer } from '../infra/log-buffer.ts';
 import type { ShutdownManager } from '../shutdown/manager.ts';
 import type { UpstreamProbe } from '../connections/upstream-probe.ts';
 import type { ThroughputTracker } from '../infra/throughput-tracker.ts';
@@ -8,11 +9,14 @@ import type { PrometheusMetrics } from '../infra/prometheus.ts';
 import {
   closeConnection,
   closeConnectionBatch,
+  createLogStreamResponse,
   getConnections,
   getHealthDetail,
   getHealthSimple,
+  getLogs,
   getThroughputData,
   maskSecrets,
+  parseLogLimit,
 } from './service.ts';
 import type { AdminServiceState } from './service.ts';
 
@@ -29,6 +33,7 @@ export interface AdminState extends AdminServiceState {
   startTime?: number;
   throughputTracker?: ThroughputTracker;
   metrics?: PrometheusMetrics;
+  logBuffer?: LogBuffer;
 }
 
 export function json(data: unknown, status = 200): Response {
@@ -122,6 +127,19 @@ export function createAdminHandler(state: AdminState): (req: Request) => Promise
     // GET /metrics/throughput
     if (method === 'GET' && path === '/metrics/throughput') {
       return json(getThroughputData(state));
+    }
+
+    // GET /logs
+    if (method === 'GET' && path === '/logs') {
+      return json(getLogs(state, parseLogLimit(url.searchParams.get('limit'))));
+    }
+
+    // GET /logs/stream
+    if (method === 'GET' && path === '/logs/stream') {
+      return createLogStreamResponse(state, {
+        signal: req.signal,
+        replay: parseLogLimit(url.searchParams.get('replay'), 100),
+      });
     }
 
     // POST /blacklist/pubkey

@@ -15,7 +15,6 @@ export function LogsPage({ currentPath }: LogsPageProps) {
         </button>
       </div>
 
-      {/* Log level info */}
       <div
         class='stats-grid'
         style='grid-template-columns:repeat(auto-fill,minmax(180px,1fr))'
@@ -29,22 +28,25 @@ export function LogsPage({ currentPath }: LogsPageProps) {
         </div>
       </div>
 
-      {/* Log streaming notice */}
       <div class='chart-container'>
-        <div class='chart-title'>Log Viewer</div>
-        <div style='padding:32px;text-align:center;color:var(--color-text-muted);border:2px dashed var(--color-border);border-radius:8px'>
-          <div style='font-size:32px;margin-bottom:12px'>≡</div>
-          <div style='font-size:15px;font-weight:600;margin-bottom:8px'>
-            Log Streaming Coming Soon
-          </div>
-          <div style='font-size:13px;max-width:480px;margin:0 auto'>
-            Real-time log streaming via WebSocket or Server-Sent Events will be available in a future release. For now,
-            view logs directly from your server process output or log aggregation system.
-          </div>
+        <div class='log-title-row'>
+          <div class='chart-title' style='margin-bottom:0'>Log Viewer</div>
+          <span id='log-stream-status' class='log-status log-status-connecting'>connecting</span>
+        </div>
+        <div class='log-toolbar'>
+          <button type='button' id='btn-pause-logs' class='btn btn-ghost'>
+            Pause
+          </button>
+          <button type='button' id='btn-clear-logs' class='btn btn-ghost'>
+            Clear
+          </button>
+          <span id='log-count-display' class='text-muted'>0 lines</span>
+        </div>
+        <div id='log-viewer' class='log-viewer' role='log' aria-live='polite'>
+          <div id='log-empty-state' class='log-empty-state'>No logs loaded</div>
         </div>
       </div>
 
-      {/* Runtime info */}
       <div class='chart-container'>
         <div class='chart-title'>Runtime Information</div>
         <table class='table'>

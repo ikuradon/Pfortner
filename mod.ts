@@ -22,6 +22,8 @@ export { buildRelayInfo } from './src/config/relay-info.ts';
 export type { RelayInfo } from './src/config/relay-info.ts';
 export { createPrometheusMetrics } from './src/infra/prometheus.ts';
 export type { PrometheusMetrics } from './src/infra/prometheus.ts';
+export { LogBuffer } from './src/infra/log-buffer.ts';
+export type { LogEntry } from './src/infra/log-buffer.ts';
 export { createAdminHandler } from './src/admin/server.ts';
 export type { AdminState } from './src/admin/server.ts';
 export { ConfigManager } from './src/config/manager.ts';

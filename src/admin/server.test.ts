@@ -1,6 +1,7 @@
 import { assertEquals } from 'jsr:@std/assert@1.0.18';
 import { type AdminState, createAdminHandler } from './server.ts';
 import type { ManagedConnection } from '../connections/types.ts';
+import { LogBuffer } from '../infra/log-buffer.ts';
 
 function makeManagedConnection(id: string): ManagedConnection {
   return {
@@ -224,6 +225,42 @@ Deno.test('admin GET /metrics/throughput returns data', async () => {
   assertEquals(res.status, 200);
   const body = await res.json();
   assertEquals(Array.isArray(body), true);
+});
+
+Deno.test('admin GET /logs returns buffered logs', async () => {
+  const state = makeState();
+  state.logBuffer = new LogBuffer(5);
+  state.logBuffer.push('first');
+  state.logBuffer.push('second');
+
+  const handler = createAdminHandler(state);
+  const res = await handler(makeRequest('/logs?limit=1'));
+
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(body.logs.length, 1);
+  assertEquals(body.logs[0].line, 'second');
+  assertEquals(body.total, 2);
+});
+
+Deno.test('admin GET /logs/stream returns SSE stream', async () => {
+  const state = makeState();
+  state.logBuffer = new LogBuffer(5);
+  state.logBuffer.push('stream-test');
+
+  const handler = createAdminHandler(state);
+  const ac = new AbortController();
+  const req = new Request('http://localhost:9091/logs/stream?replay=1', {
+    headers: { Authorization: 'Bearer test-token' },
+    signal: ac.signal,
+  });
+  const res = await handler(req);
+
+  assertEquals(res.status, 200);
+  assertEquals(res.headers.get('Content-Type')?.startsWith('text/event-stream'), true);
+
+  ac.abort();
+  await res.body?.cancel();
 });
 
 Deno.test('admin GET /connections returns info not managed objects', async () => {

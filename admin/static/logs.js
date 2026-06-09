@@ -1,5 +1,11 @@
-// Logs page — display log level from config and runtime info
-// formatUptime and safeFetch are provided globally by utils.js
+// Logs page — config/runtime 情報と SSE log stream を表示する。
+// formatUptime と safeFetch は utils.js から global に提供される。
+
+const MAX_VISIBLE_LOGS = 500;
+
+let eventSource = null;
+let paused = false;
+const seenLogIds = new Set();
 
 function makeInfoRow(label, value) {
   const tr = document.createElement('tr');
@@ -19,8 +25,153 @@ function makeInfoRow(label, value) {
   return tr;
 }
 
+function getLogRows() {
+  return Array.from(document.querySelectorAll('#log-viewer .log-row'));
+}
+
+function updateLogCount() {
+  const rows = getLogRows();
+  const countEl = document.getElementById('log-count-display');
+  if (countEl) countEl.textContent = rows.length + (rows.length === 1 ? ' line' : ' lines');
+
+  const emptyEl = document.getElementById('log-empty-state');
+  if (emptyEl) emptyEl.style.display = rows.length === 0 ? 'block' : 'none';
+}
+
+function setStreamStatus(state, label) {
+  const statusEl = document.getElementById('log-stream-status');
+  if (!statusEl) return;
+  statusEl.textContent = label;
+  statusEl.className = 'log-status log-status-' + state;
+}
+
+function formatTimestamp(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString();
+}
+
+function normalizeLevel(level) {
+  const normalized = String(level || 'log').toLowerCase();
+  if (normalized === 'debug' || normalized === 'info' || normalized === 'warn' || normalized === 'error') {
+    return normalized;
+  }
+  return 'log';
+}
+
+function parseLogLine(line) {
+  try {
+    const parsed = JSON.parse(line);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const level = normalizeLevel(parsed.level);
+      const timestamp = typeof parsed.timestamp === 'string'
+        ? parsed.timestamp
+        : typeof parsed.time === 'string'
+        ? parsed.time
+        : '';
+      const message = typeof parsed.message === 'string'
+        ? parsed.message
+        : typeof parsed.msg === 'string'
+        ? parsed.msg
+        : line;
+      const details = {};
+      for (const [key, value] of Object.entries(parsed)) {
+        if (key !== 'timestamp' && key !== 'time' && key !== 'level' && key !== 'message' && key !== 'msg') {
+          details[key] = value;
+        }
+      }
+      const detailKeys = Object.keys(details);
+      return {
+        level,
+        timestamp,
+        message,
+        details: detailKeys.length > 0 ? JSON.stringify(details) : '',
+      };
+    }
+  } catch {
+    // text log として扱う。
+  }
+
+  const match = line.match(/^(\S+)\s+(DEBUG|INFO|WARN|ERROR)\s+(.*)$/);
+  if (match) {
+    return {
+      level: normalizeLevel(match[2]),
+      timestamp: match[1],
+      message: match[3],
+      details: '',
+    };
+  }
+
+  return { level: 'log', timestamp: '', message: line, details: '' };
+}
+
+function pruneLogRows() {
+  const rows = getLogRows();
+  while (rows.length > MAX_VISIBLE_LOGS) {
+    const row = rows.shift();
+    if (!row) break;
+    const id = Number(row.dataset.logId);
+    if (Number.isFinite(id)) seenLogIds.delete(id);
+    row.remove();
+  }
+}
+
+function appendLogEntry(entry, options = {}) {
+  if (!entry || typeof entry.line !== 'string') return;
+  if (paused && !options.force) return;
+
+  const id = Number(entry.id);
+  if (Number.isFinite(id)) {
+    if (seenLogIds.has(id)) return;
+    seenLogIds.add(id);
+  }
+
+  const viewer = document.getElementById('log-viewer');
+  if (!viewer) return;
+
+  const wasAtBottom = viewer.scrollTop + viewer.clientHeight >= viewer.scrollHeight - 24;
+  const parsed = parseLogLine(entry.line);
+  const level = normalizeLevel(parsed.level);
+
+  const row = document.createElement('div');
+  row.className = 'log-row log-row-' + level;
+  row.title = entry.line;
+  if (Number.isFinite(id)) row.dataset.logId = String(id);
+
+  const time = document.createElement('span');
+  time.className = 'log-row-time';
+  time.textContent = formatTimestamp(parsed.timestamp || entry.received_at);
+  row.appendChild(time);
+
+  const levelEl = document.createElement('span');
+  levelEl.className = 'log-row-level';
+  levelEl.textContent = level.toUpperCase();
+  row.appendChild(levelEl);
+
+  const message = document.createElement('span');
+  message.className = 'log-row-message';
+  message.textContent = parsed.details ? parsed.message + ' ' + parsed.details : parsed.message;
+  row.appendChild(message);
+
+  viewer.appendChild(row);
+  pruneLogRows();
+  updateLogCount();
+
+  if (wasAtBottom || options.force) {
+    viewer.scrollTop = viewer.scrollHeight;
+  }
+}
+
+function clearRenderedLogs() {
+  for (const row of getLogRows()) {
+    row.remove();
+  }
+  seenLogIds.clear();
+  updateLogCount();
+}
+
 async function fetchInfo() {
-  // Fetch config and health-detail in parallel
   const [configData, healthData] = await Promise.all([
     safeFetch('/admin/api/config'),
     safeFetch('/admin/api/health/detail'),
@@ -38,24 +189,112 @@ async function fetchInfo() {
   const uptime = healthData?.uptime_seconds != null ? formatUptime(healthData.uptime_seconds) : '—';
   const connections = healthData?.connections?.active != null ? String(healthData.connections.active) : '—';
   const status = healthData?.status || '—';
+  const streamStatus = document.getElementById('log-stream-status')?.textContent || '—';
 
   const tbody = document.getElementById('runtime-info-tbody');
   if (!tbody) return;
 
-  // Clear existing rows
   while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
 
   tbody.appendChild(makeInfoRow('Log Level', String(logLevel)));
   tbody.appendChild(makeInfoRow('Server Status', status));
   tbody.appendChild(makeInfoRow('Uptime', uptime));
   tbody.appendChild(makeInfoRow('Active Connections', connections));
-  tbody.appendChild(makeInfoRow('Log Streaming', 'Not yet available'));
+  tbody.appendChild(makeInfoRow('Log Streaming', streamStatus));
   tbody.appendChild(makeInfoRow('Timestamp', new Date().toLocaleString()));
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+async function fetchLogs() {
+  const data = await safeFetch('/admin/api/logs?limit=200');
+  if (!data || !Array.isArray(data.logs)) {
+    if (!eventSource) setStreamStatus('fallback', 'fallback unavailable');
+    return;
+  }
+
+  clearRenderedLogs();
+  for (const entry of data.logs) {
+    appendLogEntry(entry, { force: true });
+  }
+
+  if (!eventSource) {
+    setStreamStatus('fallback', 'fallback');
+  }
+}
+
+function connectStream() {
+  if (!('EventSource' in window)) {
+    setStreamStatus('fallback', 'fallback');
+    return;
+  }
+
+  if (eventSource) {
+    eventSource.close();
+  }
+
+  setStreamStatus('connecting', 'connecting');
+  eventSource = new EventSource('/admin/api/logs/stream?replay=100');
+
+  eventSource.onopen = () => {
+    setStreamStatus(paused ? 'paused' : 'streaming', paused ? 'paused' : 'streaming');
+    fetchInfo();
+  };
+
+  eventSource.addEventListener('log', (event) => {
+    try {
+      appendLogEntry(JSON.parse(event.data));
+      if (!paused) setStreamStatus('streaming', 'streaming');
+    } catch {
+      setStreamStatus('disconnected', 'invalid stream event');
+    }
+  });
+
+  eventSource.addEventListener('heartbeat', () => {
+    if (!paused) setStreamStatus('streaming', 'streaming');
+  });
+
+  eventSource.onerror = () => {
+    setStreamStatus('disconnected', 'disconnected');
+    fetchLogs();
+    fetchInfo();
+  };
+}
+
+function togglePause() {
+  paused = !paused;
+
+  const btnPause = document.getElementById('btn-pause-logs');
+  if (btnPause) btnPause.textContent = paused ? 'Resume' : 'Pause';
+
+  if (paused) {
+    setStreamStatus('paused', 'paused');
+  } else {
+    setStreamStatus(eventSource ? 'streaming' : 'connecting', eventSource ? 'streaming' : 'connecting');
+    fetchLogs();
+  }
+
   fetchInfo();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  updateLogCount();
+  fetchInfo();
+  fetchLogs();
+  connectStream();
 
   const btnRefresh = document.getElementById('btn-refresh-logs');
-  if (btnRefresh) btnRefresh.addEventListener('click', fetchInfo);
+  if (btnRefresh) {
+    btnRefresh.addEventListener('click', () => {
+      fetchInfo();
+      fetchLogs();
+      if (!eventSource || eventSource.readyState === EventSource.CLOSED) {
+        connectStream();
+      }
+    });
+  }
+
+  const btnPause = document.getElementById('btn-pause-logs');
+  if (btnPause) btnPause.addEventListener('click', togglePause);
+
+  const btnClear = document.getElementById('btn-clear-logs');
+  if (btnClear) btnClear.addEventListener('click', clearRenderedLogs);
 });
