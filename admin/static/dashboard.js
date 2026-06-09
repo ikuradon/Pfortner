@@ -200,7 +200,12 @@ async function poll() {
   await Promise.all([pollStats(), pollThroughput()]);
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  poll();
-  setInterval(poll, POLL_INTERVAL);
-});
+export function initDashboardPage() {
+  const poller = createPoller({ intervalMs: POLL_INTERVAL, run: poll });
+  poller.start();
+  return () => poller.stop();
+}
+
+if (typeof document !== 'undefined' && !globalThis.__PFORTNER_SPA__) {
+  document.addEventListener('DOMContentLoaded', initDashboardPage);
+}

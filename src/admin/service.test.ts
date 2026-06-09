@@ -19,6 +19,7 @@ function mockConn(id: string): ManagedConnection {
   return {
     info: { connectionId: id, connectionIpAddr: '127.0.0.1', clientAuthorized: false, clientPubkey: '' },
     clientIp: '127.0.0.1',
+    connectedAt: '2026-01-01T00:00:00.000Z',
     sendNotice: async () => {},
     close: () => {},
     sendAuthChallenge: () => {},
@@ -59,7 +60,11 @@ Deno.test('getConnections returns connection info', () => {
   state.connections.set('c1', mockConn('c1'));
   const conns = getConnections(state);
   assertEquals(conns.length, 1);
-  assertEquals((conns[0] as any).connectionId, 'c1');
+  assertEquals(conns[0].id, 'c1');
+  assertEquals(conns[0].ip, '127.0.0.1');
+  assertEquals(conns[0].authenticated, false);
+  assertEquals(conns[0].pubkey, '');
+  assertEquals(conns[0].connectedAt, '2026-01-01T00:00:00.000Z');
 });
 
 Deno.test('closeConnection closes and returns found', () => {

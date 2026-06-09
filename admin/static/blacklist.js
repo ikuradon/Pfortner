@@ -111,7 +111,7 @@ async function deleteEntry(type, value) {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+export function initBlacklistPage() {
   fetchBlacklist();
 
   const btnRefresh = document.getElementById('btn-refresh');
@@ -161,4 +161,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (e.key === 'Enter') document.getElementById('btn-add-pubkey')?.click();
     });
   }
-});
+}
+
+if (typeof document !== 'undefined' && !globalThis.__PFORTNER_SPA__) {
+  document.addEventListener('DOMContentLoaded', initBlacklistPage);
+}

@@ -15,6 +15,17 @@ const makeState = (): AdminState => ({
   blacklist: { pubkeys: new Set<string>(), ips: new Set<string>() },
 });
 
+function makeManagedConnection(id: string): ManagedConnection {
+  return {
+    info: { connectionId: id, connectionIpAddr: '198.51.100.10', clientAuthorized: true, clientPubkey: 'pk1' },
+    clientIp: '198.51.100.10',
+    connectedAt: '2026-01-01T00:00:00.000Z',
+    sendNotice: async () => {},
+    close: () => {},
+    sendAuthChallenge: () => {},
+  };
+}
+
 function makeRequest(path: string, token: string): Request {
   return new Request(`http://localhost:3000${path}`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -35,6 +46,43 @@ Deno.test('admin app auth uses updated state config token', async () => {
 
   assertEquals(oldRes.status, 401);
   assertEquals(newRes.status, 200);
+});
+
+Deno.test('admin app redirects /admin to /admin/', async () => {
+  const handler = createAdminApp(makeState());
+  const res = await handler(makeRequest('/admin', 'test-token'));
+
+  assertEquals(res.status, 302);
+  assertEquals(res.headers.get('Location'), '/admin/');
+});
+
+Deno.test('admin app page routes render SPA shell', async () => {
+  const handler = createAdminApp(makeState());
+  const res = await handler(makeRequest('/admin/connections', 'test-token'));
+
+  assertEquals(res.status, 200);
+  const html = await res.text();
+  assertEquals(html.includes('id="admin-app"'), true);
+  assertEquals(html.includes('/admin/static/app.js'), true);
+  assertEquals(html.includes('/admin/static/connections.js'), false);
+});
+
+Deno.test('admin app GET /admin/api/connections returns connection DTOs', async () => {
+  const state = makeState();
+  state.connections.set('conn-1', makeManagedConnection('conn-1'));
+  const handler = createAdminApp(state);
+
+  const res = await handler(makeRequest('/admin/api/connections', 'test-token'));
+
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(body.connections, [{
+    id: 'conn-1',
+    ip: '198.51.100.10',
+    authenticated: true,
+    pubkey: 'pk1',
+    connectedAt: '2026-01-01T00:00:00.000Z',
+  }]);
 });
 
 Deno.test('admin app GET /admin/api/logs returns buffered logs', async () => {

@@ -462,9 +462,7 @@ export function defaultConfigForPolicy(name) {
   }
 }
 
-// ─── Init ─────────────────────────────────────────────────────────────────────
-
-async function init() {
+async function loadPipelinesPage() {
   try {
     const [configData, pluginsData] = await Promise.all([fetchConfig(), fetchPlugins()]);
 
@@ -488,51 +486,68 @@ async function init() {
   }
 }
 
-if (typeof document !== 'undefined') {
-  document.addEventListener('DOMContentLoaded', () => {
-    init();
-
-    // Tab buttons
-    document.querySelectorAll('.pipeline-tab').forEach((tab) => {
-      tab.addEventListener('click', (e) => {
-        const dir = e.currentTarget.dataset.pipeline;
-        if (!dir) return;
-        currentDirection = dir;
-        document.querySelectorAll('.pipeline-tab').forEach((t) => {
-          t.classList.toggle('active', t.dataset.pipeline === dir);
-        });
-        render();
+function bindPipelineControls() {
+  // Tab buttons
+  document.querySelectorAll('.pipeline-tab').forEach((tab) => {
+    tab.addEventListener('click', (e) => {
+      const dir = e.currentTarget.dataset.pipeline;
+      if (!dir) return;
+      currentDirection = dir;
+      document.querySelectorAll('.pipeline-tab').forEach((t) => {
+        t.classList.toggle('active', t.dataset.pipeline === dir);
       });
+      render();
     });
-
-    // Refresh
-    const btnRefresh = document.getElementById('btn-refresh-pipelines');
-    if (btnRefresh) btnRefresh.addEventListener('click', init);
-
-    // Apply
-    const btnApply = document.getElementById('btn-apply-pipeline');
-    if (btnApply) btnApply.addEventListener('click', applyConfig);
-
-    // Add policy
-    const btnAdd = document.getElementById('btn-add-policy');
-    if (btnAdd) {
-      btnAdd.addEventListener('click', () => {
-        const sel = document.getElementById('add-policy-select');
-        const policyName = sel?.value;
-        if (!policyName) {
-          setStatus('Select a policy to add', true);
-          return;
-        }
-        const newEntry = {
-          policy: policyName,
-          config: defaultConfigForPolicy(policyName),
-        };
-        if (!pipelines[currentDirection]) pipelines[currentDirection] = [];
-        pipelines[currentDirection].push(newEntry);
-        if (sel) sel.value = '';
-        render();
-        setStatus('Added ' + policyName, false);
-      });
-    }
   });
+
+  // Refresh
+  const btnRefresh = document.getElementById('btn-refresh-pipelines');
+  if (btnRefresh) btnRefresh.addEventListener('click', loadPipelinesPage);
+
+  // Apply
+  const btnApply = document.getElementById('btn-apply-pipeline');
+  if (btnApply) btnApply.addEventListener('click', applyConfig);
+
+  // Add policy
+  const btnAdd = document.getElementById('btn-add-policy');
+  if (btnAdd) {
+    btnAdd.addEventListener('click', () => {
+      const sel = document.getElementById('add-policy-select');
+      const policyName = sel?.value;
+      if (!policyName) {
+        setStatus('Select a policy to add', true);
+        return;
+      }
+      const newEntry = {
+        policy: policyName,
+        config: defaultConfigForPolicy(policyName),
+      };
+      if (!pipelines[currentDirection]) pipelines[currentDirection] = [];
+      pipelines[currentDirection].push(newEntry);
+      if (sel) sel.value = '';
+      render();
+      setStatus('Added ' + policyName, false);
+    });
+  }
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+
+export function initPipelinesPage() {
+  currentDirection = 'client';
+  pipelines.client = [];
+  pipelines.server = [];
+  availablePlugins = [];
+  expandedEntries.clear();
+
+  document.querySelectorAll('.pipeline-tab').forEach((tab) => {
+    tab.classList.toggle('active', tab.dataset.pipeline === currentDirection);
+  });
+
+  bindPipelineControls();
+  loadPipelinesPage();
+}
+
+if (typeof document !== 'undefined' && !globalThis.__PFORTNER_SPA__) {
+  document.addEventListener('DOMContentLoaded', initPipelinesPage);
 }

@@ -271,8 +271,12 @@ async function runEvaluation() {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
-document.addEventListener('DOMContentLoaded', () => {
-  // Direction tabs
+export function initPlaygroundPage() {
+  currentDirection = 'client';
+  document.querySelectorAll('.dir-tab').forEach((tab) => {
+    tab.classList.toggle('active', tab.dataset.direction === currentDirection);
+  });
+
   document.querySelectorAll('.dir-tab').forEach((tab) => {
     tab.addEventListener('click', (e) => {
       const dir = e.currentTarget.dataset.direction;
@@ -284,7 +288,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Preset buttons
   document.querySelectorAll('.preset-btn').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       const preset = e.currentTarget.dataset.preset;
@@ -294,15 +297,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Run button
   const btnRun = document.getElementById('btn-run');
   if (btnRun) btnRun.addEventListener('click', runEvaluation);
 
-  // Ctrl+Enter to run
   const textarea = document.getElementById('message-input');
   if (textarea) {
     textarea.addEventListener('keydown', (e) => {
       if (e.ctrlKey && e.key === 'Enter') runEvaluation();
     });
   }
-});
+}
+
+if (typeof document !== 'undefined' && !globalThis.__PFORTNER_SPA__) {
+  document.addEventListener('DOMContentLoaded', initPlaygroundPage);
+}

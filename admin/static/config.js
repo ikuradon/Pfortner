@@ -73,7 +73,7 @@ async function reloadConfig() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+export function initConfigPage() {
   fetchConfig();
 
   const btnRefresh = document.getElementById('btn-refresh-config');
@@ -81,4 +81,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const btnReload = document.getElementById('btn-reload-config');
   if (btnReload) btnReload.addEventListener('click', reloadConfig);
-});
+}
+
+if (typeof document !== 'undefined' && !globalThis.__PFORTNER_SPA__) {
+  document.addEventListener('DOMContentLoaded', initConfigPage);
+}

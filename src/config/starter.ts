@@ -121,6 +121,7 @@ export async function buildRequestHandler(
     const managed: ManagedConnection = {
       info: instance.connectionInfo,
       clientIp,
+      connectedAt: new Date().toISOString(),
       sendNotice: (msg) => instance.sendMessageToClient(JSON.stringify(['NOTICE', msg])),
       close: (code) => instance.closeSocket(code),
       sendAuthChallenge: () => instance.sendAuthMessage(),

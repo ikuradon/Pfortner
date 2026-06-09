@@ -27,6 +27,14 @@ export interface LogsResult {
   subscribers: number;
 }
 
+export interface AdminConnectionDto {
+  id: string;
+  ip: string;
+  authenticated: boolean;
+  pubkey: string;
+  connectedAt: string | null;
+}
+
 const DEFAULT_LOG_LIMIT = 200;
 const MAX_LOG_LIMIT = 1000;
 
@@ -64,8 +72,18 @@ export function getHealthDetail(state: AdminServiceState): Record<string, unknow
   };
 }
 
-export function getConnections(state: AdminServiceState): unknown[] {
-  return [...state.connections.values()].map((m) => m.info);
+export function toAdminConnectionDto(managed: ManagedConnection): AdminConnectionDto {
+  return {
+    id: managed.info.connectionId,
+    ip: managed.clientIp || managed.info.connectionIpAddr || '',
+    authenticated: managed.info.clientAuthorized,
+    pubkey: managed.info.clientPubkey,
+    connectedAt: managed.connectedAt ?? null,
+  };
+}
+
+export function getConnections(state: AdminServiceState): AdminConnectionDto[] {
+  return [...state.connections.values()].map(toAdminConnectionDto);
 }
 
 export function closeConnection(state: AdminServiceState, id: string): { found: boolean } {

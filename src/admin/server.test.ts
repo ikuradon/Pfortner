@@ -7,6 +7,7 @@ function makeManagedConnection(id: string): ManagedConnection {
   return {
     info: { connectionId: id, connectionIpAddr: '127.0.0.1', clientAuthorized: false, clientPubkey: '' },
     clientIp: '127.0.0.1',
+    connectedAt: '2026-01-01T00:00:00.000Z',
     sendNotice: async () => {},
     close: () => {},
     sendAuthChallenge: () => {},
@@ -271,7 +272,14 @@ Deno.test('admin GET /connections returns info not managed objects', async () =>
   assertEquals(res.status, 200);
   const body = await res.json();
   assertEquals(body.connections.length, 1);
-  assertEquals(body.connections[0].connectionId, 'conn-1');
+  assertEquals(body.connections[0].id, 'conn-1');
+  assertEquals(body.connections[0].ip, '127.0.0.1');
+  assertEquals(body.connections[0].authenticated, false);
+  assertEquals(body.connections[0].pubkey, '');
+  assertEquals(body.connections[0].connectedAt, '2026-01-01T00:00:00.000Z');
+  assertEquals(typeof body.connections[0].connectionIpAddr, 'undefined');
+  assertEquals(typeof body.connections[0].clientAuthorized, 'undefined');
+  assertEquals(typeof body.connections[0].clientPubkey, 'undefined');
   // Should not expose functions
   assertEquals(typeof body.connections[0].close, 'undefined');
 });

@@ -5,6 +5,7 @@ const MAX_TRACKER_MINUTES = 5; // ThroughputTracker only keeps ~5 minutes of dat
 let selectedRange = 5; // minutes
 let rawMetricsText = '';
 let rawMetricsExpanded = false;
+let poller = null;
 
 // ─── SVG Chart Utilities ──────────────────────────────────────────────────────
 
@@ -415,17 +416,24 @@ function setupRawMetricsToggle() {
 
 // ─── Initialization ───────────────────────────────────────────────────────────
 
-document.addEventListener('DOMContentLoaded', () => {
+export function initMetricsPage() {
+  if (poller) poller.stop();
+  selectedRange = 5;
+  rawMetricsText = '';
+  rawMetricsExpanded = false;
+
   setupTimeRangeButtons();
   setupRawMetricsToggle();
 
-  // Initial data load
-  refreshAll();
+  poller = createPoller({ intervalMs: POLL_INTERVAL, run: refreshAll });
+  poller.start();
+  const activePoller = poller;
 
-  // Auto-refresh every 10 seconds
-  setInterval(refreshAll, POLL_INTERVAL);
-
-  // Refresh button
   const btnRefresh = document.getElementById('btn-refresh-metrics');
-  if (btnRefresh) btnRefresh.addEventListener('click', refreshAll);
-});
+  if (btnRefresh) btnRefresh.addEventListener('click', () => activePoller.refresh());
+  return () => activePoller.stop();
+}
+
+if (typeof document !== 'undefined' && !globalThis.__PFORTNER_SPA__) {
+  document.addEventListener('DOMContentLoaded', initMetricsPage);
+}

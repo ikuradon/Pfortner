@@ -21,16 +21,8 @@ import {
   simulatePipeline,
 } from '$admin/service.ts';
 
-// Page components
 import { LoginPage } from './routes/login.tsx';
-import { DashboardPage } from './routes/index.tsx';
-import { ConnectionsPage } from './routes/connections.tsx';
-import { PipelinesPage } from './routes/pipelines.tsx';
-import { PlaygroundPage } from './routes/playground.tsx';
-import { MetricsPage } from './routes/metrics.tsx';
-import { BlacklistPage } from './routes/blacklist.tsx';
-import { ConfigPage } from './routes/config.tsx';
-import { LogsPage } from './routes/logs.tsx';
+import { AdminAppShell } from './routes/app.tsx';
 
 const COOKIE_NAME = 'pfortner_admin_token';
 const STATIC_DIR = new URL('./static', import.meta.url).pathname;
@@ -51,6 +43,10 @@ function renderHtml(component: h.JSX.Element): Response {
   return new Response(html, {
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
   });
+}
+
+function renderAdminShell(pathname: string): Response {
+  return renderHtml(h(AdminAppShell, { currentPath: pathname }));
 }
 
 function getCredentialFromRequest(req: Request): { token: string; source: 'bearer' | 'cookie' } | undefined {
@@ -260,63 +256,51 @@ export function createAdminApp(
   });
 
   // ─── Page routes ───────────────────────────────────────────────────────
+  app.get(adminPath, (_ctx) => {
+    return new Response(null, {
+      status: 302,
+      headers: { Location: `${adminPath}/` },
+    });
+  });
+
   app.get(`${adminPath}/`, (ctx) => {
     const url = new URL(ctx.req.url);
-    const detail = getHealthDetail(state);
-    const conns = state.connectionManager?.getStats();
-    const health = {
-      status: String(detail.status),
-      uptime_seconds: detail.uptime_seconds as number | null,
-      connections: {
-        active: (conns?.active ?? state.connections.size) as number,
-        max: (conns?.max ?? 0) as number,
-        pressure: String(conns?.pressure ?? 'normal'),
-      },
-      upstream: {
-        status: String(
-          (detail.upstream as { status?: string })?.status ?? 'unknown',
-        ),
-        latency_ms: (detail.upstream as { latency_ms?: number | null })?.latency_ms ??
-          null,
-      },
-      memory: detail.memory as { rss: number; heapUsed: number } | null,
-    };
-    return renderHtml(h(DashboardPage, { currentPath: url.pathname, health }));
+    return renderAdminShell(url.pathname);
   });
 
   app.get(`${adminPath}/connections`, (ctx) => {
     const url = new URL(ctx.req.url);
-    return renderHtml(h(ConnectionsPage, { currentPath: url.pathname }));
+    return renderAdminShell(url.pathname);
   });
 
   app.get(`${adminPath}/pipelines`, (ctx) => {
     const url = new URL(ctx.req.url);
-    return renderHtml(h(PipelinesPage, { currentPath: url.pathname }));
+    return renderAdminShell(url.pathname);
   });
 
   app.get(`${adminPath}/playground`, (ctx) => {
     const url = new URL(ctx.req.url);
-    return renderHtml(h(PlaygroundPage, { currentPath: url.pathname }));
+    return renderAdminShell(url.pathname);
   });
 
   app.get(`${adminPath}/metrics`, (ctx) => {
     const url = new URL(ctx.req.url);
-    return renderHtml(h(MetricsPage, { currentPath: url.pathname }));
+    return renderAdminShell(url.pathname);
   });
 
   app.get(`${adminPath}/blacklist`, (ctx) => {
     const url = new URL(ctx.req.url);
-    return renderHtml(h(BlacklistPage, { currentPath: url.pathname }));
+    return renderAdminShell(url.pathname);
   });
 
   app.get(`${adminPath}/config`, (ctx) => {
     const url = new URL(ctx.req.url);
-    return renderHtml(h(ConfigPage, { currentPath: url.pathname }));
+    return renderAdminShell(url.pathname);
   });
 
   app.get(`${adminPath}/logs`, (ctx) => {
     const url = new URL(ctx.req.url);
-    return renderHtml(h(LogsPage, { currentPath: url.pathname }));
+    return renderAdminShell(url.pathname);
   });
 
   // ─── API routes ────────────────────────────────────────────────────────

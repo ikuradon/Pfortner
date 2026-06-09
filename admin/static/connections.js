@@ -6,18 +6,7 @@ const POLL_INTERVAL = 10000;
 let allConnections = [];
 let authFilter = 'all';
 let searchText = '';
-
-function formatRelativeTime(isoString) {
-  if (!isoString) return '—';
-  const diff = Date.now() - new Date(isoString).getTime();
-  const s = Math.floor(diff / 1000);
-  if (s < 60) return s + 's ago';
-  const m = Math.floor(s / 60);
-  if (m < 60) return m + 'm ago';
-  const h = Math.floor(m / 60);
-  if (h < 24) return h + 'h ago';
-  return Math.floor(h / 24) + 'd ago';
-}
+let poller = null;
 
 function shortId(id) {
   if (!id) return '—';
@@ -34,12 +23,9 @@ function updateSummary(connections) {
   const authed = connections.filter((c) => c.authenticated || c.pubkey).length;
   const unauthed = total - authed;
 
-  const elTotal = document.getElementById('summary-total');
-  const elAuthed = document.getElementById('summary-authed');
-  const elUnauthed = document.getElementById('summary-unauthed');
-  if (elTotal) elTotal.textContent = String(total);
-  if (elAuthed) elAuthed.textContent = String(authed);
-  if (elUnauthed) elUnauthed.textContent = String(unauthed);
+  setText('summary-total', total);
+  setText('summary-authed', authed);
+  setText('summary-unauthed', unauthed);
 }
 
 function filterConnections(connections) {
@@ -50,8 +36,8 @@ function filterConnections(connections) {
 
     if (searchText) {
       const q = searchText.toLowerCase();
-      const ip = (c.ip || c.remoteAddr || '').toLowerCase();
-      const pk = (c.pubkey || '').toLowerCase();
+      const ip = c.ip.toLowerCase();
+      const pk = c.pubkey.toLowerCase();
       if (!ip.includes(q) && !pk.includes(q)) return false;
     }
     return true;
@@ -78,11 +64,11 @@ function makeDisconnectButton(id) {
 }
 
 function makeRow(c) {
-  const id = c.id || c.connectionId || '';
-  const ip = c.ip || c.remoteAddr || '—';
-  const pubkey = c.pubkey || '';
+  const id = c.id;
+  const ip = c.ip || '—';
+  const pubkey = c.pubkey;
   const isAuthed = !!(c.authenticated || pubkey);
-  const connectedAt = c.connectedAt || c.connected_at || '';
+  const connectedAt = c.connectedAt;
 
   const tr = document.createElement('tr');
   tr.dataset.id = id;
@@ -152,19 +138,10 @@ function renderTable(connections) {
   const tbody = document.getElementById('connections-tbody');
   if (!tbody) return;
 
-  // Clear existing rows
-  while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+  clearChildren(tbody);
 
   if (connections.length === 0) {
-    const tr = document.createElement('tr');
-    const td = document.createElement('td');
-    td.colSpan = 7;
-    td.style.textAlign = 'center';
-    td.style.padding = '32px';
-    td.style.color = 'var(--color-text-muted)';
-    td.textContent = 'No connections';
-    tr.appendChild(td);
-    tbody.appendChild(tr);
+    renderTableState(tbody, 7, 'No connections', 'empty');
     return;
   }
 
@@ -214,37 +191,27 @@ async function fetchConnections() {
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
-    allConnections = Array.isArray(data.connections) ? data.connections : [];
+    allConnections = Array.isArray(data.connections) ? data.connections.map(normalizeConnection) : [];
     updateSummary(allConnections);
     applyFiltersAndRender();
   } catch (e) {
     const tbody = document.getElementById('connections-tbody');
-    if (!tbody) return;
-    while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
-    const tr = document.createElement('tr');
-    const td = document.createElement('td');
-    td.colSpan = 7;
-    td.style.textAlign = 'center';
-    td.style.padding = '32px';
-    td.style.color = 'var(--color-danger)';
-    td.textContent = 'Error loading connections: ' + e.message;
-    tr.appendChild(td);
-    tbody.appendChild(tr);
+    renderTableState(tbody, 7, 'Error loading connections: ' + e.message, 'error');
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  // Initial fetch
-  fetchConnections();
+export function initConnectionsPage() {
+  if (poller) poller.stop();
+  allConnections = [];
+  authFilter = 'all';
+  searchText = '';
+  poller = createPoller({ intervalMs: POLL_INTERVAL, run: fetchConnections });
+  poller.start();
+  const activePoller = poller;
 
-  // Auto-refresh
-  setInterval(fetchConnections, POLL_INTERVAL);
-
-  // Refresh button
   const btnRefresh = document.getElementById('btn-refresh');
-  if (btnRefresh) btnRefresh.addEventListener('click', fetchConnections);
+  if (btnRefresh) btnRefresh.addEventListener('click', () => activePoller.refresh());
 
-  // Bulk disconnect button
   const btnBulk = document.getElementById('btn-disconnect-selected');
   if (btnBulk) {
     btnBulk.addEventListener('click', () => {
@@ -252,7 +219,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Select all checkbox
   const selectAll = document.getElementById('select-all');
   if (selectAll) {
     selectAll.addEventListener('change', (e) => {
@@ -263,7 +229,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Search input
   const searchInput = document.getElementById('search-input');
   if (searchInput) {
     searchInput.addEventListener('input', (e) => {
@@ -272,11 +237,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Auth filter buttons
   document.querySelectorAll('.auth-filter-btn').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       authFilter = e.currentTarget.dataset.filter || 'all';
-      // Update button styles
       document.querySelectorAll('.auth-filter-btn').forEach((b) => {
         b.className = b.dataset.filter === authFilter
           ? 'btn btn-primary auth-filter-btn'
@@ -285,4 +248,9 @@ document.addEventListener('DOMContentLoaded', () => {
       applyFiltersAndRender();
     });
   });
-});
+  return () => activePoller.stop();
+}
+
+if (typeof document !== 'undefined' && !globalThis.__PFORTNER_SPA__) {
+  document.addEventListener('DOMContentLoaded', initConnectionsPage);
+}

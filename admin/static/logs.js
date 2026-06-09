@@ -3,7 +3,7 @@
 
 const MAX_VISIBLE_LOGS = 500;
 
-let eventSource = null;
+let logStream = null;
 let paused = false;
 const seenLogIds = new Set();
 
@@ -41,8 +41,10 @@ function updateLogCount() {
 function setStreamStatus(state, label) {
   const statusEl = document.getElementById('log-stream-status');
   if (!statusEl) return;
-  statusEl.textContent = label;
-  statusEl.className = 'log-status log-status-' + state;
+  const effectiveState = paused && state === 'streaming' ? 'paused' : state;
+  const effectiveLabel = paused && state === 'streaming' ? 'paused' : label;
+  statusEl.textContent = effectiveLabel;
+  statusEl.className = 'log-status log-status-' + effectiveState;
 }
 
 function formatTimestamp(value) {
@@ -194,7 +196,7 @@ async function fetchInfo() {
   const tbody = document.getElementById('runtime-info-tbody');
   if (!tbody) return;
 
-  while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+  clearChildren(tbody);
 
   tbody.appendChild(makeInfoRow('Log Level', String(logLevel)));
   tbody.appendChild(makeInfoRow('Server Status', status));
@@ -207,7 +209,7 @@ async function fetchInfo() {
 async function fetchLogs() {
   const data = await safeFetch('/admin/api/logs?limit=200');
   if (!data || !Array.isArray(data.logs)) {
-    if (!eventSource) setStreamStatus('fallback', 'fallback unavailable');
+    if (!logStream) setStreamStatus('fallback', 'fallback unavailable');
     return;
   }
 
@@ -216,47 +218,36 @@ async function fetchLogs() {
     appendLogEntry(entry, { force: true });
   }
 
-  if (!eventSource) {
+  if (!logStream) {
     setStreamStatus('fallback', 'fallback');
   }
 }
 
 function connectStream() {
-  if (!('EventSource' in window)) {
-    setStreamStatus('fallback', 'fallback');
-    return;
+  if (logStream) {
+    logStream.close();
   }
-
-  if (eventSource) {
-    eventSource.close();
-  }
-
-  setStreamStatus('connecting', 'connecting');
-  eventSource = new EventSource('/admin/api/logs/stream?replay=100');
-
-  eventSource.onopen = () => {
-    setStreamStatus(paused ? 'paused' : 'streaming', paused ? 'paused' : 'streaming');
-    fetchInfo();
-  };
-
-  eventSource.addEventListener('log', (event) => {
-    try {
-      appendLogEntry(JSON.parse(event.data));
-      if (!paused) setStreamStatus('streaming', 'streaming');
-    } catch {
-      setStreamStatus('disconnected', 'invalid stream event');
-    }
+  logStream = createEventStream({
+    url: '/admin/api/logs/stream?replay=100',
+    eventName: 'log',
+    onStatus: (state, label) => {
+      setStreamStatus(state, label);
+      if (state === 'streaming') fetchInfo();
+    },
+    onEvent: (event) => {
+      try {
+        appendLogEntry(JSON.parse(event.data));
+        if (!paused) setStreamStatus('streaming', 'streaming');
+      } catch {
+        setStreamStatus('disconnected', 'invalid stream event');
+      }
+    },
+    fallback: () => {
+      fetchLogs();
+      fetchInfo();
+    },
   });
-
-  eventSource.addEventListener('heartbeat', () => {
-    if (!paused) setStreamStatus('streaming', 'streaming');
-  });
-
-  eventSource.onerror = () => {
-    setStreamStatus('disconnected', 'disconnected');
-    fetchLogs();
-    fetchInfo();
-  };
+  logStream.connect();
 }
 
 function togglePause() {
@@ -268,14 +259,21 @@ function togglePause() {
   if (paused) {
     setStreamStatus('paused', 'paused');
   } else {
-    setStreamStatus(eventSource ? 'streaming' : 'connecting', eventSource ? 'streaming' : 'connecting');
+    setStreamStatus(logStream ? 'streaming' : 'connecting', logStream ? 'streaming' : 'connecting');
     fetchLogs();
   }
 
   fetchInfo();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+export function initLogsPage() {
+  if (logStream) {
+    logStream.close();
+    logStream = null;
+  }
+  paused = false;
+  seenLogIds.clear();
+
   updateLogCount();
   fetchInfo();
   fetchLogs();
@@ -286,7 +284,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnRefresh.addEventListener('click', () => {
       fetchInfo();
       fetchLogs();
-      if (!eventSource || eventSource.readyState === EventSource.CLOSED) {
+      if (!logStream || logStream.isClosed()) {
         connectStream();
       }
     });
@@ -297,4 +295,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const btnClear = document.getElementById('btn-clear-logs');
   if (btnClear) btnClear.addEventListener('click', clearRenderedLogs);
-});
+  return () => {
+    logStream?.close();
+    logStream = null;
+  };
+}
+
+if (typeof document !== 'undefined' && !globalThis.__PFORTNER_SPA__) {
+  document.addEventListener('DOMContentLoaded', initLogsPage);
+}
