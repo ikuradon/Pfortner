@@ -62,7 +62,7 @@ export function PipelinesPage({ currentPath }: PipelinesPageProps) {
               id='btn-apply-pipeline'
               class='btn btn-primary'
             >
-              ↺ Reload Config
+              ✓ Save & Apply
             </button>
           </div>
           <span class='text-muted' id='workbench-status-summary'>Ready</span>

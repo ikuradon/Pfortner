@@ -185,7 +185,7 @@ export function renderPipelinesPage(root) {
           }),
           button('+', 'btn btn-ghost', { id: 'btn-zoom-in', title: 'Zoom in' }),
           button('▷ Run', 'btn btn-ghost', { id: 'btn-run-toolbar' }),
-          button('↺ Reload Config', 'btn btn-primary', {
+          button('✓ Save & Apply', 'btn btn-primary', {
             id: 'btn-apply-pipeline',
           }),
         ]),

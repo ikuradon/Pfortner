@@ -1,5 +1,7 @@
+import { stringify as stringifyYaml } from '@std/yaml';
 import { json } from '$admin/server.ts';
 import type { AdminState } from '$admin/server.ts';
+import type { PfortnerConfig, PipelineEntry } from '../src/config/loader.ts';
 import {
   closeConnectionBatch,
   createLogStreamResponse,
@@ -76,6 +78,36 @@ export function registerAdminApiRoutes(
     return json({ plugins: state.pluginNames });
   });
 
+  app.post(`${adminPath}/api/pipelines`, async (ctx) => {
+    if (!state.configPath || !state.reloadFn) {
+      return json({ error: 'pipeline save not configured' }, 500);
+    }
+    try {
+      const body = await ctx.req.json();
+      const normalized = normalizePipelines(body.pipelines);
+      if ('error' in normalized) {
+        return json({ error: normalized.error }, 400);
+      }
+
+      const nextConfig: PfortnerConfig = {
+        ...state.config,
+        pipelines: normalized.pipelines,
+      };
+      const yaml = stringifyConfig(nextConfig);
+      await Deno.writeTextFile(state.configPath, yaml);
+      await state.reloadFn(yaml);
+      return json({
+        status: 'saved',
+        pipelines: state.config.pipelines ?? normalized.pipelines,
+      });
+    } catch (e) {
+      return json(
+        { error: `pipeline save failed: ${(e as Error).message}` },
+        500,
+      );
+    }
+  });
+
   app.post(`${adminPath}/api/playground/evaluate`, async (ctx) => {
     try {
       const body = await ctx.req.json();
@@ -90,9 +122,8 @@ export function registerAdminApiRoutes(
         return json({ error: 'message must be an array' }, 400);
       }
       const postedPipeline = Array.isArray(body.pipeline) ? body.pipeline : null;
-      const pipeline = postedPipeline ?? (direction === 'server'
-        ? (state.config.pipelines?.server ?? [])
-        : (state.config.pipelines?.client ?? []));
+      const pipeline = postedPipeline ??
+        (direction === 'server' ? (state.config.pipelines?.server ?? []) : (state.config.pipelines?.client ?? []));
       const result = await simulatePipeline(pipeline, message, connectionInfo);
       return json(result);
     } catch (e) {
@@ -169,4 +200,55 @@ export function registerAdminApiRoutes(
     }
     return json({ error: 'shutdown not configured' }, 500);
   });
+}
+
+type PipelineSet = PfortnerConfig['pipelines'];
+
+function stringifyConfig(config: PfortnerConfig): string {
+  return stringifyYaml(config).trimEnd() + '\n';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizePipelines(
+  value: unknown,
+): { pipelines: PipelineSet } | { error: string } {
+  if (!isRecord(value)) {
+    return { error: 'pipelines object required' };
+  }
+  const client = normalizePipelineEntries(value.client, 'pipelines.client');
+  if ('error' in client) return client;
+  const server = normalizePipelineEntries(value.server, 'pipelines.server');
+  if ('error' in server) return server;
+  return { pipelines: { client: client.entries, server: server.entries } };
+}
+
+function normalizePipelineEntries(
+  value: unknown,
+  path: string,
+): { entries: PipelineEntry[] } | { error: string } {
+  if (!Array.isArray(value)) {
+    return { error: `${path} must be an array` };
+  }
+  const entries: PipelineEntry[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const entry = value[i];
+    if (!isRecord(entry)) {
+      return { error: `${path}[${i}] must be an object` };
+    }
+    if (typeof entry.policy !== 'string' || entry.policy.trim().length === 0) {
+      return { error: `${path}[${i}].policy must be a non-empty string` };
+    }
+    const normalized: PipelineEntry = { policy: entry.policy };
+    if (entry.config !== undefined) {
+      if (!isRecord(entry.config)) {
+        return { error: `${path}[${i}].config must be an object` };
+      }
+      normalized.config = structuredClone(entry.config);
+    }
+    entries.push(normalized);
+  }
+  return { entries };
 }

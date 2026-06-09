@@ -1,4 +1,5 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals, assertExists } from '@std/assert';
+import { parse as parseYaml } from '@std/yaml';
 import { registerAdminApiRoutes } from './api_routes.ts';
 import type { AdminRouteApp, AdminRouteContext, AdminRouteHandler } from './route_types.ts';
 import type { AdminState } from '../src/admin/server.ts';
@@ -25,14 +26,21 @@ const makeState = (): AdminState => ({
   config: {
     server: { port: 3000, upstream_relay: 'ws://localhost:7777' },
     admin: { enabled: true, auth_token: 'test-token' },
-    pipelines: { client: [{ policy: 'accept' }], server: [{ policy: 'accept' }] },
+    pipelines: {
+      client: [{ policy: 'accept' }],
+      server: [{ policy: 'accept' }],
+    },
   },
   pluginNames: ['accept'],
   connections: new Map(),
   blocklist: { pubkeys: new Set<string>(), ips: new Set<string>() },
 });
 
-function makeContext(path: string, init?: RequestInit, params: Record<string, string> = {}): AdminRouteContext {
+function makeContext(
+  path: string,
+  init?: RequestInit,
+  params: Record<string, string> = {},
+): AdminRouteContext {
   return {
     req: new Request(`http://localhost:3000${path}`, init),
     params,
@@ -46,6 +54,7 @@ Deno.test('API route registrar registers expected admin API surface', () => {
   assertEquals(app.getRoutes.has('/admin/api/health'), true);
   assertEquals(app.getRoutes.has('/admin/api/connections'), true);
   assertEquals(app.getRoutes.has('/admin/api/logs/stream'), true);
+  assertEquals(app.postRoutes.has('/admin/api/pipelines'), true);
   assertEquals(app.postRoutes.has('/admin/api/playground/evaluate'), true);
   assertEquals(app.postRoutes.has('/admin/api/blocklist/ip'), true);
   assertEquals(app.deleteRoutes.has('/admin/api/blocklist/pubkey/:pk'), true);
@@ -70,8 +79,12 @@ Deno.test('API route registrar blocklist handlers mutate runtime state', async (
       body: JSON.stringify({ pubkey: 'pk-blocked' }),
     }),
   );
-  const deletePubkey = await app.deleteRoutes.get('/admin/api/blocklist/pubkey/:pk')!(
-    makeContext('/admin/api/blocklist/pubkey/pk-blocked', undefined, { pk: 'pk-blocked' }),
+  const deletePubkey = await app.deleteRoutes.get(
+    '/admin/api/blocklist/pubkey/:pk',
+  )!(
+    makeContext('/admin/api/blocklist/pubkey/pk-blocked', undefined, {
+      pk: 'pk-blocked',
+    }),
   );
 
   assertEquals(addIp.status, 200);
@@ -94,7 +107,11 @@ Deno.test('playground evaluate can use request pipeline instead of server config
         direction: 'client',
         pipeline: [{ policy: 'kind-filter', config: { allow_kinds: [2] } }],
         message: ['EVENT', { kind: 1 }],
-        connectionInfo: { authenticated: false, pubkey: '', clientIp: '127.0.0.1' },
+        connectionInfo: {
+          authenticated: false,
+          pubkey: '',
+          clientIp: '127.0.0.1',
+        },
       }),
     }),
   );
@@ -103,4 +120,54 @@ Deno.test('playground evaluate can use request pipeline instead of server config
   const body = await res.json();
   assertEquals(body.finalAction, 'reject');
   assertEquals(body.steps[0].policy, 'kind-filter');
+});
+
+Deno.test('pipeline save route persists posted pipelines and reloads runtime', async () => {
+  const app = new RecordedRoutes();
+  const state = makeState();
+  const configPath = await Deno.makeTempFile({ suffix: '.yaml' });
+  let reloadedYaml = '';
+  let reloadCalls = 0;
+  state.configPath = configPath;
+  state.reloadFn = (yaml) => {
+    reloadCalls++;
+    reloadedYaml = yaml;
+    state.config = parseYaml(yaml) as AdminState['config'];
+    return Promise.resolve();
+  };
+  await Deno.writeTextFile(
+    configPath,
+    'server:\n  port: 3000\n  upstream_relay: ws://localhost:7777\nadmin:\n  enabled: true\n  auth_token: test-token\npipelines:\n  client:\n    - policy: accept\n  server:\n    - policy: accept\n',
+  );
+  registerAdminApiRoutes(app, '/admin', state);
+
+  const handler = app.postRoutes.get('/admin/api/pipelines');
+  assertExists(handler);
+  const res = await handler(makeContext('/admin/api/pipelines', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      pipelines: {
+        client: [{
+          policy: 'kind-filter',
+          config: { mode: 'allow', kinds: [1] },
+        }],
+        server: [{ policy: 'accept' }],
+      },
+    }),
+  }));
+
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(body.status, 'saved');
+  assertEquals(reloadCalls, 1);
+  assertEquals(reloadedYaml, await Deno.readTextFile(configPath));
+  assertEquals(state.config.pipelines.client[0].policy, 'kind-filter');
+  assertEquals(state.config.pipelines.client[0].config, {
+    mode: 'allow',
+    kinds: [1],
+  });
+  assertEquals(body.pipelines.client[0].policy, 'kind-filter');
+
+  await Deno.remove(configPath);
 });

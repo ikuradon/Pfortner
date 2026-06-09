@@ -1425,29 +1425,44 @@ async function applyConfig() {
   const btn = document.getElementById('btn-apply-pipeline');
   if (btn) {
     btn.disabled = true;
-    btn.textContent = 'Reloading...';
+    btn.textContent = 'Saving...';
   }
   try {
-    const res = await fetch('/admin/api/reload', {
+    const serialized = serializeCurrentPipelines();
+    const clientValidation = validatePipelineGraph(graphs.client);
+    const serverValidation = validatePipelineGraph(graphs.server);
+    const errors = [
+      ...clientValidation.errors.map((error) => 'client: ' + error.message),
+      ...serverValidation.errors.map((error) => 'server: ' + error.message),
+    ];
+    if (errors.length > 0) {
+      throw new Error('Fix pipeline wiring before saving: ' + errors[0]);
+    }
+
+    const res = await fetch('/admin/api/pipelines', {
       method: 'POST',
       credentials: 'same-origin',
-      redirect: 'manual',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pipelines: serialized }),
     });
-    if (
-      res.ok || res.type === 'opaqueredirect' || res.status === 0 ||
-      res.status === 302
-    ) {
-      setStatus('Config reloaded at ' + new Date().toLocaleTimeString());
-    } else {
+    if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Unknown error' }));
-      throw new Error(err.error || 'Reload failed');
+      throw new Error(err.error || 'Save failed');
     }
+    const data = await res.json().catch(() => ({}));
+    pipelines.client = cloneValue(data.pipelines?.client ?? serialized.client);
+    pipelines.server = cloneValue(data.pipelines?.server ?? serialized.server);
+    renderYaml();
+    setPersistentSummary();
+    setStatus(
+      'Pipeline saved and applied at ' + new Date().toLocaleTimeString(),
+    );
   } catch (e) {
     setStatus('Error: ' + e.message, true);
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = '↺ Reload Config';
+      btn.textContent = '✓ Save & Apply';
     }
   }
 }
