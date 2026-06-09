@@ -9,7 +9,7 @@ interface WotConfig {
 }
 
 interface PubkeyAclConfig {
-  mode: 'whitelist' | 'blacklist';
+  mode: 'allowlist' | 'blocklist';
   target: 'author' | 'client';
   pubkeys?: string[];
   source?: string;
@@ -19,12 +19,12 @@ interface PubkeyAclConfig {
 
 export const pubkeyAclPlugin: PolicyPlugin = {
   name: 'pubkey-acl',
-  description: 'Filter EVENTs by pubkey whitelist/blacklist',
+  description: 'Filter EVENTs by pubkey allowlist/blocklist',
   direction: 'both',
   configSchema: {
     type: 'object',
     properties: {
-      mode: { type: 'string', enum: ['whitelist', 'blacklist'] },
+      mode: { type: 'string', enum: ['allowlist', 'blocklist'] },
       target: { type: 'string', enum: ['author', 'client'] },
       pubkeys: { type: 'array', items: { type: 'string' } },
       source: { type: 'string' },
@@ -74,8 +74,8 @@ export const pubkeyAclPlugin: PolicyPlugin = {
         if (cfg.target === 'client') {
           targetPubkey = connectionInfo.clientPubkey;
           if (!targetPubkey) {
-            // Unauthenticated: not in any whitelist, in every blacklist
-            return cfg.mode === 'whitelist'
+            // Unauthenticated: not in any allowlist, in every blocklist
+            return cfg.mode === 'allowlist'
               ? {
                 message,
                 action: 'reject',
@@ -89,18 +89,18 @@ export const pubkeyAclPlugin: PolicyPlugin = {
 
         const isInList = pubkeySet.has(targetPubkey);
 
-        if (cfg.mode === 'whitelist' && !isInList) {
+        if (cfg.mode === 'allowlist' && !isInList) {
           return {
             message,
             action: 'reject',
             response: JSON.stringify(['OK', event.id, false, 'blocked: pubkey not allowed']),
           };
         }
-        if (cfg.mode === 'blacklist' && isInList) {
+        if (cfg.mode === 'blocklist' && isInList) {
           return {
             message,
             action: 'reject',
-            response: JSON.stringify(['OK', event.id, false, 'blocked: pubkey banned']),
+            response: JSON.stringify(['OK', event.id, false, 'blocked: pubkey blocked']),
           };
         }
 

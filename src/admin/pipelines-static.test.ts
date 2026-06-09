@@ -5,9 +5,9 @@ Deno.test('pipeline editor defaults protected-event to require authentication', 
   assertEquals(defaultConfigForPolicy('protected-event'), { require_auth: true });
 });
 
-Deno.test('pipeline editor defaults ip-filter to runtime blacklist schema', () => {
+Deno.test('pipeline editor defaults ip-filter to runtime blocklist schema', () => {
   const config = defaultConfigForPolicy('ip-filter') as Record<string, unknown>;
-  assertEquals(config, { blacklist: { ips: [], cidrs: [] } });
+  assertEquals(config, { blocklist: { ips: [], cidrs: [] } });
 });
 
 Deno.test('pipeline editor YAML preview includes protected-event config', () => {
@@ -20,14 +20,14 @@ Deno.test('pipeline editor YAML preview includes protected-event config', () => 
   assertStringIncludes(yaml, 'require_auth: true');
 });
 
-Deno.test('pipeline editor YAML preview serializes ip-filter blacklist schema', () => {
+Deno.test('pipeline editor YAML preview serializes ip-filter blocklist schema', () => {
   const yaml = buildYamlPreview({
     client: [{ policy: 'ip-filter', config: defaultConfigForPolicy('ip-filter') }],
     server: [],
   });
 
   assertStringIncludes(yaml, '- policy: ip-filter');
-  assertStringIncludes(yaml, 'blacklist:');
+  assertStringIncludes(yaml, 'blocklist:');
   assertStringIncludes(yaml, 'ips: []');
   assertStringIncludes(yaml, 'cidrs: []');
 });

@@ -448,9 +448,9 @@ export function defaultConfigForPolicy(name) {
     case 'content-filter':
       return { max_length: 1000 };
     case 'pubkey-acl':
-      return { mode: 'blacklist', target: 'author', pubkeys: [] };
+      return { mode: 'blocklist', target: 'author', pubkeys: [] };
     case 'ip-filter':
-      return { blacklist: { ips: [], cidrs: [] } };
+      return { blocklist: { ips: [], cidrs: [] } };
     case 'when':
       return { condition: { authenticated: true }, then: [{ policy: 'accept' }], else: [] };
     case 'match':

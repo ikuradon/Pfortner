@@ -34,7 +34,7 @@ function makeState(overrides: Partial<AdminServiceState> = {}): AdminServiceStat
     } as any,
     pluginNames: ['accept'],
     connections: new Map(),
-    blacklist: { pubkeys: new Set(), ips: new Set() },
+    blocklist: { pubkeys: new Set(), ips: new Set() },
     ...overrides,
   };
 }
@@ -232,28 +232,28 @@ Deno.test('simulatePipeline protected-event ignores client EVENT shape like runt
   assertEquals(result.finalAction, 'accept');
 });
 
-Deno.test('simulatePipeline ip-filter follows runtime blacklist schema', async () => {
+Deno.test('simulatePipeline ip-filter follows runtime blocklist schema', async () => {
   const message = ['EVENT', { id: 'e1', pubkey: 'pk', kind: 1, created_at: 0, tags: [], content: '', sig: '' }];
   const connectionInfo = { clientAuthorized: false, clientPubkey: '', connectionIpAddr: '1.2.3.4' };
 
-  const uiShapedConfig = await simulatePipeline(
+  const legacyConfig = await simulatePipeline(
     [{ policy: 'ip-filter', config: { deny: ['1.2.3.4'] } }],
     message,
     connectionInfo,
   );
   const runtimeConfig = await simulatePipeline(
-    [{ policy: 'ip-filter', config: { blacklist: { ips: ['1.2.3.4'] } } }],
+    [{ policy: 'ip-filter', config: { blocklist: { ips: ['1.2.3.4'] } } }],
     message,
     connectionInfo,
   );
 
-  assertEquals(uiShapedConfig.finalAction, 'accept');
+  assertEquals(legacyConfig.finalAction, 'accept');
   assertEquals(runtimeConfig.finalAction, 'reject');
 });
 
 Deno.test('simulatePipeline pubkey-acl ignores non-EVENT messages like runtime policy', async () => {
   const result = await simulatePipeline(
-    [{ policy: 'pubkey-acl', config: { mode: 'whitelist', target: 'client', pubkeys: ['pk1'] } }],
+    [{ policy: 'pubkey-acl', config: { mode: 'allowlist', target: 'client', pubkeys: ['pk1'] } }],
     ['REQ', 'sub1', { kinds: [1] }],
     { clientAuthorized: false, clientPubkey: '', connectionIpAddr: '127.0.0.1' },
   );

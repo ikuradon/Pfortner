@@ -1,7 +1,7 @@
 import type { InfraContext, PolicyFactory, PolicyPlugin } from '../plugins/types.ts';
 
 interface IpFilterConfig {
-  blacklist?: {
+  blocklist?: {
     ips?: string[];
     cidrs?: string[];
     source?: string;
@@ -31,7 +31,7 @@ export const ipFilterPlugin: PolicyPlugin = {
   configSchema: {
     type: 'object',
     properties: {
-      blacklist: {
+      blocklist: {
         type: 'object',
         properties: {
           ips: { type: 'array', items: { type: 'string' } },
@@ -44,21 +44,21 @@ export const ipFilterPlugin: PolicyPlugin = {
   },
   async initialize(config: unknown, infra: InfraContext): Promise<PolicyFactory> {
     const cfg = config as IpFilterConfig;
-    const blacklistedIps = new Set(cfg.blacklist?.ips ?? []);
-    const cidrs = cfg.blacklist?.cidrs ?? [];
+    const blockedIps = new Set(cfg.blocklist?.ips ?? []);
+    const cidrs = cfg.blocklist?.cidrs ?? [];
 
     // Fetch external list if configured
-    if (cfg.blacklist?.source) {
+    if (cfg.blocklist?.source) {
       try {
-        const response = await infra.httpClient.fetch(cfg.blacklist.source);
+        const response = await infra.httpClient.fetch(cfg.blocklist.source);
         const text = await response.text();
         for (const line of text.split('\n')) {
           const trimmed = line.trim();
-          if (trimmed && !trimmed.startsWith('#')) blacklistedIps.add(trimmed);
+          if (trimmed && !trimmed.startsWith('#')) blockedIps.add(trimmed);
         }
-        infra.logger.info('Loaded external IP blocklist', { source: cfg.blacklist.source, count: blacklistedIps.size });
+        infra.logger.info('Loaded external IP blocklist', { source: cfg.blocklist.source, count: blockedIps.size });
       } catch (e) {
-        infra.logger.warn('Failed to fetch external IP blocklist', { source: cfg.blacklist.source, error: String(e) });
+        infra.logger.warn('Failed to fetch external IP blocklist', { source: cfg.blocklist.source, error: String(e) });
       }
     }
 
@@ -69,9 +69,9 @@ export const ipFilterPlugin: PolicyPlugin = {
         const text = await response.text();
         for (const line of text.split('\n')) {
           const trimmed = line.trim();
-          if (trimmed && !trimmed.startsWith('#')) blacklistedIps.add(trimmed);
+          if (trimmed && !trimmed.startsWith('#')) blockedIps.add(trimmed);
         }
-        infra.logger.info('Loaded Tor exit node list', { count: blacklistedIps.size });
+        infra.logger.info('Loaded Tor exit node list', { count: blockedIps.size });
       } catch (e) {
         infra.logger.warn('Failed to fetch Tor exit node list', { error: String(e) });
       }
@@ -104,7 +104,7 @@ export const ipFilterPlugin: PolicyPlugin = {
           checked = true;
           const ip = connectionInfo.connectionIpAddr;
 
-          if (blacklistedIps.has(ip)) {
+          if (blockedIps.has(ip)) {
             blocked = true;
           } else {
             for (const cidr of cidrs) {

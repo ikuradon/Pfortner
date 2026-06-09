@@ -293,7 +293,7 @@ export function createAdminApp(
     return renderAdminShell(url.pathname);
   });
 
-  app.get(`${adminPath}/blacklist`, (ctx) => {
+  app.get(`${adminPath}/blocklist`, (ctx) => {
     const url = new URL(ctx.req.url);
     return renderAdminShell(url.pathname);
   });
@@ -392,45 +392,45 @@ export function createAdminApp(
     }
   });
 
-  // ─── Blacklist API ─────────────────────────────────────────────────────
-  app.get(`${adminPath}/api/blacklist`, (_ctx) => {
+  // ─── Blocklist API ─────────────────────────────────────────────────────
+  app.get(`${adminPath}/api/blocklist`, (_ctx) => {
     return json({
-      pubkeys: [...state.blacklist.pubkeys],
-      ips: [...state.blacklist.ips],
+      pubkeys: [...state.blocklist.pubkeys],
+      ips: [...state.blocklist.ips],
     });
   });
 
-  app.post(`${adminPath}/api/blacklist/pubkey`, async (ctx) => {
+  app.post(`${adminPath}/api/blocklist/pubkey`, async (ctx) => {
     const body = await ctx.req.json();
     if (typeof body.pubkey === 'string' && body.pubkey.length > 0) {
-      state.blacklist.pubkeys.add(body.pubkey);
+      state.blocklist.pubkeys.add(body.pubkey);
       return json({ added: body.pubkey });
     }
     return json({ error: 'pubkey required' }, 400);
   });
 
-  app.delete(`${adminPath}/api/blacklist/pubkey/:pk`, (ctx) => {
+  app.delete(`${adminPath}/api/blocklist/pubkey/:pk`, (ctx) => {
     const pk = (ctx.params as Record<string, string>).pk ?? '';
     if (pk) {
-      state.blacklist.pubkeys.delete(pk);
+      state.blocklist.pubkeys.delete(pk);
       return json({ deleted: pk });
     }
     return json({ error: 'pubkey required' }, 400);
   });
 
-  app.post(`${adminPath}/api/blacklist/ip`, async (ctx) => {
+  app.post(`${adminPath}/api/blocklist/ip`, async (ctx) => {
     const body = await ctx.req.json();
     if (typeof body.ip === 'string' && body.ip.length > 0) {
-      state.blacklist.ips.add(body.ip);
+      state.blocklist.ips.add(body.ip);
       return json({ added: body.ip });
     }
     return json({ error: 'ip required' }, 400);
   });
 
-  app.delete(`${adminPath}/api/blacklist/ip/:ip`, (ctx) => {
+  app.delete(`${adminPath}/api/blocklist/ip/:ip`, (ctx) => {
     const ip = (ctx.params as Record<string, string>).ip ?? '';
     if (ip) {
-      state.blacklist.ips.delete(ip);
+      state.blocklist.ips.delete(ip);
       return json({ deleted: ip });
     }
     return json({ error: 'ip required' }, 400);

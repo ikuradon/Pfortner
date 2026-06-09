@@ -42,11 +42,11 @@ const routes = {
     module: '/admin/static/metrics.js',
     init: 'initMetricsPage',
   },
-  '/admin/blacklist': {
-    title: 'Blacklist',
-    render: renderBlacklistPage,
-    module: '/admin/static/blacklist.js',
-    init: 'initBlacklistPage',
+  '/admin/blocklist': {
+    title: 'Blocklist',
+    render: renderBlocklistPage,
+    module: '/admin/static/blocklist.js',
+    init: 'initBlocklistPage',
   },
   '/admin/config': {
     title: 'Config',
@@ -554,13 +554,13 @@ function renderMetricsPage(root) {
   );
 }
 
-function renderBlacklistPage(root) {
+function renderBlocklistPage(root) {
   root.replaceChildren(
-    pageHeader('Blacklist', [
+    pageHeader('Blocklist', [
       button('↺ Refresh', 'btn btn-ghost', { id: 'btn-refresh' }),
     ]),
     chartContainer([
-      el('div', { className: 'chart-title' }, ['IP Blacklist']),
+      el('div', { className: 'chart-title' }, ['IP Blocklist']),
       el('div', {
         className: 'flex gap-2 mb-4',
         style: 'align-items:flex-end',
@@ -593,7 +593,7 @@ function renderBlacklistPage(root) {
       ]),
     ], { style: 'margin-bottom:24px' }),
     chartContainer([
-      el('div', { className: 'chart-title' }, ['Pubkey Blacklist']),
+      el('div', { className: 'chart-title' }, ['Pubkey Blocklist']),
       el('div', {
         className: 'flex gap-2 mb-4',
         style: 'align-items:flex-end',

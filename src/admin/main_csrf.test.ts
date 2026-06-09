@@ -10,7 +10,7 @@ const makeState = (adminOverrides: Partial<NonNullable<AdminState['config']['adm
   },
   pluginNames: [],
   connections: new Map(),
-  blacklist: { pubkeys: new Set(), ips: new Set() },
+  blocklist: { pubkeys: new Set(), ips: new Set() },
 });
 
 Deno.test('Fresh admin rejects cross-origin cookie POST to shutdown', async () => {

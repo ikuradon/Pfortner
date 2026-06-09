@@ -1,4 +1,4 @@
-// Blacklist page — add/delete IP and pubkey entries via DOM methods (no innerHTML)
+// Blocklist page — add/delete IP and pubkey entries via DOM methods (no innerHTML)
 
 function makeDeleteButton(value, type) {
   const btn = document.createElement('button');
@@ -59,9 +59,9 @@ function showError(containerId, message) {
   container.appendChild(p);
 }
 
-async function fetchBlacklist() {
+async function fetchBlocklist() {
   try {
-    const res = await fetch('/admin/api/blacklist', {
+    const res = await fetch('/admin/api/blocklist', {
       credentials: 'same-origin',
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -78,7 +78,7 @@ async function addEntry(type, value) {
   if (!value) return;
   const body = type === 'ip' ? { ip: value } : { pubkey: value };
   try {
-    const res = await fetch('/admin/api/blacklist/' + type, {
+    const res = await fetch('/admin/api/blocklist/' + type, {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
@@ -88,34 +88,34 @@ async function addEntry(type, value) {
       const err = await res.json().catch(() => ({ error: 'Request failed' }));
       throw new Error(err.error || 'Request failed');
     }
-    await fetchBlacklist();
+    await fetchBlocklist();
   } catch (e) {
     alert('Error adding entry: ' + e.message);
   }
 }
 
 async function deleteEntry(type, value) {
-  if (!confirm('Remove ' + value + ' from blacklist?')) return;
+  if (!confirm('Remove ' + value + ' from blocklist?')) return;
   try {
     const res = await fetch(
-      '/admin/api/blacklist/' + type + '/' + encodeURIComponent(value),
+      '/admin/api/blocklist/' + type + '/' + encodeURIComponent(value),
       {
         method: 'DELETE',
         credentials: 'same-origin',
       },
     );
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    await fetchBlacklist();
+    await fetchBlocklist();
   } catch (e) {
     alert('Error removing entry: ' + e.message);
   }
 }
 
-export function initBlacklistPage() {
-  fetchBlacklist();
+export function initBlocklistPage() {
+  fetchBlocklist();
 
   const btnRefresh = document.getElementById('btn-refresh');
-  if (btnRefresh) btnRefresh.addEventListener('click', fetchBlacklist);
+  if (btnRefresh) btnRefresh.addEventListener('click', fetchBlocklist);
 
   const btnAddIp = document.getElementById('btn-add-ip');
   if (btnAddIp) {
@@ -164,5 +164,5 @@ export function initBlacklistPage() {
 }
 
 if (typeof document !== 'undefined' && !globalThis.__PFORTNER_SPA__) {
-  document.addEventListener('DOMContentLoaded', initBlacklistPage);
+  document.addEventListener('DOMContentLoaded', initBlocklistPage);
 }

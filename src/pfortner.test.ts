@@ -260,11 +260,11 @@ Deno.test({
 });
 
 Deno.test({
-  name: 'verifyAuthMessage: blacklisted AUTH pubkey fails',
+  name: 'verifyAuthMessage: blocked AUTH pubkey fails',
   sanitizeResources: false,
   sanitizeOps: false,
   fn: async () => {
-    const env = await createEnv({ pubkeyBlacklist: new Set([pk]) });
+    const env = await createEnv({ pubkeyBlocklist: new Set([pk]) });
     try {
       const event = makeAuthEvent(env.challenge, env.upstreamUrl);
       const result = await sendAuth(env.ws, env.proxy, event);
@@ -314,12 +314,12 @@ Deno.test({
 });
 
 Deno.test({
-  name: 'client message handler: blacklisted authenticated client is not forwarded',
+  name: 'client message handler: blocked authenticated client is not forwarded',
   sanitizeResources: false,
   sanitizeOps: false,
   fn: async () => {
-    const pubkeyBlacklist = new Set<string>();
-    const env = await createEnv({ pubkeyBlacklist });
+    const pubkeyBlocklist = new Set<string>();
+    const env = await createEnv({ pubkeyBlocklist });
     try {
       const event = makeAuthEvent(env.challenge, env.upstreamUrl);
       const authResult = await sendAuth(env.ws, env.proxy, event);
@@ -331,7 +331,7 @@ Deno.test({
         return { message: _msg, action: 'next' };
       }]);
 
-      pubkeyBlacklist.add(pk);
+      pubkeyBlocklist.add(pk);
       env.ws.send(JSON.stringify(['REQ', 'sub1', { kinds: [1] }]));
       await delay(100);
 
@@ -343,11 +343,11 @@ Deno.test({
 });
 
 Deno.test({
-  name: 'client message handler: blacklisted EVENT author is not forwarded',
+  name: 'client message handler: blocked EVENT author is not forwarded',
   sanitizeResources: false,
   sanitizeOps: false,
   fn: async () => {
-    const env = await createEnv({ pubkeyBlacklist: new Set([pk]) });
+    const env = await createEnv({ pubkeyBlocklist: new Set([pk]) });
     try {
       let policyRan = false;
       env.proxy.registerClientPipeline([(_msg) => {
@@ -372,11 +372,11 @@ Deno.test({
 });
 
 Deno.test({
-  name: 'server message handler: blacklisted authenticated client is closed before relay',
+  name: 'server message handler: blocked authenticated client is closed before relay',
   sanitizeResources: false,
   sanitizeOps: false,
   fn: async () => {
-    const pubkeyBlacklist = new Set<string>();
+    const pubkeyBlocklist = new Set<string>();
     let upstreamSocket: WebSocket | null = null;
 
     const relayAc = new AbortController();
@@ -403,7 +403,7 @@ Deno.test({
     const proxy = pfortnerInit(upstreamUrl, {
       sendAuthOnConnect: true,
       upstreamRawAddress: upstreamUrl,
-      pubkeyBlacklist,
+      pubkeyBlocklist,
     });
     proxy.registerClientPipeline([(msg) => ({ message: msg, action: 'accept' })]);
     proxy.registerServerPipeline([(msg) => ({ message: msg, action: 'accept' })]);
@@ -446,7 +446,7 @@ Deno.test({
       assertEquals(await sendAuth(ws, proxy, authEvent), 'success');
       await waitFor(() => upstreamSocket != null, 3000, 'Timed out waiting for upstream socket');
 
-      pubkeyBlacklist.add(pk);
+      pubkeyBlocklist.add(pk);
       const relayEvent = nostrTools.finalizeEvent({
         kind: 1,
         created_at: currUnixtime(),
@@ -455,7 +455,7 @@ Deno.test({
       }, nostrTools.generateSecretKey());
       upstreamSocket!.send(JSON.stringify(['EVENT', 'sub1', relayEvent]));
 
-      await waitFor(() => closeCode === 1008, 3000, 'Timed out waiting for blacklisted client close');
+      await waitFor(() => closeCode === 1008, 3000, 'Timed out waiting for blocked client close');
       assertEquals(messages, []);
     } finally {
       ws.close();
@@ -468,12 +468,12 @@ Deno.test({
 });
 
 Deno.test({
-  name: 'server relay hook: blacklisted authenticated client is closed before routed relay',
+  name: 'server relay hook: blocked authenticated client is closed before routed relay',
   sanitizeResources: false,
   sanitizeOps: false,
   fn: async () => {
-    const pubkeyBlacklist = new Set<string>();
-    const env = await createEnv({ pubkeyBlacklist });
+    const pubkeyBlocklist = new Set<string>();
+    const env = await createEnv({ pubkeyBlocklist });
     try {
       const authEvent = makeAuthEvent(env.challenge, env.upstreamUrl);
       assertEquals(await sendAuth(env.ws, env.proxy, authEvent), 'success');
@@ -488,7 +488,7 @@ Deno.test({
         closeCode = event.code;
       };
 
-      pubkeyBlacklist.add(pk);
+      pubkeyBlocklist.add(pk);
       const routedEvent = nostrTools.finalizeEvent({
         kind: 1,
         created_at: currUnixtime(),
@@ -498,7 +498,7 @@ Deno.test({
 
       await env.proxy.relayServerMessageToClient(['EVENT', 'sub1', routedEvent]);
 
-      await waitFor(() => closeCode === 1008, 3000, 'Timed out waiting for blacklisted routed relay close');
+      await waitFor(() => closeCode === 1008, 3000, 'Timed out waiting for blocked routed relay close');
       assertEquals(messages, []);
     } finally {
       await env.cleanup();

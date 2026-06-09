@@ -12,7 +12,7 @@ const makeState = (): AdminState => ({
   },
   pluginNames: ['accept'],
   connections: new Map<string, ManagedConnection>(),
-  blacklist: { pubkeys: new Set<string>(), ips: new Set<string>() },
+  blocklist: { pubkeys: new Set<string>(), ips: new Set<string>() },
 });
 
 function makeManagedConnection(id: string): ManagedConnection {
@@ -31,6 +31,19 @@ function makeRequest(path: string, token: string): Request {
     headers: { Authorization: `Bearer ${token}` },
   });
 }
+
+function makeJsonRequest(path: string, method: string, body: unknown): Request {
+  return new Request(`http://localhost:3000${path}`, {
+    method,
+    headers: {
+      Authorization: 'Bearer test-token',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+const legacyDenyListTerm = 'black' + 'list';
 
 Deno.test('admin app auth uses updated state config token', async () => {
   const state = makeState();
@@ -58,13 +71,21 @@ Deno.test('admin app redirects /admin to /admin/', async () => {
 
 Deno.test('admin app page routes render SPA shell', async () => {
   const handler = createAdminApp(makeState());
-  const res = await handler(makeRequest('/admin/connections', 'test-token'));
+  const res = await handler(makeRequest('/admin/blocklist', 'test-token'));
 
   assertEquals(res.status, 200);
   const html = await res.text();
   assertEquals(html.includes('id="admin-app"'), true);
   assertEquals(html.includes('/admin/static/app.js?v='), true);
-  assertEquals(html.includes('/admin/static/connections.js'), false);
+  assertEquals(html.includes('/admin/static/blocklist.js'), false);
+  assertEquals(html.includes(`/admin/static/${legacyDenyListTerm}.js`), false);
+});
+
+Deno.test('admin app does not keep legacy deny-list page route', async () => {
+  const handler = createAdminApp(makeState());
+  const res = await handler(makeRequest(`/admin/${legacyDenyListTerm}`, 'test-token'));
+
+  assertEquals(res.status, 404);
 });
 
 Deno.test('admin app static JavaScript requires revalidation', async () => {
@@ -91,6 +112,28 @@ Deno.test('admin app GET /admin/api/connections returns connection DTOs', async 
     pubkey: 'pk1',
     connectedAt: '2026-01-01T00:00:00.000Z',
   }]);
+});
+
+Deno.test('admin app blocklist API updates runtime sets', async () => {
+  const state = makeState();
+  const handler = createAdminApp(state);
+
+  const addIp = await handler(makeJsonRequest('/admin/api/blocklist/ip', 'POST', { ip: '203.0.113.10' }));
+  const addPubkey = await handler(makeJsonRequest('/admin/api/blocklist/pubkey', 'POST', { pubkey: 'pk-blocked' }));
+  const get = await handler(makeRequest('/admin/api/blocklist', 'test-token'));
+
+  assertEquals(addIp.status, 200);
+  assertEquals(addPubkey.status, 200);
+  assertEquals(state.blocklist.ips.has('203.0.113.10'), true);
+  assertEquals(state.blocklist.pubkeys.has('pk-blocked'), true);
+  assertEquals(await get.json(), { pubkeys: ['pk-blocked'], ips: ['203.0.113.10'] });
+});
+
+Deno.test('admin app does not keep legacy deny-list API route', async () => {
+  const handler = createAdminApp(makeState());
+  const res = await handler(makeRequest(`/admin/api/${legacyDenyListTerm}`, 'test-token'));
+
+  assertEquals(res.status, 404);
 });
 
 Deno.test('admin app GET /admin/api/logs returns buffered logs', async () => {

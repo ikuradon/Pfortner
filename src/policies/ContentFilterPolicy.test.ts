@@ -20,13 +20,13 @@ const makeEvent = (content: string, kind = 1) => ({
 });
 
 Deno.test('contentFilter passes non-EVENT messages', async () => {
-  const factory = await contentFilterPlugin.initialize({ banned_words: ['spam'] }, infra);
+  const factory = await contentFilterPlugin.initialize({ blocked_words: ['spam'] }, infra);
   const inst = mockInstance();
   assertEquals((await factory(inst)(['REQ', 'sub1', {}], inst.connectionInfo)).action, 'next');
 });
 
-Deno.test('contentFilter rejects event with banned word', async () => {
-  const factory = await contentFilterPlugin.initialize({ banned_words: ['spam', 'scam'] }, infra);
+Deno.test('contentFilter rejects event with blocked word', async () => {
+  const factory = await contentFilterPlugin.initialize({ blocked_words: ['spam', 'scam'] }, infra);
   const inst = mockInstance();
   assertEquals(
     (await factory(inst)(['EVENT', makeEvent('this is spam content')], inst.connectionInfo)).action,
@@ -35,14 +35,14 @@ Deno.test('contentFilter rejects event with banned word', async () => {
 });
 
 Deno.test('contentFilter passes clean content', async () => {
-  const factory = await contentFilterPlugin.initialize({ banned_words: ['spam'] }, infra);
+  const factory = await contentFilterPlugin.initialize({ blocked_words: ['spam'] }, infra);
   const inst = mockInstance();
   assertEquals((await factory(inst)(['EVENT', makeEvent('hello world')], inst.connectionInfo)).action, 'next');
 });
 
-Deno.test('contentFilter rejects event matching banned_patterns', async () => {
+Deno.test('contentFilter rejects event matching blocked_patterns', async () => {
   const factory = await contentFilterPlugin.initialize(
-    { banned_patterns: ['https?://malicious\\.example\\.com'] },
+    { blocked_patterns: ['https?://malicious\\.example\\.com'] },
     infra,
   );
   const inst = mockInstance();
@@ -53,7 +53,7 @@ Deno.test('contentFilter rejects event matching banned_patterns', async () => {
 });
 
 Deno.test('contentFilter apply_to_kinds only filters matching kinds', async () => {
-  const factory = await contentFilterPlugin.initialize({ banned_words: ['spam'], apply_to_kinds: [1] }, infra);
+  const factory = await contentFilterPlugin.initialize({ blocked_words: ['spam'], apply_to_kinds: [1] }, infra);
   const inst = mockInstance();
   const policy = factory(inst);
   assertEquals((await policy(['EVENT', makeEvent('spam', 30023)], inst.connectionInfo)).action, 'next');
@@ -61,13 +61,13 @@ Deno.test('contentFilter apply_to_kinds only filters matching kinds', async () =
 });
 
 Deno.test('contentFilter works in server direction (3-element EVENT)', async () => {
-  const factory = await contentFilterPlugin.initialize({ banned_words: ['spam'] }, infra);
+  const factory = await contentFilterPlugin.initialize({ blocked_words: ['spam'] }, infra);
   const inst = mockInstance();
   assertEquals((await factory(inst)(['EVENT', 'sub1', makeEvent('spam')], inst.connectionInfo)).action, 'reject');
 });
 
-Deno.test('contentFilter banned_words is case-insensitive', async () => {
-  const factory = await contentFilterPlugin.initialize({ banned_words: ['SPAM'] }, infra);
+Deno.test('contentFilter blocked_words is case-insensitive', async () => {
+  const factory = await contentFilterPlugin.initialize({ blocked_words: ['SPAM'] }, infra);
   const inst = mockInstance();
   assertEquals(
     (await factory(inst)(['EVENT', makeEvent('this has Spam in it')], inst.connectionInfo)).action,
@@ -115,23 +115,23 @@ Deno.test('contentFilter external_api on_error accept passes on API failure', as
   assertEquals(result.action, 'next');
 });
 
-Deno.test('contentFilter empty banned_words array: all events pass', async () => {
-  const factory = await contentFilterPlugin.initialize({ banned_words: [] }, infra);
+Deno.test('contentFilter empty blocked_words array: all events pass', async () => {
+  const factory = await contentFilterPlugin.initialize({ blocked_words: [] }, infra);
   const inst = mockInstance();
   assertEquals((await factory(inst)(['EVENT', makeEvent('anything goes here')], inst.connectionInfo)).action, 'next');
   assertEquals((await factory(inst)(['EVENT', makeEvent('spam scam phish')], inst.connectionInfo)).action, 'next');
 });
 
 Deno.test('contentFilter event.content is empty string: passes word check', async () => {
-  const factory = await contentFilterPlugin.initialize({ banned_words: ['spam'] }, infra);
+  const factory = await contentFilterPlugin.initialize({ blocked_words: ['spam'] }, infra);
   const inst = mockInstance();
   assertEquals((await factory(inst)(['EVENT', makeEvent('')], inst.connectionInfo)).action, 'next');
 });
 
-Deno.test('contentFilter banned_patterns with invalid regex throws on initialize', async () => {
+Deno.test('contentFilter blocked_patterns with invalid regex throws on initialize', async () => {
   let threw = false;
   try {
-    await contentFilterPlugin.initialize({ banned_patterns: ['[invalid(regex'] }, infra);
+    await contentFilterPlugin.initialize({ blocked_patterns: ['[invalid(regex'] }, infra);
   } catch {
     threw = true;
   }

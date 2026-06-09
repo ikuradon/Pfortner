@@ -84,7 +84,7 @@ export const pfortnerInit = (
     idleTimeout?: number;
     sendAuthOnConnect?: boolean;
     upstreamRawAddress?: string;
-    pubkeyBlacklist?: Set<string>;
+    pubkeyBlocklist?: Set<string>;
   } = {},
 ) => {
   let clientSocket: WebSocket | null = null;
@@ -126,22 +126,22 @@ export const pfortnerInit = (
 
   const usedAuthEventIds = new Set<string>();
 
-  function isBlacklistedPubkey(pubkey: unknown): boolean {
-    return typeof pubkey === 'string' && options.pubkeyBlacklist?.has(pubkey) === true;
+  function isBlockedPubkey(pubkey: unknown): boolean {
+    return typeof pubkey === 'string' && options.pubkeyBlocklist?.has(pubkey) === true;
   }
 
-  function isBlacklistedClientMessage(msg: unknown[]): boolean {
-    if (isBlacklistedPubkey(connectionInfo.clientPubkey)) {
+  function isBlockedClientMessage(msg: unknown[]): boolean {
+    if (isBlockedPubkey(connectionInfo.clientPubkey)) {
       return true;
     }
     if (msg[0] === 'EVENT') {
       const event = msg[1] as { pubkey?: unknown } | undefined;
-      return isBlacklistedPubkey(event?.pubkey);
+      return isBlockedPubkey(event?.pubkey);
     }
     return false;
   }
 
-  function closeBlacklistedConnection(): void {
+  function closeBlockedConnection(): void {
     closeSocket(POLICY_VIOLATION_CLOSE_CODE);
   }
   let authAttemptCount = 0;
@@ -207,9 +207,9 @@ export const pfortnerInit = (
       setIdleTimeout();
 
       try {
-        if (isBlacklistedClientMessage(msg)) {
-          await sendMessageToClient(JSON.stringify(['NOTICE', 'ERROR: blocked: pubkey banned']));
-          closeBlacklistedConnection();
+        if (isBlockedClientMessage(msg)) {
+          await sendMessageToClient(JSON.stringify(['NOTICE', 'ERROR: blocked: pubkey blocked']));
+          closeBlockedConnection();
           return;
         }
 
@@ -296,8 +296,8 @@ export const pfortnerInit = (
               continue;
             }
 
-            if (isBlacklistedPubkey(connectionInfo.clientPubkey)) {
-              closeBlacklistedConnection();
+            if (isBlockedPubkey(connectionInfo.clientPubkey)) {
+              closeBlockedConnection();
               return;
             }
 
@@ -487,12 +487,12 @@ export const pfortnerInit = (
         }
       }
       if (checkChallenge && checkRelay) {
-        if (isBlacklistedPubkey(event.pubkey)) {
+        if (isBlockedPubkey(event.pubkey)) {
           log.warn(
-            `AUTH blocked: pubkey blacklisted pubkey=${event.pubkey} connectionId=${connectionInfo.connectionId}`,
+            `AUTH blocked: pubkey in blocklist pubkey=${event.pubkey} connectionId=${connectionInfo.connectionId}`,
           );
           listeners.authFailed.forEach((cb) => cb());
-          closeBlacklistedConnection();
+          closeBlockedConnection();
           return;
         }
         // Record used event ID to prevent replay
@@ -632,8 +632,8 @@ export const pfortnerInit = (
   }
 
   async function relayServerMessageToClient(message: unknown[]): Promise<void> {
-    if (isBlacklistedPubkey(connectionInfo.clientPubkey)) {
-      closeBlacklistedConnection();
+    if (isBlockedPubkey(connectionInfo.clientPubkey)) {
+      closeBlockedConnection();
       return;
     }
     await runPipeline(serverPolicies, message, sendMessageToClient);

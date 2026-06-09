@@ -2,8 +2,8 @@ import type { HttpClient, InfraContext, PolicyFactory, PolicyPlugin } from '../p
 import { extractEvent } from '../plugins/types.ts';
 
 interface ContentFilterConfig {
-  banned_words?: string[];
-  banned_patterns?: string[];
+  blocked_words?: string[];
+  blocked_patterns?: string[];
   apply_to_kinds?: number[];
   external_api?: {
     url: string;
@@ -61,13 +61,13 @@ async function readJsonWithLimit(response: Response, maxBytes: number): Promise<
 
 export const contentFilterPlugin: PolicyPlugin = {
   name: 'content-filter',
-  description: 'Filter EVENT content by banned words and regex patterns',
+  description: 'Filter EVENT content by blocked words and regex patterns',
   direction: 'both',
   configSchema: {
     type: 'object',
     properties: {
-      banned_words: { type: 'array', items: { type: 'string' } },
-      banned_patterns: { type: 'array', items: { type: 'string' } },
+      blocked_words: { type: 'array', items: { type: 'string' } },
+      blocked_patterns: { type: 'array', items: { type: 'string' } },
       apply_to_kinds: { type: 'array', items: { type: 'number' } },
       external_api: {
         type: 'object',
@@ -84,8 +84,8 @@ export const contentFilterPlugin: PolicyPlugin = {
   },
   initialize(config: unknown, infra: InfraContext): Promise<PolicyFactory> {
     const cfg = config as ContentFilterConfig;
-    const lowerWords = (cfg.banned_words ?? []).map((w) => w.toLowerCase());
-    const patterns = (cfg.banned_patterns ?? []).map((p) => new RegExp(p, 'i'));
+    const lowerWords = (cfg.blocked_words ?? []).map((w) => w.toLowerCase());
+    const patterns = (cfg.blocked_patterns ?? []).map((p) => new RegExp(p, 'i'));
     const kindSet = cfg.apply_to_kinds ? new Set(cfg.apply_to_kinds) : null;
     const httpClient: HttpClient | undefined = cfg.external_api ? infra.httpClient : undefined;
     const apiConfig = cfg.external_api;
@@ -110,7 +110,7 @@ export const contentFilterPlugin: PolicyPlugin = {
 
         const contentLower = (event.content ?? '').toLowerCase();
 
-        // Check banned words
+        // Check blocked words
         for (const word of lowerWords) {
           if (contentLower.includes(word)) {
             return {
@@ -121,7 +121,7 @@ export const contentFilterPlugin: PolicyPlugin = {
           }
         }
 
-        // Check banned patterns
+        // Check blocked patterns
         for (const pattern of patterns) {
           if (pattern.test(event.content ?? '')) {
             return {

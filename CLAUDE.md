@@ -95,9 +95,9 @@ Policies are registered as arrays via `registerClientPipeline` (client→relay) 
 - **ProtectedEventPolicy** — NIP-70 protected events
 - **RateLimitPolicy** — sliding window (connection/ip/pubkey scope, redis/memory backend)
 - **SpamFilterPolicy** — PoW, content length, duplicate detection
-- **ContentFilterPolicy** — banned words/patterns, external API
-- **PubkeyAclPolicy** — whitelist/blacklist, external list, WoT
-- **IpFilterPolicy** — IP/CIDR blacklist, Tor blocking, GeoIP
+- **ContentFilterPolicy** — blocked words/patterns, external API
+- **PubkeyAclPolicy** — allowlist/blocklist, external list, WoT
+- **IpFilterPolicy** — IP/CIDR blocklist, Tor blocking, GeoIP
 - **WhenPlugin / MatchPlugin** — conditional pipeline branching (nestable, AND/OR/NOT)
 - **RoutePlugin** — dynamic routing to alternative upstream relays (NIP-50)
 
@@ -127,7 +127,7 @@ YAML config loader (`loader.ts`) with env var expansion (`${VAR}`), ajv schema v
 
 ### Admin UI (`admin/`)
 
-Fresh 2.x + Preact SSR served at `/admin` on the main port. Cookie auth (HttpOnly, SameSite=Strict). 10 pages: Dashboard, Connections, Pipelines, Playground, Metrics, Blacklist, Config, Logs, Login. Business logic in `src/admin/service.ts`. Dark/light theme via CSS variables.
+Fresh 2.x + Preact SSR served at `/admin` on the main port. Cookie auth (HttpOnly, SameSite=Strict). 10 pages: Dashboard, Connections, Pipelines, Playground, Metrics, Blocklist, Config, Logs, Login. Business logic in `src/admin/service.ts`. Dark/light theme via CSS variables.
 
 ### Event System
 

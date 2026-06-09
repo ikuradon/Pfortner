@@ -10,7 +10,7 @@ export interface AdminServiceState {
   config: PfortnerConfig;
   pluginNames: string[];
   connections: Map<string, ManagedConnection>;
-  blacklist: { pubkeys: Set<string>; ips: Set<string> };
+  blocklist: { pubkeys: Set<string>; ips: Set<string> };
   configPath?: string;
   reloadFn?: (yamlString: string) => Promise<void>;
   shutdownManager?: { isDraining(): boolean; initiateShutdown(): Promise<void> };
@@ -402,28 +402,28 @@ function simulatePolicyStep(
       const event = extractEvent(_message)?.event as { pubkey?: string } | undefined;
       if (!event) return { policy: policyName, action: 'next' };
       const pubkey = target === 'client' ? connectionInfo.clientPubkey : event?.pubkey;
-      if (target === 'client' && !pubkey && mode === 'whitelist') {
+      if (target === 'client' && !pubkey && mode === 'allowlist') {
         return { policy: policyName, action: 'reject', response: 'pubkey is not allowed' };
       }
       if (!pubkey) return { policy: policyName, action: 'next' };
       const inList = pubkeys?.includes(pubkey) ?? false;
-      if (mode === 'blacklist' && inList) {
+      if (mode === 'blocklist' && inList) {
         return { policy: policyName, action: 'reject', response: 'pubkey is blocked' };
       }
-      if (mode === 'whitelist' && !inList) {
+      if (mode === 'allowlist' && !inList) {
         return { policy: policyName, action: 'reject', response: 'pubkey is not allowed' };
       }
       return { policy: policyName, action: 'next' };
     }
 
     case 'ip-filter': {
-      const blacklist = cfg['blacklist'] as { ips?: string[]; cidrs?: string[] } | undefined;
+      const blocklist = cfg['blocklist'] as { ips?: string[]; cidrs?: string[] } | undefined;
       const ip = connectionInfo.connectionIpAddr;
-      if (blacklist?.ips && ip && blacklist.ips.includes(ip)) {
+      if (blocklist?.ips && ip && blocklist.ips.includes(ip)) {
         return { policy: policyName, action: 'reject', response: 'IP is blocked' };
       }
-      if (blacklist?.cidrs && ip) {
-        for (const cidr of blacklist.cidrs) {
+      if (blocklist?.cidrs && ip) {
+        for (const cidr of blocklist.cidrs) {
           const [network, prefixStr] = cidr.split('/');
           const prefix = Number(prefixStr);
           if (Number.isInteger(prefix) && cidrContains(network, ip, prefix)) {

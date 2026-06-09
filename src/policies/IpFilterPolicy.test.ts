@@ -10,32 +10,32 @@ const makeInstance = (ip: string): PfortnerInstance => ({
   connectionInfo: { connectionId: 'test', connectionIpAddr: ip, clientAuthorized: false, clientPubkey: '' },
 });
 
-Deno.test('ipFilter passes non-blacklisted IP', async () => {
-  const factory = await ipFilterPlugin.initialize({ blacklist: { ips: ['1.2.3.4'] } }, infra);
+Deno.test('ipFilter passes non-blocklisted IP', async () => {
+  const factory = await ipFilterPlugin.initialize({ blocklist: { ips: ['1.2.3.4'] } }, infra);
   const inst = makeInstance('5.6.7.8');
   assertEquals((await factory(inst)(['EVENT', { id: 'e1' }], inst.connectionInfo)).action, 'next');
 });
 
-Deno.test('ipFilter rejects blacklisted IP', async () => {
-  const factory = await ipFilterPlugin.initialize({ blacklist: { ips: ['1.2.3.4'] } }, infra);
+Deno.test('ipFilter rejects blocklisted IP', async () => {
+  const factory = await ipFilterPlugin.initialize({ blocklist: { ips: ['1.2.3.4'] } }, infra);
   const inst = makeInstance('1.2.3.4');
   assertEquals((await factory(inst)(['EVENT', { id: 'e1' }], inst.connectionInfo)).action, 'reject');
 });
 
 Deno.test('ipFilter rejects IP in CIDR range', async () => {
-  const factory = await ipFilterPlugin.initialize({ blacklist: { cidrs: ['10.0.0.0/8'] } }, infra);
+  const factory = await ipFilterPlugin.initialize({ blocklist: { cidrs: ['10.0.0.0/8'] } }, infra);
   const inst = makeInstance('10.1.2.3');
   assertEquals((await factory(inst)(['EVENT', { id: 'e1' }], inst.connectionInfo)).action, 'reject');
 });
 
 Deno.test('ipFilter passes IP outside CIDR range', async () => {
-  const factory = await ipFilterPlugin.initialize({ blacklist: { cidrs: ['10.0.0.0/8'] } }, infra);
+  const factory = await ipFilterPlugin.initialize({ blocklist: { cidrs: ['10.0.0.0/8'] } }, infra);
   const inst = makeInstance('192.168.1.1');
   assertEquals((await factory(inst)(['EVENT', { id: 'e1' }], inst.connectionInfo)).action, 'next');
 });
 
 Deno.test('ipFilter caches result per connection', async () => {
-  const factory = await ipFilterPlugin.initialize({ blacklist: { ips: ['1.2.3.4'] } }, infra);
+  const factory = await ipFilterPlugin.initialize({ blocklist: { ips: ['1.2.3.4'] } }, infra);
   const inst = makeInstance('1.2.3.4');
   const policy = factory(inst);
   const r1 = await policy(['EVENT', { id: 'e1' }], inst.connectionInfo);
@@ -44,13 +44,13 @@ Deno.test('ipFilter caches result per connection', async () => {
   assertEquals(r2.action, 'reject'); // all messages rejected after first check
 });
 
-Deno.test('ipFilter with empty blacklist passes all', async () => {
-  const factory = await ipFilterPlugin.initialize({ blacklist: {} }, infra);
+Deno.test('ipFilter with empty blocklist passes all', async () => {
+  const factory = await ipFilterPlugin.initialize({ blocklist: {} }, infra);
   const inst = makeInstance('1.2.3.4');
   assertEquals((await factory(inst)(['EVENT', { id: 'e1' }], inst.connectionInfo)).action, 'next');
 });
 
-Deno.test('ipFilter block_tor adds fetched exit nodes to blacklist', async () => {
+Deno.test('ipFilter block_tor adds fetched exit nodes to blocklist', async () => {
   const mockInfra = buildInfraContext({});
   mockInfra.httpClient = {
     fetch: () => Promise.resolve(new Response('1.2.3.4\n5.6.7.8\n# comment\n', { status: 200 })),
@@ -72,7 +72,7 @@ Deno.test('ipFilter block_tor gracefully handles fetch failure', async () => {
 });
 
 Deno.test('ipFilter CIDR /32 matches exact IP only', async () => {
-  const factory = await ipFilterPlugin.initialize({ blacklist: { cidrs: ['192.168.1.100/32'] } }, infra);
+  const factory = await ipFilterPlugin.initialize({ blocklist: { cidrs: ['192.168.1.100/32'] } }, infra);
   const instMatch = makeInstance('192.168.1.100');
   const instNoMatch = makeInstance('192.168.1.101');
   assertEquals((await factory(instMatch)(['EVENT', { id: 'e1' }], instMatch.connectionInfo)).action, 'reject');
@@ -80,7 +80,7 @@ Deno.test('ipFilter CIDR /32 matches exact IP only', async () => {
 });
 
 Deno.test('ipFilter CIDR /0 matches all IPs', async () => {
-  const factory = await ipFilterPlugin.initialize({ blacklist: { cidrs: ['0.0.0.0/0'] } }, infra);
+  const factory = await ipFilterPlugin.initialize({ blocklist: { cidrs: ['0.0.0.0/0'] } }, infra);
   const inst1 = makeInstance('1.2.3.4');
   const inst2 = makeInstance('192.168.1.1');
   const inst3 = makeInstance('10.0.0.1');
@@ -91,7 +91,7 @@ Deno.test('ipFilter CIDR /0 matches all IPs', async () => {
 
 Deno.test('ipFilter multiple CIDRs: match if any matches', async () => {
   const factory = await ipFilterPlugin.initialize({
-    blacklist: { cidrs: ['10.0.0.0/8', '192.168.0.0/16'] },
+    blocklist: { cidrs: ['10.0.0.0/8', '192.168.0.0/16'] },
   }, infra);
   const instMatch1 = makeInstance('10.5.6.7');
   const instMatch2 = makeInstance('192.168.1.50');

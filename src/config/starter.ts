@@ -19,7 +19,7 @@ interface ResolvedPipeline {
 export interface RequestHandlerHooks {
   onConnect?: (managed: ManagedConnection) => void;
   onDisconnect?: (connectionId: string) => void;
-  blacklist?: { pubkeys: Set<string>; ips: Set<string> };
+  blocklist?: { pubkeys: Set<string>; ips: Set<string> };
   connectionManager?: ConnectionManager;
   shutdownManager?: ShutdownManager;
 }
@@ -98,8 +98,8 @@ export async function buildRequestHandler(
       }
     }
 
-    // Runtime blacklist check
-    if (hooks?.blacklist?.ips.has(clientIp)) {
+    // Runtime blocklist check
+    if (hooks?.blocklist?.ips.has(clientIp)) {
       return new Response('Forbidden', { status: 403 });
     }
 
@@ -111,7 +111,7 @@ export async function buildRequestHandler(
       allowedAuthTimeDuration: config.auth?.allowed_time_duration,
       allowedAuthFutureTimeDuration: config.auth?.allowed_future_time_duration,
       upstreamRawAddress: config.server.upstream_raw_url,
-      pubkeyBlacklist: hooks?.blacklist?.pubkeys,
+      pubkeyBlocklist: hooks?.blocklist?.pubkeys,
     });
     const clientPolicies = clientPipeline.factories.map((factory) => factory(instance));
     const serverPolicies = serverPipeline.factories.map((factory) => factory(instance));

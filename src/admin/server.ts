@@ -24,7 +24,7 @@ export interface AdminState extends AdminServiceState {
   config: PfortnerConfig;
   pluginNames: string[];
   connections: Map<string, ManagedConnection>;
-  blacklist: { pubkeys: Set<string>; ips: Set<string> };
+  blocklist: { pubkeys: Set<string>; ips: Set<string> };
   configPath?: string;
   reloadFn?: (yamlString: string) => Promise<void>;
   shutdownManager?: ShutdownManager;
@@ -142,37 +142,37 @@ export function createAdminHandler(state: AdminState): (req: Request) => Promise
       });
     }
 
-    // POST /blacklist/pubkey
-    if (method === 'POST' && path === '/blacklist/pubkey') {
+    // POST /blocklist/pubkey
+    if (method === 'POST' && path === '/blocklist/pubkey') {
       const body = await req.json();
       if (body.pubkey) {
-        state.blacklist.pubkeys.add(body.pubkey);
+        state.blocklist.pubkeys.add(body.pubkey);
         return json({ added: body.pubkey });
       }
       return json({ error: 'pubkey required' }, 400);
     }
 
-    // DELETE /blacklist/pubkey/:pk
-    if (method === 'DELETE' && path.startsWith('/blacklist/pubkey/')) {
-      const pk = path.slice('/blacklist/pubkey/'.length);
-      state.blacklist.pubkeys.delete(pk);
+    // DELETE /blocklist/pubkey/:pk
+    if (method === 'DELETE' && path.startsWith('/blocklist/pubkey/')) {
+      const pk = path.slice('/blocklist/pubkey/'.length);
+      state.blocklist.pubkeys.delete(pk);
       return json({ deleted: pk });
     }
 
-    // POST /blacklist/ip
-    if (method === 'POST' && path === '/blacklist/ip') {
+    // POST /blocklist/ip
+    if (method === 'POST' && path === '/blocklist/ip') {
       const body = await req.json();
       if (body.ip) {
-        state.blacklist.ips.add(body.ip);
+        state.blocklist.ips.add(body.ip);
         return json({ added: body.ip });
       }
       return json({ error: 'ip required' }, 400);
     }
 
-    // DELETE /blacklist/ip/:ip
-    if (method === 'DELETE' && path.startsWith('/blacklist/ip/')) {
-      const ip = path.slice('/blacklist/ip/'.length);
-      state.blacklist.ips.delete(ip);
+    // DELETE /blocklist/ip/:ip
+    if (method === 'DELETE' && path.startsWith('/blocklist/ip/')) {
+      const ip = path.slice('/blocklist/ip/'.length);
+      state.blocklist.ips.delete(ip);
       return json({ deleted: ip });
     }
 

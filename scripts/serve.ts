@@ -72,7 +72,7 @@ if (configPath) {
     config,
     pluginNames: registry.listNames(),
     connections: new Map(),
-    blacklist: { pubkeys: new Set(), ips: new Set() },
+    blocklist: { pubkeys: new Set(), ips: new Set() },
     startTime: Date.now(),
     metrics: prometheusMetrics,
     logBuffer,
@@ -133,7 +133,7 @@ if (configPath) {
         releaseMap.get(connectionId)?.();
         releaseMap.delete(connectionId);
       },
-      blacklist: adminState.blacklist,
+      blocklist: adminState.blocklist,
       connectionManager,
       shutdownManager,
     },

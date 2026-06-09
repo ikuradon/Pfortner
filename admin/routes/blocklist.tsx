@@ -1,23 +1,23 @@
 /** @jsxImportSource preact */
 import { Layout } from '../components/Sidebar.tsx';
 
-interface BlacklistPageProps {
+interface BlocklistPageProps {
   currentPath: string;
 }
 
-export function BlacklistPage({ currentPath }: BlacklistPageProps) {
+export function BlocklistPage({ currentPath }: BlocklistPageProps) {
   return (
-    <Layout currentPath={currentPath} title='Blacklist'>
+    <Layout currentPath={currentPath} title='Blocklist'>
       <div class='page-header'>
-        <h1 class='page-title'>Blacklist</h1>
+        <h1 class='page-title'>Blocklist</h1>
         <button type='button' id='btn-refresh' class='btn btn-ghost'>
           ↺ Refresh
         </button>
       </div>
 
-      {/* IP Blacklist */}
+      {/* IP Blocklist */}
       <div class='chart-container' style='margin-bottom:24px'>
-        <div class='chart-title'>IP Blacklist</div>
+        <div class='chart-title'>IP Blocklist</div>
 
         <div class='flex gap-2 mb-4' style='align-items:flex-end'>
           <div class='form-group' style='margin:0;flex:1;max-width:360px'>
@@ -56,9 +56,9 @@ export function BlacklistPage({ currentPath }: BlacklistPageProps) {
         </div>
       </div>
 
-      {/* Pubkey Blacklist */}
+      {/* Pubkey Blocklist */}
       <div class='chart-container'>
-        <div class='chart-title'>Pubkey Blacklist</div>
+        <div class='chart-title'>Pubkey Blocklist</div>
 
         <div class='flex gap-2 mb-4' style='align-items:flex-end'>
           <div class='form-group' style='margin:0;flex:1;max-width:480px'>
@@ -98,7 +98,7 @@ export function BlacklistPage({ currentPath }: BlacklistPageProps) {
       </div>
 
       <script src='/admin/static/utils.js'></script>
-      <script src='/admin/static/blacklist.js' type='module'></script>
+      <script src='/admin/static/blocklist.js' type='module'></script>
     </Layout>
   );
 }

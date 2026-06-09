@@ -22,7 +22,7 @@ const makeState = (): AdminState => ({
   },
   pluginNames: ['accept', 'kind-filter', 'write-guard'],
   connections: new Map<string, ManagedConnection>(),
-  blacklist: { pubkeys: new Set<string>(), ips: new Set<string>() },
+  blocklist: { pubkeys: new Set<string>(), ips: new Set<string>() },
 });
 
 function makeRequest(path: string, method = 'GET', token = 'test-token', body?: string): Request {
@@ -30,6 +30,8 @@ function makeRequest(path: string, method = 'GET', token = 'test-token', body?: 
   if (body) headers['Content-Type'] = 'application/json';
   return new Request(`http://localhost:9091${path}`, { method, headers, body });
 }
+
+const legacyDenyListTerm = 'black' + 'list';
 
 Deno.test('admin GET /health returns 200', async () => {
   const handler = createAdminHandler(makeState());
@@ -91,29 +93,37 @@ Deno.test('admin GET /connections returns empty list', async () => {
   assertEquals(body.connections.length, 0);
 });
 
-Deno.test('admin POST /blacklist/pubkey adds pubkey', async () => {
+Deno.test('admin POST /blocklist/pubkey adds pubkey', async () => {
   const state = makeState();
   const handler = createAdminHandler(state);
-  const res = await handler(makeRequest('/blacklist/pubkey', 'POST', 'test-token', JSON.stringify({ pubkey: 'pk1' })));
+  const res = await handler(makeRequest('/blocklist/pubkey', 'POST', 'test-token', JSON.stringify({ pubkey: 'pk1' })));
   assertEquals(res.status, 200);
-  assertEquals(state.blacklist.pubkeys.has('pk1'), true);
+  assertEquals(state.blocklist.pubkeys.has('pk1'), true);
 });
 
-Deno.test('admin DELETE /blacklist/pubkey/:pk removes pubkey', async () => {
+Deno.test('admin DELETE /blocklist/pubkey/:pk removes pubkey', async () => {
   const state = makeState();
-  state.blacklist.pubkeys.add('pk1');
+  state.blocklist.pubkeys.add('pk1');
   const handler = createAdminHandler(state);
-  const res = await handler(makeRequest('/blacklist/pubkey/pk1', 'DELETE'));
+  const res = await handler(makeRequest('/blocklist/pubkey/pk1', 'DELETE'));
   assertEquals(res.status, 200);
-  assertEquals(state.blacklist.pubkeys.has('pk1'), false);
+  assertEquals(state.blocklist.pubkeys.has('pk1'), false);
 });
 
-Deno.test('admin POST /blacklist/ip adds IP', async () => {
+Deno.test('admin POST /blocklist/ip adds IP', async () => {
   const state = makeState();
   const handler = createAdminHandler(state);
-  const res = await handler(makeRequest('/blacklist/ip', 'POST', 'test-token', JSON.stringify({ ip: '1.2.3.4' })));
+  const res = await handler(makeRequest('/blocklist/ip', 'POST', 'test-token', JSON.stringify({ ip: '1.2.3.4' })));
   assertEquals(res.status, 200);
-  assertEquals(state.blacklist.ips.has('1.2.3.4'), true);
+  assertEquals(state.blocklist.ips.has('1.2.3.4'), true);
+});
+
+Deno.test('admin does not keep legacy deny-list API route', async () => {
+  const handler = createAdminHandler(makeState());
+  const res = await handler(
+    makeRequest(`/${legacyDenyListTerm}/ip`, 'POST', 'test-token', JSON.stringify({ ip: '1.2.3.4' })),
+  );
+  assertEquals(res.status, 404);
 });
 
 Deno.test('admin returns 404 for unknown path', async () => {
