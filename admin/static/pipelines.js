@@ -624,33 +624,55 @@ function deleteSelectedNodes() {
   setStatus('Deleted ' + deleting.size + ' node(s)');
 }
 
-function addMatchCase(node) {
-  if (node.policy !== 'match') return;
-  const config = cloneValue(node.config ?? {});
-  const cases = Array.isArray(config.cases) ? config.cases : [];
-  cases.push({ condition: {}, pipeline: [] });
-  config.cases = cases;
-  node.config = config;
-  render();
+function matchCaseCount(config) {
+  return Array.isArray(config?.cases) ? config.cases.length : 0;
 }
 
-function removeMatchCase(node, index) {
-  if (node.policy !== 'match') return;
-  const config = cloneValue(node.config ?? {});
-  const cases = Array.isArray(config.cases) ? config.cases : [];
-  cases.splice(index, 1);
-  config.cases = cases;
-  node.config = config;
-  const graph = currentGraph();
-  graph.edges = graph.edges.filter((edge) => edge.from !== node.id || edge.fromPort !== `case:${index}`);
-  for (const edge of graph.edges) {
-    const match = /^case:(\d+)$/.exec(edge.fromPort ?? '');
-    if (edge.from === node.id && match) {
-      const oldIndex = Number(match[1]);
-      if (oldIndex > index) edge.fromPort = `case:${oldIndex - 1}`;
-    }
+function initialMatchCaseIndexMap(config) {
+  return Array.from({ length: matchCaseCount(config) }, (_, index) => index);
+}
+
+export function addMatchCaseDraftConfig(config, caseIndexMap) {
+  const nextConfig = cloneValue(config ?? {});
+  const cases = Array.isArray(nextConfig.cases) ? nextConfig.cases : [];
+  cases.push({ condition: {}, pipeline: [] });
+  nextConfig.cases = cases;
+  const nextMap = Array.isArray(caseIndexMap)
+    ? [...caseIndexMap, null]
+    : cases.map((_, index) => index < cases.length - 1 ? index : null);
+
+  return { config: nextConfig, caseIndexMap: nextMap };
+}
+
+export function removeMatchCaseDraftConfig(config, index, caseIndexMap) {
+  const nextConfig = cloneValue(config ?? {});
+  const previousCases = Array.isArray(config?.cases) ? config.cases : [];
+  const cases = Array.isArray(nextConfig.cases) ? nextConfig.cases : [];
+  const nextMap = Array.isArray(caseIndexMap) ? [...caseIndexMap] : previousCases.map((_, caseIndex) => caseIndex);
+
+  if (index >= 0 && index < cases.length) {
+    cases.splice(index, 1);
+    nextMap.splice(index, 1);
   }
-  render();
+  nextConfig.cases = cases;
+
+  return { config: nextConfig, caseIndexMap: nextMap.slice(0, cases.length) };
+}
+
+export function reconcileMatchCaseEdges(edges, nodeId, caseIndexMap, newCaseCount) {
+  const count = Math.max(0, Number(newCaseCount) || 0);
+  const indexMap = Array.isArray(caseIndexMap) ? caseIndexMap : null;
+
+  return (edges ?? []).flatMap((edge) => {
+    const match = /^case:(\d+)$/.exec(edge?.fromPort ?? '');
+    if (edge?.from !== nodeId || !match) return [edge];
+
+    const oldIndex = Number(match[1]);
+    const newIndex = indexMap ? indexMap.findIndex((mappedIndex) => mappedIndex === oldIndex) : oldIndex;
+    if (newIndex < 0 || newIndex >= count) return [];
+    if (edge.fromPort === `case:${newIndex}`) return [edge];
+    return [{ ...edge, fromPort: `case:${newIndex}` }];
+  });
 }
 
 function selectNode(nodeId, additive = false) {
@@ -1171,13 +1193,6 @@ function configRowsFromNode(node) {
   return configToEditorRows(node.config ?? {});
 }
 
-function updateRowsFromNode(node, updateLocalState) {
-  updateLocalState(
-    configRowsFromNode(node),
-    JSON.stringify(node.config ?? {}, null, 2),
-  );
-}
-
 function renderValueControl(row, onChange) {
   if (row.type === 'boolean') {
     return htmlEl('label', { className: 'config-boolean-control' }, [
@@ -1218,7 +1233,7 @@ function renderValueControl(row, onChange) {
   return input;
 }
 
-function renderConfigRows(rows, renderContent) {
+function renderConfigRows(rows, renderContent, onCaseRowEdited = null) {
   const wrapper = htmlEl('div', { className: 'config-editor-rows' });
   const typeOptions = ['string', 'number', 'boolean', 'array', 'object', 'null'];
 
@@ -1236,7 +1251,9 @@ function renderConfigRows(rows, renderContent) {
       value: row.key ?? '',
       events: {
         input: (event) => {
+          const previousKey = rows[index].key;
           rows[index].key = event.currentTarget.value;
+          if (previousKey === 'cases' || rows[index].key === 'cases') onCaseRowEdited?.();
         },
       },
     });
@@ -1248,6 +1265,7 @@ function renderConfigRows(rows, renderContent) {
           change: (event) => {
             rows[index].type = event.currentTarget.value;
             rows[index].value = defaultValueForRowType(rows[index].type);
+            if (rows[index].key === 'cases') onCaseRowEdited?.();
             renderContent();
           },
         },
@@ -1262,6 +1280,7 @@ function renderConfigRows(rows, renderContent) {
     );
     const valueControl = renderValueControl(row, (value) => {
       rows[index].value = value;
+      if (rows[index].key === 'cases') onCaseRowEdited?.();
     });
     const remove = htmlEl('button', {
       type: 'button',
@@ -1269,7 +1288,9 @@ function renderConfigRows(rows, renderContent) {
       text: 'Remove',
       events: {
         click: () => {
+          const removed = rows[index];
           rows.splice(index, 1);
+          if (removed?.key === 'cases') onCaseRowEdited?.();
           renderContent();
         },
       },
@@ -1298,9 +1319,12 @@ function renderConfigRows(rows, renderContent) {
   return wrapper;
 }
 
-function renderMatchCaseControls(node, updateLocalState, renderContent) {
+function renderMatchCaseControls(node, rows, changeDraftConfig) {
   if (node.policy !== 'match') return null;
-  const cases = Array.isArray(node.config?.cases) ? node.config.cases : [];
+  const parsed = updateConfigFromEditorRows(rows);
+  if ('error' in parsed) return null;
+
+  const cases = Array.isArray(parsed.config?.cases) ? parsed.config.cases : [];
   const controls = htmlEl('div', { className: 'config-branch-controls' }, [
     htmlEl('div', { className: 'section-title', text: 'Cases' }),
   ]);
@@ -1312,9 +1336,7 @@ function renderMatchCaseControls(node, updateLocalState, renderContent) {
       text: 'Remove case ' + (index + 1),
       events: {
         click: () => {
-          removeMatchCase(node, index);
-          updateRowsFromNode(node, updateLocalState);
-          renderContent();
+          changeDraftConfig((config, caseIndexMap) => removeMatchCaseDraftConfig(config, index, caseIndexMap));
         },
       },
     }));
@@ -1326,9 +1348,7 @@ function renderMatchCaseControls(node, updateLocalState, renderContent) {
     text: '+ Case',
     events: {
       click: () => {
-        addMatchCase(node);
-        updateRowsFromNode(node, updateLocalState);
-        renderContent();
+        changeDraftConfig(addMatchCaseDraftConfig);
       },
     },
   }));
@@ -1347,10 +1367,38 @@ function openNodeSettingsModal(node) {
   let mode = 'interactive';
   let rows = configRowsFromNode(node);
   let jsonValue = JSON.stringify(node.config ?? {}, null, 2);
+  let caseIndexMap = initialMatchCaseIndexMap(node.config);
   let errorMessage = '';
-  const updateLocalState = (nextRows, nextJsonValue) => {
-    rows = nextRows;
-    jsonValue = nextJsonValue;
+
+  const changeDraftConfig = (updateDraft) => {
+    const parsed = updateConfigFromEditorRows(rows);
+    if ('error' in parsed) {
+      errorMessage = parsed.error;
+      renderContent();
+      return;
+    }
+
+    const nextDraft = updateDraft(parsed.config, caseIndexMap);
+    rows = configToEditorRows(nextDraft.config);
+    jsonValue = JSON.stringify(nextDraft.config, null, 2);
+    caseIndexMap = nextDraft.caseIndexMap;
+    errorMessage = '';
+    renderContent(false);
+  };
+
+  const syncJsonFromRows = () => {
+    const parsed = updateConfigFromEditorRows(rows);
+    if ('error' in parsed) return parsed;
+    jsonValue = JSON.stringify(parsed.config, null, 2);
+    return parsed;
+  };
+
+  const syncRowsFromJson = () => {
+    const parsed = parseConfigJson(jsonValue);
+    if ('error' in parsed) return parsed;
+    rows = configToEditorRows(parsed.config);
+    caseIndexMap = initialMatchCaseIndexMap(parsed.config);
+    return parsed;
   };
 
   const applyConfigUpdate = () => {
@@ -1362,6 +1410,15 @@ function openNodeSettingsModal(node) {
     }
 
     node.config = cloneValue(result.config);
+    if (node.policy === 'match') {
+      const graph = currentGraph();
+      graph.edges = reconcileMatchCaseEdges(
+        graph.edges,
+        node.id,
+        caseIndexMap,
+        matchCaseCount(node.config),
+      );
+    }
     executionNodeIds.clear();
     closeNodeSettingsModal();
     render();
@@ -1380,6 +1437,13 @@ function openNodeSettingsModal(node) {
         text: 'Interactive',
         events: {
           click: () => {
+            if (mode === 'interactive') return;
+            const synced = syncRowsFromJson();
+            if ('error' in synced) {
+              errorMessage = synced.error;
+              renderContent();
+              return;
+            }
             mode = 'interactive';
             errorMessage = '';
             renderContent(false);
@@ -1392,9 +1456,15 @@ function openNodeSettingsModal(node) {
         text: 'JSON',
         events: {
           click: () => {
+            if (mode === 'json') return;
+            const synced = syncJsonFromRows();
+            if ('error' in synced) {
+              errorMessage = synced.error;
+              renderContent();
+              return;
+            }
             mode = 'json';
             errorMessage = '';
-            jsonValue = JSON.stringify(node.config ?? {}, null, 2);
             renderContent(false);
           },
         },
@@ -1417,14 +1487,17 @@ function openNodeSettingsModal(node) {
         events: {
           input: (event) => {
             jsonValue = event.currentTarget.value;
+            caseIndexMap = null;
           },
         },
       });
       textarea.value = jsonValue;
       bodyChildren.push(textarea);
     } else {
-      bodyChildren.push(renderConfigRows(rows, renderContent));
-      const matchControls = renderMatchCaseControls(node, updateLocalState, renderContent);
+      bodyChildren.push(renderConfigRows(rows, renderContent, () => {
+        caseIndexMap = null;
+      }));
+      const matchControls = renderMatchCaseControls(node, rows, changeDraftConfig);
       if (matchControls) bodyChildren.push(matchControls);
     }
 

@@ -23,7 +23,13 @@ import {
   normalizeWorkbenchDraft,
   recordHistorySnapshot,
 } from '../../admin/static/pipeline_workbench_state.js';
-import { buildYamlPreview, defaultConfigForPolicy } from '../../admin/static/pipelines.js';
+import {
+  addMatchCaseDraftConfig,
+  buildYamlPreview,
+  defaultConfigForPolicy,
+  reconcileMatchCaseEdges,
+  removeMatchCaseDraftConfig,
+} from '../../admin/static/pipelines.js';
 
 const pipelineEditor = await import(
   '../../admin/static/pipelines.js'
@@ -595,4 +601,51 @@ Deno.test('pipeline config editor converts generic interactive rows', () => {
       condition: { message_type: 'REQ' },
     },
   });
+});
+
+Deno.test('pipeline match case draft helpers keep config changes local', () => {
+  const original = {
+    cases: [
+      { condition: { kind: 1 }, pipeline: [{ policy: 'accept' }] },
+      { condition: { kind: 2 }, pipeline: [{ policy: 'reject' }] },
+    ],
+    default: [],
+  };
+
+  const removed = removeMatchCaseDraftConfig(original, 0, [0, 1]);
+
+  assertEquals(original.cases.length, 2);
+  assertEquals(removed, {
+    config: {
+      cases: [
+        { condition: { kind: 2 }, pipeline: [{ policy: 'reject' }] },
+      ],
+      default: [],
+    },
+    caseIndexMap: [1],
+  });
+
+  const added = addMatchCaseDraftConfig(removed.config, removed.caseIndexMap);
+  assertEquals(added.config.cases.length, 2);
+  assertEquals(added.caseIndexMap, [1, null]);
+});
+
+Deno.test('pipeline match case edge reconciliation prunes and renumbers removed cases', () => {
+  const edges = [
+    { id: 'case-0', from: 'match-node', fromPort: 'case:0', to: 'a' },
+    { id: 'case-1', from: 'match-node', fromPort: 'case:1', to: 'b' },
+    { id: 'case-2', from: 'match-node', fromPort: 'case:2', to: 'c' },
+    { id: 'default', from: 'match-node', fromPort: 'default', to: 'd' },
+    { id: 'other', from: 'other-node', fromPort: 'case:1', to: 'e' },
+  ];
+
+  assertEquals(
+    reconcileMatchCaseEdges(edges, 'match-node', [0, 2], 2),
+    [
+      { id: 'case-0', from: 'match-node', fromPort: 'case:0', to: 'a' },
+      { id: 'case-2', from: 'match-node', fromPort: 'case:1', to: 'c' },
+      { id: 'default', from: 'match-node', fromPort: 'default', to: 'd' },
+      { id: 'other', from: 'other-node', fromPort: 'case:1', to: 'e' },
+    ],
+  );
 });
