@@ -160,3 +160,19 @@ export function hasUnpublishedChanges(
 ) {
   return currentFingerprint !== publishedFingerprint;
 }
+
+export function getWorkbenchChangeState({
+  currentDraftFingerprint,
+  savedDraftFingerprint,
+  currentPipelineFingerprint,
+  publishedFingerprint,
+}) {
+  const hasUnsavedDagChanges = currentDraftFingerprint !== savedDraftFingerprint;
+  const hasUnpublishedChanges = currentPipelineFingerprint !== publishedFingerprint;
+  return {
+    hasUnsavedDagChanges,
+    hasUnpublishedChanges,
+    dagLabel: hasUnsavedDagChanges ? 'Unsaved DAG' : 'Saved DAG',
+    publishLabel: hasUnpublishedChanges ? 'Unpublished changes' : 'Published',
+  };
+}

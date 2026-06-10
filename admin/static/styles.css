@@ -168,9 +168,7 @@ body {
 
   .pipeline-workbench .page-header > .flex {
     max-width: 100%;
-    overflow-x: auto;
-    padding-bottom: 2px;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
   }
 
   .pipeline-workbench .page-header > .flex .btn {
@@ -1051,6 +1049,13 @@ body {
 
 .workbench-status {
   min-height: 28px;
+}
+
+.workbench-state-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .workbench-grid {

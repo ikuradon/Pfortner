@@ -185,6 +185,7 @@ export function renderPipelinesPage(root) {
             id: 'btn-redo-pipeline',
             disabled: true,
           }),
+          button('▷ Run', 'btn btn-ghost', { id: 'btn-run-pipeline' }),
           button('↺ Refresh', 'btn btn-ghost', { id: 'btn-refresh-pipelines' }),
           button('⛶ Fit', 'btn btn-ghost', { id: 'btn-fit-canvas' }),
           button('−', 'btn btn-ghost', {
@@ -197,8 +198,18 @@ export function renderPipelinesPage(root) {
         ]),
         el(
           'span',
-          { className: 'text-muted', id: 'workbench-status-summary' },
-          ['Ready'],
+          { className: 'workbench-state-badges' },
+          [
+            el('span', { className: 'text-muted', id: 'workbench-status-summary' }, [
+              'Ready',
+            ]),
+            el('span', { className: 'badge badge-success', id: 'workbench-save-state' }, [
+              'Saved DAG',
+            ]),
+            el('span', { className: 'badge badge-success', id: 'workbench-publish-state' }, [
+              'Published',
+            ]),
+          ],
         ),
       ]),
       el('div', { id: 'pipeline-status', className: 'workbench-status' }),

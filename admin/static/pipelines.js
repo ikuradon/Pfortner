@@ -11,6 +11,7 @@ import {
   applyHistoryChange,
   buildPipelineDraft,
   fingerprintPipelines,
+  getWorkbenchChangeState,
   initialHistoryState,
   isRedoAvailable,
   isUndoAvailable,
@@ -52,6 +53,7 @@ let graphs = pipelinesToGraph(pipelines);
 let historyState = initialHistoryState(graphs);
 let publishedFingerprint = fingerprintPipelines(pipelines);
 let viewports = defaultViewports();
+let lastSavedDraftFingerprint = '';
 let availablePlugins = [];
 let selectedNodeIds = new Set();
 let executionNodeIds = new Set();
@@ -211,6 +213,20 @@ function normalizeViewports(value) {
   };
 }
 
+function currentViewportsSnapshot() {
+  return normalizeViewports({
+    ...viewports,
+    [currentDirection]: { zoom, pan: { x: pan.x, y: pan.y } },
+  });
+}
+
+function currentDraftFingerprint() {
+  return JSON.stringify({
+    graphs,
+    viewports: currentViewportsSnapshot(),
+  });
+}
+
 function saveCurrentViewport() {
   viewports[currentDirection] = {
     zoom,
@@ -332,6 +348,15 @@ export function buildYamlPreview(pipes) {
   yaml += '  client:\n' + entriesToYaml(pipes.client, '  ');
   yaml += '  server:\n' + entriesToYaml(pipes.server, '  ');
   return yaml;
+}
+
+export function buildPublishConfirmationMessage(yaml) {
+  return 'Publish this pipeline configuration to the active config file?\n\n' + yaml;
+}
+
+function confirmPublish(serialized) {
+  if (typeof globalThis.confirm !== 'function') return true;
+  return globalThis.confirm(buildPublishConfirmationMessage(buildYamlPreview(serialized)));
 }
 
 function policyIcon(name) {
@@ -588,16 +613,34 @@ function currentPipelinesFingerprint() {
 
 function setPersistentSummary() {
   const summary = document.getElementById('workbench-status-summary');
-  if (!summary) return;
   const graph = currentGraph();
   const result = validatePipelineGraph(graph);
   const count = policyNodes(graph).length;
   const label = currentDirection === 'client' ? 'Client' : 'Server';
-  const draftLabel = currentPipelinesFingerprint() !== publishedFingerprint ? ' · draft' : '';
-  summary.textContent = result.valid
-    ? `${label}: ${count} nodes${draftLabel}`
-    : `${label}: ${result.errors.length} issue(s)${draftLabel}`;
-  summary.classList.toggle('text-danger', !result.valid);
+  if (summary) {
+    summary.textContent = result.valid ? `${label}: ${count} nodes` : `${label}: ${result.errors.length} issue(s)`;
+    summary.classList.toggle('text-danger', !result.valid);
+  }
+  updateWorkbenchChangeBadges();
+}
+
+function setStateBadge(id, text, isWarning) {
+  const badge = document.getElementById(id);
+  if (!badge) return;
+  badge.textContent = text;
+  badge.classList.toggle('badge-warning', isWarning);
+  badge.classList.toggle('badge-success', !isWarning);
+}
+
+function updateWorkbenchChangeBadges() {
+  const state = getWorkbenchChangeState({
+    currentDraftFingerprint: currentDraftFingerprint(),
+    savedDraftFingerprint: lastSavedDraftFingerprint,
+    currentPipelineFingerprint: currentPipelinesFingerprint(),
+    publishedFingerprint,
+  });
+  setStateBadge('workbench-save-state', state.dagLabel, state.hasUnsavedDagChanges);
+  setStateBadge('workbench-publish-state', state.publishLabel, state.hasUnpublishedChanges);
 }
 
 function updateHistoryButtons() {
@@ -1042,6 +1085,7 @@ function handlePointerUp(event) {
 
   if (dragState?.type === 'pan') {
     saveCurrentViewport();
+    updateWorkbenchChangeBadges();
   }
 
   dragState = null;
@@ -1273,6 +1317,7 @@ function fitCanvas() {
       Math.max(0, (rect.height - bounds.height * zoom) / 2 - 40),
   };
   saveCurrentViewport();
+  updateWorkbenchChangeBadges();
   renderCanvas();
   renderMinimap();
 }
@@ -1292,6 +1337,7 @@ function setZoom(nextZoom, pivotEvent = null) {
     };
   }
   saveCurrentViewport();
+  updateWorkbenchChangeBadges();
   renderCanvas();
   renderMinimap();
 }
@@ -2202,6 +2248,8 @@ async function saveDag(options = {}) {
       now: Date.now(),
     });
     writeLocalDraft(draft);
+    lastSavedDraftFingerprint = currentDraftFingerprint();
+    updateWorkbenchChangeBadges();
 
     try {
       await postPipelineDraft(draft);
@@ -2244,6 +2292,10 @@ async function publishConfig() {
     }
 
     const serialized = serializeCurrentPipelines();
+    if (!confirmPublish(serialized)) {
+      setStatus('Publish canceled');
+      return;
+    }
     const res = await fetch('/admin/api/pipelines', {
       method: 'POST',
       credentials: 'same-origin',
@@ -2303,6 +2355,7 @@ async function loadPipelinesPage() {
     }
     historyState = initialHistoryState(graphs);
     applyViewport(currentDirection);
+    lastSavedDraftFingerprint = currentDraftFingerprint();
     selectedNodeIds.clear();
     executionNodeIds.clear();
     availablePlugins = Array.isArray(pluginsData.plugins) && pluginsData.plugins.length > 0
@@ -2411,6 +2464,11 @@ function bindControls() {
     redoGraphChange,
     { signal },
   );
+  document.getElementById('btn-run-pipeline')?.addEventListener(
+    'click',
+    () => openPlaygroundModal(),
+    { signal },
+  );
   document.getElementById('btn-toggle-palette')?.addEventListener(
     'click',
     togglePaletteCollapsed,
@@ -2506,6 +2564,7 @@ export function initPipelinesPage() {
   publishedFingerprint = fingerprintPipelines(pipelines);
   viewports = defaultViewports();
   applyViewport(currentDirection);
+  lastSavedDraftFingerprint = currentDraftFingerprint();
   availablePlugins = [];
   selectedNodeIds = new Set();
   executionNodeIds = new Set();

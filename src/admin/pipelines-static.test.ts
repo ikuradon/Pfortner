@@ -40,6 +40,9 @@ const pipelineEditor = await import(
   string,
   (...args: any[]) => any
 >;
+const workbenchState = await import(
+  '../../admin/static/pipeline_workbench_state.js'
+) as unknown as Record<string, (...args: any[]) => any>;
 
 Deno.test('pipeline editor defaults protected-event to require authentication', () => {
   assertEquals(defaultConfigForPolicy('protected-event'), {
@@ -556,6 +559,49 @@ Deno.test('pipeline workbench detects unpublished changes', () => {
 
   assertEquals(hasUnpublishedChanges(changed, published), true);
   assertEquals(hasUnpublishedChanges(published, published), false);
+});
+
+Deno.test('pipeline workbench reports saved DAG and published state separately', () => {
+  assertEquals(
+    workbenchState.getWorkbenchChangeState?.({
+      currentDraftFingerprint: 'draft-b',
+      savedDraftFingerprint: 'draft-a',
+      currentPipelineFingerprint: 'pipeline-b',
+      publishedFingerprint: 'pipeline-a',
+    }),
+    {
+      hasUnsavedDagChanges: true,
+      hasUnpublishedChanges: true,
+      dagLabel: 'Unsaved DAG',
+      publishLabel: 'Unpublished changes',
+    },
+  );
+  assertEquals(
+    workbenchState.getWorkbenchChangeState?.({
+      currentDraftFingerprint: 'same-draft',
+      savedDraftFingerprint: 'same-draft',
+      currentPipelineFingerprint: 'same-pipeline',
+      publishedFingerprint: 'same-pipeline',
+    }),
+    {
+      hasUnsavedDagChanges: false,
+      hasUnpublishedChanges: false,
+      dagLabel: 'Saved DAG',
+      publishLabel: 'Published',
+    },
+  );
+});
+
+Deno.test('pipeline publish confirmation message includes YAML preview', () => {
+  const yaml = buildYamlPreview({
+    client: [{ policy: 'write-guard', config: { require_auth: true } }],
+    server: [],
+  });
+  const message = pipelineEditor.buildPublishConfirmationMessage?.(yaml);
+
+  assertStringIncludes(message, 'Publish');
+  assertStringIncludes(message, 'pipelines:');
+  assertStringIncludes(message, 'write-guard');
 });
 
 Deno.test('pipeline workbench local preference keys are stable', () => {

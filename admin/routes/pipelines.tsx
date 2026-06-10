@@ -46,6 +46,13 @@ export function PipelinesPage({ currentPath }: PipelinesPageProps) {
             </button>
             <button
               type='button'
+              id='btn-run-pipeline'
+              class='btn btn-ghost'
+            >
+              ▷ Run
+            </button>
+            <button
+              type='button'
               id='btn-refresh-pipelines'
               class='btn btn-ghost'
             >
@@ -81,7 +88,15 @@ export function PipelinesPage({ currentPath }: PipelinesPageProps) {
               Publish
             </button>
           </div>
-          <span class='text-muted' id='workbench-status-summary'>Ready</span>
+          <span class='workbench-state-badges'>
+            <span class='text-muted' id='workbench-status-summary'>Ready</span>
+            <span class='badge badge-success' id='workbench-save-state'>
+              Saved DAG
+            </span>
+            <span class='badge badge-success' id='workbench-publish-state'>
+              Published
+            </span>
+          </span>
         </div>
 
         <div id='pipeline-status' class='workbench-status'></div>
