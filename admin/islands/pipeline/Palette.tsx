@@ -1,4 +1,5 @@
 /** @jsxImportSource preact */
+import { policyIcon } from './policy_icons.ts';
 
 export function Palette(props: {
   plugins: string[];
@@ -45,8 +46,12 @@ export function Palette(props: {
             onClick={() => props.onAdd(name)}
             aria-label={`Add ${name}`}
           >
-            <span class='policy-palette-icon'>
-              {name.charAt(0).toUpperCase()}
+            <span
+              class='policy-palette-icon'
+              title={name}
+              aria-hidden='true'
+            >
+              {policyIcon(name)}
             </span>
             <span class='policy-palette-name'>{name}</span>
             <span class='policy-palette-add'>+</span>

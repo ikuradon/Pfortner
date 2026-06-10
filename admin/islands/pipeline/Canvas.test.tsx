@@ -1,5 +1,5 @@
 /** @jsxImportSource preact */
-import { assertStringIncludes } from '@std/assert';
+import { assertMatch, assertStringIncludes } from '@std/assert';
 import { render } from 'preact-render-to-string';
 import { Canvas } from './Canvas.tsx';
 import type { PipelineGraph } from './types.ts';
@@ -56,6 +56,17 @@ Deno.test('Canvas renders node action controls for run and settings routes', () 
   assertStringIncludes(html, 'Run playground');
   assertStringIncludes(html, 'data-node-action="settings"');
   assertStringIncludes(html, 'Node settings');
+  assertStringIncludes(html, 'class="pipeline-node-icon"');
+  assertStringIncludes(html, '>▶</text>');
+  assertStringIncludes(html, '>✓</text>');
+  assertMatch(
+    html,
+    /class="pipeline-node-action-label"[^>]*>\s*▶\s*<\/text>/,
+  );
+  assertMatch(
+    html,
+    /class="pipeline-node-action-label"[^>]*>\s*⚙\s*<\/text>/,
+  );
 });
 
 Deno.test('Canvas renders branch output ports for when and match nodes', () => {

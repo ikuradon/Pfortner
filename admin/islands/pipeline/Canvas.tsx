@@ -11,6 +11,7 @@ import {
   outputPortsForNode,
   type Size,
 } from './minimap.ts';
+import { policyIcon } from './policy_icons.ts';
 import { useCanvasInteractions } from './use_canvas_interactions.ts';
 import { shouldRenderRunAction, shouldRenderSettingsAction } from './config_editor.js';
 import type { PipelineEdge, PipelineGraph, PipelineNode, Rect, Viewport } from './types.ts';
@@ -109,6 +110,7 @@ export function Canvas(props: {
               const width = nodeWidth(node);
               const height = nodeHeight(node);
               const action = nodeAction(node);
+              const icon = policyIcon(node.policy ?? node.id);
               const classes = [
                 'pipeline-node',
                 isStartNode(node) ? 'pipeline-node-start' : '',
@@ -133,10 +135,19 @@ export function Canvas(props: {
                     height={height}
                     rx='8'
                   />
-                  <text class='pipeline-node-title' x='16' y='28'>
+                  <text
+                    class='pipeline-node-icon'
+                    x='16'
+                    y='29'
+                    aria-hidden='true'
+                    data-node-icon={icon}
+                  >
+                    {icon}
+                  </text>
+                  <text class='pipeline-node-title' x='44' y='28'>
                     {node.policy ?? node.id}
                   </text>
-                  <text class='pipeline-node-subtitle' x='16' y='50'>
+                  <text class='pipeline-node-subtitle' x='44' y='50'>
                     {nodeSubtitle(node)}
                   </text>
                   {action
@@ -323,10 +334,10 @@ function nodeAction(node: PipelineNode): {
   title: string;
 } | null {
   if (shouldRenderRunAction(node)) {
-    return { type: 'run', label: 'R', title: 'Run playground' };
+    return { type: 'run', label: '▶', title: 'Run playground' };
   }
   if (shouldRenderSettingsAction(node)) {
-    return { type: 'settings', label: 'S', title: 'Node settings' };
+    return { type: 'settings', label: '⚙', title: 'Node settings' };
   }
   return null;
 }

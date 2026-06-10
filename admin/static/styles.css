@@ -1245,6 +1245,8 @@ body {
   min-width: 28px;
   height: 28px;
   padding: 0;
+  justify-content: center;
+  line-height: 1;
 }
 
 .workbench-panel-body {
@@ -1263,23 +1265,23 @@ body {
   padding: 6px;
 }
 
-.pipeline-workbench.palette-collapsed .workbench-panel-header span,
+.pipeline-workbench.palette-collapsed .palette-header > span,
 .pipeline-workbench.palette-collapsed .policy-palette-name,
 .pipeline-workbench.palette-collapsed .policy-palette-add {
   display: none;
 }
 
 .pipeline-workbench.palette-collapsed .policy-palette {
-  padding: 8px 6px;
+  padding: 8px 5px;
 }
 
 .pipeline-workbench.palette-collapsed .policy-palette-item {
-  grid-template-columns: 28px;
+  grid-template-columns: 24px;
   gap: 0;
   justify-content: center;
   justify-items: center;
   min-height: 34px;
-  padding: 6px;
+  padding: 4px;
 }
 
 .policy-palette {
@@ -1836,7 +1838,7 @@ body {
     padding: 6px;
   }
 
-  .canvas-first-grid .workbench-panel-header span,
+  .canvas-first-grid .palette-header > span,
   .canvas-first-grid .policy-palette-name,
   .canvas-first-grid .policy-palette-add,
   .canvas-first-grid #canvas-zoom-label {
@@ -1844,16 +1846,16 @@ body {
   }
 
   .canvas-first-grid .policy-palette {
-    padding: 8px 6px;
+    padding: 8px 5px;
   }
 
   .canvas-first-grid .policy-palette-item {
-    grid-template-columns: 28px;
+    grid-template-columns: 24px;
     justify-content: center;
     justify-items: center;
     gap: 0;
     min-height: 34px;
-    padding: 6px;
+    padding: 4px;
   }
 
   .modal-footer-actions {
