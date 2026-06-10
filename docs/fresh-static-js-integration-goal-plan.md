@@ -247,6 +247,10 @@
 
   Keep existing Fresh island modal code as the source of truth and ensure static bridge tests are either migrated to island tests or kept only for the remaining shim.
 
+  Progress:
+
+  - [x] Extracted Save/Load/Publish/Playground side effects into `admin/islands/pipeline/workbench_actions.ts` with injectable services and reducer action tests.
+
 - [ ] **Step 5: Shrink or remove the static bridge**
 
   Remove `mountPipelineWorkbench` behavior from `admin/static/islands/PipelineWorkbench.js`. If Fresh programmatic build still requires a chunk path during transition, make the file a minimal compatibility module with no graph/controller behavior and document the removal gate in `admin/fresh_islands.ts`.

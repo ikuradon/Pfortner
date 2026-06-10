@@ -1,21 +1,16 @@
 /** @jsxImportSource preact */
 import { useEffect, useReducer } from 'preact/hooks';
 import { graphToPipelines, pipelinesToGraph } from './pipeline/graph.js';
-import {
-  buildPipelineDraft,
-  fingerprintPipelines,
-  getWorkbenchChangeState,
-  LOCAL_DRAFT_KEY,
-} from './pipeline/workbench_state.js';
+import { fingerprintPipelines, getWorkbenchChangeState } from './pipeline/workbench_state.js';
 import { Canvas } from './pipeline/Canvas.tsx';
+import { fetchAdminConfig, fetchAdminPlugins } from './pipeline/api_client.ts';
 import {
-  evaluatePipeline,
-  fetchAdminConfig,
-  fetchAdminPlugins,
-  fetchPipelineDraft,
-  publishPipelines,
-  savePipelineDraft,
-} from './pipeline/api_client.ts';
+  createBrowserWorkbenchActionServices,
+  loadWorkbenchDraft,
+  publishWorkbenchGraphs,
+  runWorkbenchPlayground,
+  saveWorkbenchDraft,
+} from './pipeline/workbench_actions.ts';
 import { DEFAULT_PLUGINS } from './pipeline/defaults.ts';
 import { NodeSettingsModal } from './pipeline/NodeSettingsModal.tsx';
 import { Palette } from './pipeline/Palette.tsx';
@@ -62,30 +57,6 @@ function pipelinesFromConfig(config: unknown): unknown {
   return isRecord(config) && isRecord(config.pipelines) ? config.pipelines : EMPTY_PIPELINES;
 }
 
-function pipelinesFromResponse(data: unknown, fallback: unknown): unknown {
-  return isRecord(data) && isRecord(data.pipelines) ? data.pipelines : fallback;
-}
-
-function readLocalDraft(): unknown | null {
-  try {
-    if (typeof globalThis.localStorage === 'undefined') return null;
-    const raw = globalThis.localStorage.getItem(LOCAL_DRAFT_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeLocalDraft(draft: unknown): boolean {
-  try {
-    if (typeof globalThis.localStorage === 'undefined') return false;
-    globalThis.localStorage.setItem(LOCAL_DRAFT_KEY, JSON.stringify(draft));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function formatPlaygroundResult(result: unknown): string {
   if (typeof result === 'string') return result;
   return JSON.stringify(result, null, 2);
@@ -116,6 +87,8 @@ function nextPalettePosition(graph: PipelineGraph) {
   };
 }
 
+const WORKBENCH_ACTION_SERVICES = createBrowserWorkbenchActionServices();
+
 export default function PipelineWorkbench() {
   const [state, dispatch] = useReducer(reduceWorkbench, createInitialState());
   const title = state.direction === 'client' ? 'Client Pipeline' : 'Server Pipeline';
@@ -144,10 +117,10 @@ export default function PipelineWorkbench() {
       const [config, plugins, draft] = await Promise.all([
         fetchAdminConfig(),
         fetchAdminPlugins().catch(() => ({ plugins: DEFAULT_PLUGINS })),
-        fetchPipelineDraft().catch(() => null),
+        WORKBENCH_ACTION_SERVICES.fetchPipelineDraft().catch(() => null),
       ]);
       if (!active) return;
-      const selectedDraft = selectWorkbenchDraft([draft, readLocalDraft()]);
+      const selectedDraft = selectWorkbenchDraft([draft, WORKBENCH_ACTION_SERVICES.readLocalDraft()]);
       dispatch({
         type: 'initialDataLoaded',
         pipelines: pipelinesFromConfig(config),
@@ -168,147 +141,19 @@ export default function PipelineWorkbench() {
   }, []);
 
   async function handleSave(): Promise<void> {
-    const draft = buildPipelineDraft({
-      graphs: state.graphs,
-      viewports: state.viewports,
-      publishedFingerprint: state.publishedFingerprint,
-      now: Date.now(),
-    });
-    const savedDraftFingerprint = draftFingerprintFromParts(
-      state.graphs,
-      state.viewports,
-    );
-    const localSaved = writeLocalDraft(draft);
-
-    try {
-      await savePipelineDraft(draft);
-      dispatch({
-        type: 'draftSaved',
-        message: 'DAG saved',
-        kind: 'success',
-        savedDraftFingerprint,
-      });
-    } catch (error) {
-      if (localSaved) {
-        dispatch({
-          type: 'draftSaved',
-          message: `DAG saved locally; server draft failed: ${errorMessage(error)}`,
-          kind: 'warning',
-          savedDraftFingerprint,
-        });
-        return;
-      }
-      dispatch({
-        type: 'loadFailed',
-        message: `DAG save failed: ${errorMessage(error)}`,
-      });
-    }
+    await saveWorkbenchDraft(state, WORKBENCH_ACTION_SERVICES, dispatch);
   }
 
   async function handleLoad(): Promise<void> {
-    let draft: unknown | null = null;
-    let serverError = '';
-
-    try {
-      draft = await fetchPipelineDraft();
-    } catch (error) {
-      serverError = errorMessage(error);
-    }
-
-    if (draft === null) {
-      draft = readLocalDraft();
-    }
-
-    if (draft === null) {
-      dispatch({
-        type: 'loadFailed',
-        message: serverError ? `No saved DAG found; server draft failed: ${serverError}` : 'No saved DAG found.',
-      });
-      return;
-    }
-
-    const selectedDraft = selectWorkbenchDraft([draft, readLocalDraft()]);
-    if ('error' in selectedDraft) {
-      dispatch({
-        type: 'loadFailed',
-        message: `Draft load failed: ${selectedDraft.error}`,
-      });
-      return;
-    }
-
-    dispatch({
-      type: 'graphsLoaded',
-      graphs: selectedDraft.draft.graphs,
-      viewports: selectedDraft.draft.viewports,
-      message: 'Loaded saved DAG',
-      savedDraftFingerprint: draftFingerprintFromParts(
-        selectedDraft.draft.graphs,
-        selectedDraft.draft.viewports,
-      ),
-    });
+    await loadWorkbenchDraft(WORKBENCH_ACTION_SERVICES, dispatch);
   }
 
   async function handlePublishConfirm(): Promise<void> {
-    const validationError = validateWorkbenchGraphsForPublish(state.graphs);
-    if (validationError) {
-      dispatch({
-        type: 'loadFailed',
-        message: validationError,
-      });
-      return;
-    }
-    const serialized = graphToPipelines(state.graphs);
-
-    try {
-      const data = await publishPipelines(serialized);
-      dispatch({
-        type: 'published',
-        pipelines: pipelinesFromResponse(data, serialized),
-        message: 'Pipeline published',
-      });
-    } catch (error) {
-      dispatch({
-        type: 'loadFailed',
-        message: `Pipeline publish failed: ${errorMessage(error)}`,
-      });
-    }
+    await publishWorkbenchGraphs(state, WORKBENCH_ACTION_SERVICES, dispatch);
   }
 
   async function handlePlaygroundRun(rawMessage: string): Promise<void> {
-    let message: unknown;
-    try {
-      message = JSON.parse(rawMessage);
-    } catch (error) {
-      dispatch({
-        type: 'playgroundFailed',
-        message: `Invalid JSON: ${errorMessage(error)}`,
-      });
-      return;
-    }
-
-    if (!Array.isArray(message)) {
-      dispatch({
-        type: 'playgroundFailed',
-        message: 'Message must be a JSON array.',
-      });
-      return;
-    }
-
-    const serialized = graphToPipelines(state.graphs);
-    try {
-      const result = await evaluatePipeline({
-        pipeline: serialized[state.direction] ?? [],
-        message,
-        direction: state.direction,
-        connectionInfo: {},
-      });
-      dispatch({ type: 'playgroundResultLoaded', result });
-    } catch (error) {
-      dispatch({
-        type: 'playgroundFailed',
-        message: `Playground request failed: ${errorMessage(error)}`,
-      });
-    }
+    await runWorkbenchPlayground(state, rawMessage, WORKBENCH_ACTION_SERVICES, dispatch);
   }
 
   function handleViewportChange(viewport: Viewport): void {
