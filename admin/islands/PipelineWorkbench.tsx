@@ -312,9 +312,29 @@ export default function PipelineWorkbench() {
 
   return (
     <div class={workbenchClass} id='pipeline-workbench'>
+      <div class='pipeline-mode-bar' aria-label='Pipeline direction'>
+        <button
+          type='button'
+          id='tab-client'
+          class={state.direction === 'client' ? 'btn btn-primary pipeline-mode-tab' : 'btn btn-ghost pipeline-mode-tab'}
+          data-pipeline='client'
+          aria-pressed={state.direction === 'client'}
+          onClick={() => dispatch({ type: 'directionChanged', direction: 'client' })}
+        >
+          Client
+        </button>
+        <button
+          type='button'
+          id='tab-server'
+          class={state.direction === 'server' ? 'btn btn-primary pipeline-mode-tab' : 'btn btn-ghost pipeline-mode-tab'}
+          data-pipeline='server'
+          aria-pressed={state.direction === 'server'}
+          onClick={() => dispatch({ type: 'directionChanged', direction: 'server' })}
+        >
+          Server
+        </button>
+      </div>
       <Toolbar
-        direction={state.direction}
-        onDirectionChange={(direction) => dispatch({ type: 'directionChanged', direction })}
         onRun={noop}
         onLoad={handleLoad}
         onSave={handleSave}

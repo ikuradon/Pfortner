@@ -739,6 +739,50 @@ Deno.test('workbench reducer stores playground result and errors in the active m
   assertEquals(playgroundModal(state).error, 'Message must be a JSON array.');
 });
 
+Deno.test('workbench reducer scopes playground execution nodes per direction', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'accept' }],
+    server: [{ policy: 'write-guard' }],
+  });
+  let state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept', 'write-guard'],
+    publishedFingerprint: 'fp',
+  });
+  const clientStart = policyNode(state, 'client', 'start');
+  const clientNode = policyNode(state, 'client', 'accept');
+  const serverStart = policyNode(state, 'server', 'start');
+  const serverNode = policyNode(state, 'server', 'write-guard');
+
+  state = reduceWorkbench(state, {
+    type: 'nodeDoubleClicked',
+    nodeId: clientStart.id,
+  });
+  state = reduceWorkbench(state, {
+    type: 'playgroundResultLoaded',
+    result: { steps: [{ policy: 'accept', action: 'accept' }] },
+  });
+
+  assertEquals(state.directions.client.executionNodeIds, [clientNode.id]);
+  assertEquals(state.directions.server.executionNodeIds, []);
+
+  state = reduceWorkbench(state, {
+    type: 'directionChanged',
+    direction: 'server',
+  });
+  state = reduceWorkbench(state, {
+    type: 'nodeDoubleClicked',
+    nodeId: serverStart.id,
+  });
+  state = reduceWorkbench(state, {
+    type: 'playgroundResultLoaded',
+    result: { steps: [{ policy: 'write-guard', action: 'next' }] },
+  });
+
+  assertEquals(state.directions.client.executionNodeIds, [clientNode.id]);
+  assertEquals(state.directions.server.executionNodeIds, [serverNode.id]);
+});
+
 Deno.test('pipeline API client posts playground evaluation payload', async () => {
   const fetchCalls: Array<{
     url: string;

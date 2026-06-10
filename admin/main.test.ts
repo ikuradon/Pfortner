@@ -160,6 +160,28 @@ Deno.test('admin pipelines page renders legacy workbench canvas controls', async
   assertEquals(/id="btn-run-pipeline"[^>]*disabled/.test(html), false);
 });
 
+Deno.test('admin pipelines page renders direction selector above action toolbar', async () => {
+  const handler = createAdminApp(makeState());
+  const res = await handler(makeRequest('/admin/pipelines', 'test-token'));
+
+  assertEquals(res.status, 200);
+  const html = await res.text();
+  const modeBarIndex = html.indexOf('class="pipeline-mode-bar"');
+  const toolbarIndex = html.indexOf('class="pipeline-toolbar"');
+
+  assertEquals(modeBarIndex >= 0, true);
+  assertEquals(toolbarIndex >= 0, true);
+  assertEquals(modeBarIndex < toolbarIndex, true);
+  assertEquals(
+    /class="pipeline-toolbar"[\s\S]*id="tab-client"/.test(html),
+    false,
+  );
+  assertEquals(
+    /class="pipeline-toolbar"[\s\S]*id="tab-server"/.test(html),
+    false,
+  );
+});
+
 Deno.test('admin app does not keep legacy deny-list page route', async () => {
   const handler = createAdminApp(makeState());
   const res = await handler(

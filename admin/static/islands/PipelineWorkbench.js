@@ -60,6 +60,7 @@ let selectedNodeIdsByDirection = emptyDirectionSets();
 let executionNodeIdsByDirection = emptyDirectionSets();
 let selectedNodeIds = selectedNodeIdsByDirection[currentDirection];
 let executionNodeIds = executionNodeIdsByDirection[currentDirection];
+let directionStates = createDirectionStates();
 let zoom = 1;
 let pan = { x: 56, y: 80 };
 let dragState = null;
@@ -164,31 +165,65 @@ function emptyDirectionSets() {
   };
 }
 
+function createDirectionStates() {
+  return {
+    client: {
+      graph: graphs.client,
+      viewport: normalizeViewport(viewports.client),
+      history: historyStates.client,
+      selectedNodeIds: selectedNodeIdsByDirection.client,
+      executionNodeIds: executionNodeIdsByDirection.client,
+    },
+    server: {
+      graph: graphs.server,
+      viewport: normalizeViewport(viewports.server),
+      history: historyStates.server,
+      selectedNodeIds: selectedNodeIdsByDirection.server,
+      executionNodeIds: executionNodeIdsByDirection.server,
+    },
+  };
+}
+
+function syncDirectionStates() {
+  directionStates = createDirectionStates();
+}
+
+function activeDirectionState() {
+  syncDirectionStates();
+  return directionStates[currentDirection];
+}
+
 function setHistoryState(nextHistory) {
   historyState = nextHistory;
   historyStates[currentDirection] = nextHistory;
+  syncDirectionStates();
 }
 
 function setSelectedNodeIds(nextSelection) {
   selectedNodeIds = nextSelection;
   selectedNodeIdsByDirection[currentDirection] = nextSelection;
+  syncDirectionStates();
 }
 
 function setExecutionNodeIds(nextExecution) {
   executionNodeIds = nextExecution;
   executionNodeIdsByDirection[currentDirection] = nextExecution;
+  syncDirectionStates();
 }
 
 function activateDirectionState(direction) {
-  historyState = historyStates[direction];
-  selectedNodeIds = selectedNodeIdsByDirection[direction];
-  executionNodeIds = executionNodeIdsByDirection[direction];
+  syncDirectionStates();
+  const state = directionStates[direction];
+  historyState = state.history;
+  selectedNodeIds = state.selectedNodeIds;
+  executionNodeIds = state.executionNodeIds;
 }
 
 function resetDirectionalInteractionState() {
   selectedNodeIdsByDirection = emptyDirectionSets();
   executionNodeIdsByDirection = emptyDirectionSets();
   activateDirectionState(currentDirection);
+  syncDirectionStates();
 }
 
 function isPipelineDirection(value) {
@@ -270,6 +305,7 @@ function saveCurrentViewport() {
     zoom,
     pan: { x: pan.x, y: pan.y },
   };
+  syncDirectionStates();
 }
 
 function applyViewport(direction) {
@@ -277,6 +313,7 @@ function applyViewport(direction) {
   viewports[direction] = viewport;
   zoom = viewport.zoom;
   pan = { x: viewport.pan.x, y: viewport.pan.y };
+  syncDirectionStates();
 }
 
 function readLocalDraft() {
@@ -489,7 +526,7 @@ export function defaultConfigForPolicy(name) {
 }
 
 function currentGraph() {
-  return graphs[currentDirection];
+  return activeDirectionState().graph;
 }
 
 function isStartNode(node) {
@@ -873,6 +910,7 @@ function removeEdge(edgeId) {
   graph.edges = (graph.edges ?? []).filter((edge) => edge.id !== edgeId);
   commitGraphMutation(beforeGraphs);
   executionNodeIds.clear();
+  syncDirectionStates();
   render();
 }
 
@@ -941,6 +979,7 @@ function addPolicyNode(policyName, position = null) {
   commitGraphMutation(beforeGraphs);
   setSelectedNodeIds(new Set([node.id]));
   executionNodeIds.clear();
+  syncDirectionStates();
   render();
   setStatus('Added ' + policyName);
 }
@@ -972,6 +1011,7 @@ function deleteSelectedNodes() {
   commitGraphMutation(beforeGraphs);
   selectedNodeIds.clear();
   executionNodeIds.clear();
+  syncDirectionStates();
   render();
   setStatus('Deleted ' + deleting.size + ' node(s)');
 }
@@ -1086,6 +1126,7 @@ function startCanvasPointer(event) {
   }
   if (event.target?.id !== 'pipeline-svg') return;
   selectedNodeIds.clear();
+  syncDirectionStates();
   marqueeState = {
     start: { x: event.clientX, y: event.clientY },
     current: { x: event.clientX, y: event.clientY },
@@ -1195,6 +1236,7 @@ function handlePointerUp(event) {
       ) {
         commitGraphMutation(beforeGraphs);
         executionNodeIds.clear();
+        syncDirectionStates();
         setStatus('Connected ' + wireState.fromPort);
       }
     }
@@ -1843,6 +1885,7 @@ function openNodeSettingsModal(node) {
     }
     commitGraphMutation(beforeGraphs);
     executionNodeIds.clear();
+    syncDirectionStates();
     closeNodeSettingsModal();
     render();
     setStatus('Updated ' + node.policy);
@@ -2647,6 +2690,7 @@ function applyGraphHistory(direction) {
   syncPipelinesFromGraphs();
   selectedNodeIds.clear();
   executionNodeIds.clear();
+  syncDirectionStates();
   dragState = null;
   wireState = null;
   marqueeState = null;

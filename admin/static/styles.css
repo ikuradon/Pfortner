@@ -171,6 +171,7 @@ body {
     flex-wrap: wrap;
   }
 
+  .pipeline-mode-bar .btn,
   .pipeline-toolbar .btn,
   .pipeline-mode-tabs .btn {
     flex: 0 0 auto;
@@ -1051,11 +1052,16 @@ body {
 }
 
 .pipeline-header-top,
+.pipeline-mode-bar,
 .pipeline-toolbar,
 .pipeline-mode-tabs {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.pipeline-mode-bar {
+  flex-wrap: wrap;
 }
 
 .pipeline-header-top {

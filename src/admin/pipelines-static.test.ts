@@ -30,6 +30,7 @@ import {
   recordHistorySnapshot,
 } from '../../admin/static/pipeline_workbench_state.js';
 import { buildPublishConfirmationMessage, buildYamlPreview } from '../../admin/islands/pipeline/yaml_preview.ts';
+import { createInitialWorkbenchState, reduceWorkbench } from '../../admin/islands/pipeline/workbench_reducer.ts';
 import {
   addMatchCaseDraftConfig,
   defaultConfigForPolicy,
@@ -519,6 +520,58 @@ Deno.test('pipeline workbench history is scoped per direction', () => {
     changedClient.nodes[1].x,
   );
   assertEquals(nextHistories.server.present, graphs.server);
+});
+
+Deno.test('pipeline workbench reducer exposes explicit per-direction state', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'accept', config: {} }],
+    server: [{ policy: 'write-guard', config: { require_auth: true } }],
+  });
+  const state = createInitialWorkbenchState({
+    graphs,
+    plugins: [],
+    publishedFingerprint: fingerprintPipelines({ client: [], server: [] }),
+  });
+
+  assertEquals(state.direction, 'client');
+  assertEquals(state.directions.client.graph.nodes.map((node) => node.policy), [
+    'start',
+    'accept',
+  ]);
+  assertEquals(state.directions.server.graph.nodes.map((node) => node.policy), [
+    'start',
+    'write-guard',
+  ]);
+
+  const clientViewport = reduceWorkbench(state, {
+    type: 'viewportChanged',
+    zoom: 1.4,
+    pan: { x: 90, y: 120 },
+  });
+  const serverState = reduceWorkbench(clientViewport, {
+    type: 'directionChanged',
+    direction: 'server',
+  });
+  const serverViewport = reduceWorkbench(serverState, {
+    type: 'viewportChanged',
+    zoom: 0.8,
+    pan: { x: -20, y: 40 },
+  });
+  const clientState = reduceWorkbench(serverViewport, {
+    type: 'directionChanged',
+    direction: 'client',
+  });
+
+  assertEquals(clientState.directions.client.viewport, {
+    zoom: 1.4,
+    pan: { x: 90, y: 120 },
+  });
+  assertEquals(clientState.directions.server.viewport, {
+    zoom: 0.8,
+    pan: { x: -20, y: 40 },
+  });
+  assertEquals(clientState.directions.client.graph.nodes.length, 2);
+  assertEquals(clientState.directions.server.graph.nodes.length, 2);
 });
 
 Deno.test('pipeline workbench fingerprints are stable for equivalent pipelines', () => {

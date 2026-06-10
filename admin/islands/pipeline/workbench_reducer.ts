@@ -6,7 +6,12 @@ import {
   recordDirectionHistorySnapshot,
   recordHistorySnapshot,
 } from '../../static/pipeline_workbench_state.js';
-import { graphToPipelines, pipelinesToGraph, validatePipelineGraph } from '../../static/pipeline_graph.js';
+import {
+  graphToPipelines,
+  matchExecutionSteps,
+  pipelinesToGraph,
+  validatePipelineGraph,
+} from '../../static/pipeline_graph.js';
 import { defaultConfigForPolicy } from './node_defaults.ts';
 import { buildYamlPreview } from './yaml_preview.ts';
 import type {
@@ -36,13 +41,27 @@ interface WorkbenchUiState {
   paletteCollapsed: boolean;
 }
 
+type DirectionHistoryState = ReturnType<typeof initialDirectionHistoryState>['client'];
+
+interface WorkbenchDirectionState {
+  graph: PipelineGraph;
+  viewport: DirectionViewports['client'];
+  history: DirectionHistoryState;
+  selectedNodeIds: string[];
+  executionNodeIds: string[];
+}
+
+type WorkbenchDirectionStates = Record<PipelineDirection, WorkbenchDirectionState>;
+
 export interface WorkbenchState {
   direction: PipelineDirection;
+  directions: WorkbenchDirectionStates;
   graphs: PipelineGraphs;
   history: ReturnType<typeof initialDirectionHistoryState>;
   viewports: DirectionViewports;
   selectedNodeIds: string[];
   selectedNodeIdsByDirection: DirectionSelections;
+  executionNodeIdsByDirection: DirectionSelections;
   plugins: string[];
   publishedFingerprint: string;
   savedDraftFingerprint: string;
@@ -179,6 +198,43 @@ function updateSelection(
       [state.direction]: selectedNodeIds,
     },
   };
+}
+
+function updateExecution(
+  state: WorkbenchState,
+  executionNodeIds: string[],
+): Pick<WorkbenchState, 'executionNodeIdsByDirection'> {
+  return {
+    executionNodeIdsByDirection: {
+      ...state.executionNodeIdsByDirection,
+      [state.direction]: executionNodeIds,
+    },
+  };
+}
+
+function clearAllExecution(): DirectionSelections {
+  return {
+    client: [],
+    server: [],
+  };
+}
+
+function executionNodeIdsFromResult(
+  graph: PipelineGraph,
+  result: unknown,
+): string[] {
+  const record = result !== null && typeof result === 'object' ? result as Record<string, unknown> : {};
+  const matches = matchExecutionSteps(
+    graph,
+    Array.isArray(record.steps) ? record.steps : [],
+  );
+  return Array.from(
+    new Set(
+      matches
+        .map((match: { nodeId?: unknown }) => match.nodeId)
+        .filter((nodeId): nodeId is string => typeof nodeId === 'string'),
+    ),
+  );
 }
 
 function graphDirection(
@@ -356,6 +412,41 @@ function emptyDirectionSelections(): DirectionSelections {
   };
 }
 
+function buildDirectionStates(
+  state: Pick<
+    WorkbenchState,
+    | 'graphs'
+    | 'history'
+    | 'viewports'
+    | 'selectedNodeIdsByDirection'
+    | 'executionNodeIdsByDirection'
+  >,
+): WorkbenchDirectionStates {
+  return {
+    client: {
+      graph: state.graphs.client,
+      viewport: state.viewports.client,
+      history: state.history.client,
+      selectedNodeIds: state.selectedNodeIdsByDirection.client,
+      executionNodeIds: state.executionNodeIdsByDirection.client,
+    },
+    server: {
+      graph: state.graphs.server,
+      viewport: state.viewports.server,
+      history: state.history.server,
+      selectedNodeIds: state.selectedNodeIdsByDirection.server,
+      executionNodeIds: state.executionNodeIdsByDirection.server,
+    },
+  };
+}
+
+function withSyncedDirectionStates(state: WorkbenchState): WorkbenchState {
+  return {
+    ...state,
+    directions: buildDirectionStates(state),
+  };
+}
+
 export function createInitialWorkbenchState(input: {
   graphs: PipelineGraphsInput;
   plugins: string[];
@@ -363,13 +454,15 @@ export function createInitialWorkbenchState(input: {
 }): WorkbenchState {
   const graphs = normalizePipelineGraphs(input.graphs);
   const viewports = cloneValue(DEFAULT_VIEWPORT);
-  return {
+  return withSyncedDirectionStates({
     direction: 'client',
+    directions: {} as WorkbenchDirectionStates,
     graphs,
     history: initialDirectionHistoryState(graphs),
     viewports,
     selectedNodeIds: [],
     selectedNodeIdsByDirection: emptyDirectionSelections(),
+    executionNodeIdsByDirection: clearAllExecution(),
     plugins: [...input.plugins],
     publishedFingerprint: input.publishedFingerprint,
     savedDraftFingerprint: draftFingerprint(graphs, viewports),
@@ -378,10 +471,10 @@ export function createInitialWorkbenchState(input: {
       activeModal: { type: 'none' },
       paletteCollapsed: false,
     },
-  };
+  });
 }
 
-export function reduceWorkbench(
+function reduceWorkbenchInner(
   state: WorkbenchState,
   action: WorkbenchAction,
 ): WorkbenchState {
@@ -461,6 +554,7 @@ export function reduceWorkbench(
       ...state,
       ...recordCurrentGraph(state, graph),
       ...updateSelection(state, [node.id]),
+      ...updateExecution(state, []),
     };
   }
 
@@ -491,6 +585,7 @@ export function reduceWorkbench(
       ...state,
       ...recordCurrentGraph(state, graph),
       ...updateSelection(state, []),
+      ...updateExecution(state, []),
       ui: {
         ...state.ui,
         activeModal: { type: 'none' },
@@ -544,6 +639,7 @@ export function reduceWorkbench(
     return {
       ...state,
       ...recordCurrentGraph(state, graph),
+      ...updateExecution(state, []),
     };
   }
 
@@ -615,6 +711,7 @@ export function reduceWorkbench(
     return {
       ...state,
       ...recordCurrentGraph(state, graph),
+      ...updateExecution(state, []),
       ui: {
         ...state.ui,
         activeModal: { type: 'none' },
@@ -665,6 +762,7 @@ export function reduceWorkbench(
       viewports,
       selectedNodeIds: [],
       selectedNodeIdsByDirection: emptyDirectionSelections(),
+      executionNodeIdsByDirection: clearAllExecution(),
       plugins: sanitizePlugins(action.plugins),
       publishedFingerprint,
       savedDraftFingerprint: draftFingerprint(graphs, viewports),
@@ -689,6 +787,7 @@ export function reduceWorkbench(
       viewports,
       selectedNodeIds: [],
       selectedNodeIdsByDirection: emptyDirectionSelections(),
+      executionNodeIdsByDirection: clearAllExecution(),
       savedDraftFingerprint: action.savedDraftFingerprint ??
         draftFingerprint(graphs, viewports),
       status: {
@@ -744,6 +843,13 @@ export function reduceWorkbench(
     if (state.ui.activeModal.type !== 'playground') return state;
     return setActiveModal({
       ...state,
+      ...updateExecution(
+        state,
+        executionNodeIdsFromResult(
+          state.graphs[state.direction],
+          action.result,
+        ),
+      ),
       status: {
         message: 'Playground run complete',
         kind: 'success',
@@ -813,6 +919,7 @@ export function reduceWorkbench(
         cloneValue(directionHistory.present),
       ),
       selectedNodeIdsByDirection,
+      ...updateExecution(state, []),
       selectedNodeIds: [],
       ui: {
         ...state.ui,
@@ -822,4 +929,13 @@ export function reduceWorkbench(
   }
 
   return state;
+}
+
+export function reduceWorkbench(
+  state: WorkbenchState,
+  action: WorkbenchAction,
+): WorkbenchState {
+  const next = reduceWorkbenchInner(state, action);
+  if (next === state) return state;
+  return withSyncedDirectionStates(next);
 }
