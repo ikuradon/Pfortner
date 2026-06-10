@@ -10,6 +10,8 @@ export function Toolbar(props: {
   onPublish(): void;
   onUndo(): void;
   onRedo(): void;
+  canUndo?: boolean;
+  canRedo?: boolean;
 }) {
   return (
     <div class='pipeline-toolbar'>
@@ -37,7 +39,7 @@ export function Toolbar(props: {
         type='button'
         id='btn-undo-pipeline'
         class='btn btn-ghost'
-        disabled
+        disabled={!props.canUndo}
         onClick={props.onUndo}
       >
         ↶ Undo
@@ -46,7 +48,7 @@ export function Toolbar(props: {
         type='button'
         id='btn-redo-pipeline'
         class='btn btn-ghost'
-        disabled
+        disabled={!props.canRedo}
         onClick={props.onRedo}
       >
         ↷ Redo

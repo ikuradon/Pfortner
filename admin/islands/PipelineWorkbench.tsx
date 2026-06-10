@@ -28,8 +28,10 @@ import {
   selectWorkbenchDraft,
   validateWorkbenchGraphsForPublish,
 } from './pipeline/workbench_reducer.ts';
+import type { PipelineGraph } from './pipeline/types.ts';
 
 const EMPTY_PIPELINES = { client: [], server: [] };
+const NODE_GAP = 240;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -101,12 +103,17 @@ function noop(): void {
   return undefined;
 }
 
-function ignorePolicy(_policy: string): void {
-  return undefined;
+function isStartGraphNode(node: { type?: string; policy?: string } | null | undefined): boolean {
+  return node?.type === 'start' || node?.policy === 'start';
 }
 
-function ignoreNodePointer(_nodeId: string, _event: PointerEvent): void {
-  return undefined;
+function nextPalettePosition(graph: PipelineGraph) {
+  const start = graph.nodes.find(isStartGraphNode);
+  if (!start) return { x: NODE_GAP, y: 80 };
+  return {
+    x: (start.x ?? 0) + NODE_GAP,
+    y: start.y ?? 80,
+  };
 }
 
 export default function PipelineWorkbench() {
@@ -314,6 +321,8 @@ export default function PipelineWorkbench() {
         onPublish={() => dispatch({ type: 'publishModalOpened' })}
         onUndo={() => dispatch({ type: 'undo' })}
         onRedo={() => dispatch({ type: 'redo' })}
+        canUndo={state.history[state.direction].past.length > 0}
+        canRedo={state.history[state.direction].future.length > 0}
       />
       <span class='workbench-state-badges'>
         <span class='text-muted' id='workbench-status-summary'>
@@ -338,7 +347,12 @@ export default function PipelineWorkbench() {
           plugins={state.plugins}
           collapsed={state.ui.paletteCollapsed}
           onToggle={() => dispatch({ type: 'paletteToggled' })}
-          onAdd={ignorePolicy}
+          onAdd={(policy) =>
+            dispatch({
+              type: 'policyNodeAdded',
+              policy,
+              position: nextPalettePosition(state.graphs[state.direction]),
+            })}
         />
         <section class='canvas-shell canvas-shell-expanded'>
           <div class='canvas-toolbar'>
@@ -348,7 +362,6 @@ export default function PipelineWorkbench() {
           <Canvas
             graph={state.graphs[state.direction]}
             selectedNodeIds={state.selectedNodeIds}
-            onNodePointerDown={ignoreNodePointer}
             onNodeDoubleClick={(nodeId) => dispatch({ type: 'nodeDoubleClicked', nodeId })}
           />
         </section>

@@ -22,6 +22,8 @@ PipelineWorkbench.mount = function mountPipelineWorkbench(root) {
   const publishButton = workbench.querySelector?.('#btn-publish-pipeline');
   const loadButton = workbench.querySelector?.('#btn-load-dag');
   const saveButton = workbench.querySelector?.('#btn-save-dag');
+  const undoButton = workbench.querySelector?.('#btn-undo-pipeline');
+  const redoButton = workbench.querySelector?.('#btn-redo-pipeline');
   const svg = workbench.querySelector?.('#pipeline-svg');
   let currentDirection = serverButton?.getAttribute?.('aria-pressed') === 'true' ? 'server' : 'client';
 
@@ -29,6 +31,15 @@ PipelineWorkbench.mount = function mountPipelineWorkbench(root) {
     client: { zoom: 1, pan: { x: 56, y: 80 } },
     server: { zoom: 1, pan: { x: 56, y: 80 } },
   };
+  const NODE_WIDTH = 180;
+  const NODE_HEIGHT = 72;
+  const history = {
+    client: { past: [], future: [] },
+    server: { past: [], future: [] },
+  };
+  let selectedNodeId = '';
+  let dragState = null;
+  let activeWire = null;
 
   function setClass(element, className) {
     element?.setAttribute?.('class', className);
@@ -221,6 +232,7 @@ PipelineWorkbench.mount = function mountPipelineWorkbench(root) {
 
   function renderedGraph(direction = currentDirection) {
     const nodes = [...(workbench.querySelectorAll?.('[data-node-id]') ?? [])]
+      .filter((node) => !node.getAttribute?.('data-port-kind'))
       .map((node) => {
         const position = parseTranslate(node.getAttribute?.('transform'));
         return {
@@ -264,6 +276,114 @@ PipelineWorkbench.mount = function mountPipelineWorkbench(root) {
     if (value === undefined) return value;
     if (typeof structuredClone === 'function') return structuredClone(value);
     return JSON.parse(JSON.stringify(value));
+  }
+
+  function defaultConfigForPolicy(name) {
+    switch (name) {
+      case 'accept':
+        return {};
+      case 'kind-filter':
+        return { mode: 'allow', kinds: [1, 3, 6, 7] };
+      case 'write-guard':
+        return { require_auth: true };
+      case 'protected-event':
+        return { require_auth: true };
+      case 'rate-limit':
+        return {
+          scope: 'connection',
+          window: 60,
+          max_events: 60,
+          max_requests: 120,
+        };
+      case 'spam-filter':
+        return { max_content_length: 1000 };
+      case 'content-filter':
+        return { blocked_words: [], blocked_patterns: [] };
+      case 'pubkey-acl':
+        return { mode: 'blocklist', target: 'author', pubkeys: [] };
+      case 'ip-filter':
+        return { blocklist: { ips: [], cidrs: [] } };
+      case 'when':
+        return { condition: { authenticated: true }, then: [], else: [] };
+      case 'match':
+        return { cases: [{ condition: {}, pipeline: [] }], default: [] };
+      case 'route':
+        return { upstream: '', condition: { message_type: 'REQ' } };
+      default:
+        return {};
+    }
+  }
+
+  function setDisabled(buttonElement, disabled) {
+    if (!buttonElement) return;
+    if (disabled) {
+      buttonElement.setAttribute?.('disabled', '');
+    } else {
+      buttonElement.removeAttribute?.('disabled');
+    }
+  }
+
+  function updateHistoryControls() {
+    setDisabled(undoButton, history[currentDirection].past.length === 0);
+    setDisabled(redoButton, history[currentDirection].future.length === 0);
+  }
+
+  function pushHistorySnapshot(previousGraph) {
+    history[currentDirection].past.push(cloneValue(previousGraph));
+    history[currentDirection].future = [];
+    updateHistoryControls();
+  }
+
+  function graphDirection(graph, fallback = currentDirection) {
+    return typeof graph?.direction === 'string' && graph.direction.length > 0 ? graph.direction : fallback;
+  }
+
+  function findNode(graph, nodeId) {
+    return graph?.nodes?.find?.((node) => node.id === nodeId);
+  }
+
+  function isStartGraphNode(node) {
+    return node?.type === 'start' || node?.policy === 'start';
+  }
+
+  function firstEdgeFromPort(graph, from, fromPort) {
+    return graph?.edges?.find?.((edge) => edge.from === from && edge.fromPort === fromPort);
+  }
+
+  function incomingEdge(graph, nodeId) {
+    return graph?.edges?.find?.((edge) => edge.to === nodeId);
+  }
+
+  function nextGraphSerial(graph, prefix) {
+    let max = 0;
+    for (const item of [...(graph?.nodes ?? []), ...(graph?.edges ?? [])]) {
+      const id = String(item?.id ?? '');
+      if (!id.startsWith(prefix)) continue;
+      const value = Number(id.slice(prefix.length));
+      if (Number.isFinite(value)) max = Math.max(max, value);
+    }
+    return max + 1;
+  }
+
+  function nextEdge(graph, direction, from, fromPort, to) {
+    return {
+      id: `${direction}-edge-${nextGraphSerial(graph, `${direction}-edge-`)}`,
+      from,
+      fromPort,
+      to,
+      toPort: 'in',
+    };
+  }
+
+  function nextPolicyPosition(graph) {
+    const start = graph?.nodes?.find?.(isStartGraphNode);
+    if (start) {
+      return {
+        x: (Number(start.x) || 0) + 240,
+        y: Number(start.y) || 80,
+      };
+    }
+    return { x: 240, y: 80 };
   }
 
   function normalizeGraphs(value) {
@@ -328,11 +448,11 @@ PipelineWorkbench.mount = function mountPipelineWorkbench(root) {
   }
 
   function nodeWidth(node) {
-    return Number(node?.width) || 180;
+    return Number(node?.width) || NODE_WIDTH;
   }
 
   function nodeHeight(node) {
-    return Number(node?.height) || 72;
+    return Number(node?.height) || NODE_HEIGHT;
   }
 
   function edgePath(graph, edge) {
@@ -351,6 +471,192 @@ PipelineWorkbench.mount = function mountPipelineWorkbench(root) {
 
   function formatNodeConfig(config) {
     return config === undefined ? '' : JSON.stringify(config);
+  }
+
+  function portElement(node, kind, portName) {
+    const width = nodeWidth(node);
+    const height = nodeHeight(node);
+    return createSvgElement('circle', {
+      className: `pipeline-port pipeline-port-${kind}`,
+      attributes: {
+        cx: kind === 'input' ? '0' : String(width),
+        cy: String(height / 2),
+        r: '6',
+        tabindex: '0',
+        role: 'button',
+        'aria-label': `${kind === 'input' ? 'Input' : 'Output'} port for ${node.policy ?? node.id}`,
+        'data-node-id': node.id,
+        'data-port-kind': kind,
+        'data-port-name': portName,
+      },
+    });
+  }
+
+  function selectNode(nodeId) {
+    selectedNodeId = nodeId;
+    workbench.querySelectorAll?.('[data-node-id]')?.forEach?.((node) => {
+      toggleClass(node, 'selected', node.getAttribute?.('data-node-id') === nodeId);
+    });
+  }
+
+  function startNodeDrag(nodeId, event) {
+    if (event.button !== undefined && event.button !== 0) return;
+    if (event.target?.getAttribute?.('data-port-kind')) return;
+    syncRenderedDirection();
+    const graph = graphs[currentDirection];
+    const node = findNode(graph, nodeId);
+    if (!node) return;
+
+    selectedNodeId = nodeId;
+    dragState = {
+      nodeId,
+      startClientX: Number(event.clientX) || 0,
+      startClientY: Number(event.clientY) || 0,
+      startX: Number(node.x) || 0,
+      startY: Number(node.y) || 0,
+      originalGraph: cloneValue(graph),
+      moved: false,
+    };
+    selectNode(nodeId);
+    event.preventDefault?.();
+  }
+
+  function moveDraggedNode(event) {
+    if (!dragState) return;
+    const graph = graphs[currentDirection];
+    const node = findNode(graph, dragState.nodeId);
+    if (!node) return;
+    const nextX = Math.round(dragState.startX + (Number(event.clientX) || 0) - dragState.startClientX);
+    const nextY = Math.round(dragState.startY + (Number(event.clientY) || 0) - dragState.startClientY);
+    if (node.x === nextX && node.y === nextY) return;
+    node.x = nextX;
+    node.y = nextY;
+    dragState.moved = true;
+    renderGraph(currentDirection);
+  }
+
+  function finishDraggedNode() {
+    if (!dragState) return;
+    if (dragState.moved) {
+      pushHistorySnapshot(dragState.originalGraph);
+      setStatusSummary('DAG changed');
+    }
+    dragState = null;
+  }
+
+  function startWire(from, fromPort, event) {
+    if (event.button !== undefined && event.button !== 0) return;
+    activeWire = { from, fromPort };
+    selectedNodeId = from;
+    selectNode(from);
+    event.stopPropagation?.();
+    event.preventDefault?.();
+  }
+
+  function replaceEdge(from, fromPort, to) {
+    if (from === to) return;
+    syncRenderedDirection();
+    const previousGraph = cloneValue(graphs[currentDirection]);
+    const graph = cloneValue(graphs[currentDirection]);
+    const direction = graphDirection(graph);
+    const fromNode = findNode(graph, from);
+    const toNode = findNode(graph, to);
+    if (!fromNode || !toNode || isStartGraphNode(toNode)) return;
+
+    const existing = firstEdgeFromPort(graph, from, fromPort);
+    if (existing?.to === to && existing.toPort === 'in') return;
+    const targetIncoming = incomingEdge(graph, to);
+    const targetNext = firstEdgeFromPort(graph, to, 'next');
+    const shouldInsertBeforeExistingTarget = Boolean(
+      existing?.to &&
+        existing.to !== to &&
+        !targetIncoming &&
+        !targetNext,
+    );
+
+    graph.edges = graph.edges.filter((edge) =>
+      !(edge.from === from && edge.fromPort === fromPort) &&
+      edge.to !== to
+    );
+    graph.edges.push(nextEdge(graph, direction, from, fromPort, to));
+    if (shouldInsertBeforeExistingTarget && existing?.to) {
+      graph.edges.push(nextEdge(graph, direction, to, 'next', existing.to));
+    }
+
+    const result = validatePipelineGraph(graph);
+    if (!result.valid) {
+      const first = result.errors?.[0];
+      setStatusSummary(`Cannot connect nodes: ${first?.message ?? first?.code ?? 'invalid graph'}`, true);
+      return;
+    }
+
+    graphs = {
+      ...graphs,
+      [currentDirection]: graph,
+    };
+    selectedNodeId = to;
+    pushHistorySnapshot(previousGraph);
+    renderGraph(currentDirection);
+    setStatusSummary('DAG changed');
+  }
+
+  function finishWire(to, event) {
+    if (!activeWire) return;
+    const wire = activeWire;
+    activeWire = null;
+    replaceEdge(wire.from, wire.fromPort, to);
+    event.stopPropagation?.();
+    event.preventDefault?.();
+  }
+
+  function nodeFromElement(nodeElement) {
+    const position = parseTranslate(nodeElement.getAttribute?.('transform'));
+    return {
+      id: nodeElement.getAttribute?.('data-node-id') ?? '',
+      type: nodeElement.getAttribute?.('data-node-type') || 'policy',
+      policy: nodePolicy(nodeElement),
+      config: configForNode(nodeElement),
+      x: position.x,
+      y: position.y,
+      width: NODE_WIDTH,
+      height: NODE_HEIGHT,
+      path: [],
+    };
+  }
+
+  function decorateRenderedNode(nodeElement) {
+    if (nodeElement.getAttribute?.('data-port-kind')) return;
+    const node = nodeFromElement(nodeElement);
+    if (!node.id) return;
+    toggleClass(nodeElement, 'selected', selectedNodeId === node.id);
+    nodeElement.addEventListener?.('pointerdown', (event) => {
+      startNodeDrag(node.id, event);
+    });
+    nodeElement.addEventListener?.('dblclick', () => {
+      if (isStartNode(nodeElement)) {
+        openPlaygroundModal(nodeElement);
+        return;
+      }
+      openSettingsModal(nodeElement);
+    });
+    if (!isStartGraphNode(node)) {
+      const inputPort = nodeElement.querySelector?.('[data-port-kind="input"]') ?? portElement(node, 'input', 'in');
+      inputPort.addEventListener?.('pointerup', (event) => {
+        finishWire(node.id, event);
+      });
+      if (!inputPort.parentNode) nodeElement.appendChild?.(inputPort);
+    }
+    const outputPort = nodeElement.querySelector?.('[data-port-kind="output"]') ?? portElement(node, 'output', 'next');
+    outputPort.addEventListener?.('pointerdown', (event) => {
+      startWire(node.id, 'next', event);
+    });
+    if (!outputPort.parentNode) nodeElement.appendChild?.(outputPort);
+  }
+
+  function decorateRenderedGraph() {
+    workbench.querySelectorAll?.('[data-node-id]')?.forEach?.((node) => {
+      decorateRenderedNode(node);
+    });
   }
 
   function renderGraph(direction = currentDirection) {
@@ -377,10 +683,12 @@ PipelineWorkbench.mount = function mountPipelineWorkbench(root) {
 
     const nodeLayer = createSvgElement('g', { className: 'pipeline-node-layer' });
     for (const node of graph.nodes ?? []) {
+      const isStart = node.type === 'start' || node.policy === 'start';
       const group = createSvgElement('g', {
         className: [
           'pipeline-node',
-          node.type === 'start' || node.policy === 'start' ? 'pipeline-node-start' : '',
+          isStart ? 'pipeline-node-start' : '',
+          selectedNodeId === node.id ? 'selected' : '',
         ].filter(Boolean).join(' '),
         attributes: {
           transform: `translate(${Number(node.x) || 0}, ${Number(node.y) || 0})`,
@@ -389,6 +697,9 @@ PipelineWorkbench.mount = function mountPipelineWorkbench(root) {
           'data-node-type': node.type ?? '',
           'data-node-config': formatNodeConfig(node.config),
         },
+      });
+      group.addEventListener?.('pointerdown', (event) => {
+        startNodeDrag(node.id, event);
       });
       group.appendChild?.(createSvgElement('rect', {
         className: 'pipeline-node-card',
@@ -408,6 +719,18 @@ PipelineWorkbench.mount = function mountPipelineWorkbench(root) {
         text: node.type === 'start' || node.policy === 'start' ? 'Pipeline start' : node.id,
         attributes: { x: '16', y: '50' },
       }));
+      if (!isStart) {
+        const inputPort = portElement(node, 'input', 'in');
+        inputPort.addEventListener?.('pointerup', (event) => {
+          finishWire(node.id, event);
+        });
+        group.appendChild?.(inputPort);
+      }
+      const outputPort = portElement(node, 'output', 'next');
+      outputPort.addEventListener?.('pointerdown', (event) => {
+        startWire(node.id, 'next', event);
+      });
+      group.appendChild?.(outputPort);
       group.addEventListener?.('dblclick', () => {
         if (isStartNode(group)) {
           openPlaygroundModal(group);
@@ -806,6 +1129,85 @@ PipelineWorkbench.mount = function mountPipelineWorkbench(root) {
     }
   }
 
+  function addPolicyNode(policy) {
+    syncRenderedDirection();
+    const previousGraph = cloneValue(graphs[currentDirection]);
+    const graph = cloneValue(graphs[currentDirection]);
+    const direction = graphDirection(graph);
+    const start = graph.nodes.find(isStartGraphNode);
+    if (!start) {
+      setStatusSummary('Cannot add a policy without a start node.', true);
+      return;
+    }
+
+    const node = {
+      id: `${direction}-node-${nextGraphSerial(graph, `${direction}-node-`)}`,
+      type: 'policy',
+      policy,
+      config: defaultConfigForPolicy(policy),
+      x: nextPolicyPosition(graph).x,
+      y: nextPolicyPosition(graph).y,
+      width: NODE_WIDTH,
+      height: NODE_HEIGHT,
+      path: [],
+    };
+    const previousEdge = firstEdgeFromPort(graph, start.id, 'next');
+
+    graph.nodes.push(node);
+    graph.edges = graph.edges.filter((edge) => !(edge.from === start.id && edge.fromPort === 'next'));
+    graph.edges.push(nextEdge(graph, direction, start.id, 'next', node.id));
+    if (previousEdge?.to && previousEdge.to !== node.id) {
+      graph.edges.push(nextEdge(graph, direction, node.id, 'next', previousEdge.to));
+    }
+
+    graphs = {
+      ...graphs,
+      [currentDirection]: graph,
+    };
+    selectedNodeId = node.id;
+    pushHistorySnapshot(previousGraph);
+    renderGraph(currentDirection);
+    setStatusSummary('DAG changed');
+  }
+
+  function undoGraphChange() {
+    syncRenderedDirection();
+    const entry = history[currentDirection];
+    const previous = entry.past.pop();
+    if (!previous) {
+      updateHistoryControls();
+      return;
+    }
+    entry.future.push(cloneValue(graphs[currentDirection]));
+    graphs = {
+      ...graphs,
+      [currentDirection]: previous,
+    };
+    selectedNodeId = '';
+    renderGraph(currentDirection);
+    updateHistoryControls();
+    setStatusSummary('Undo applied');
+  }
+
+  function redoGraphChange() {
+    syncRenderedDirection();
+    const entry = history[currentDirection];
+    const next = entry.future.pop();
+    if (!next) {
+      updateHistoryControls();
+      return;
+    }
+    entry.past.push(cloneValue(graphs[currentDirection]));
+    graphs = {
+      ...graphs,
+      [currentDirection]: next,
+    };
+    selectedNodeId = '';
+    renderGraph(currentDirection);
+    updateHistoryControls();
+    setStatusSummary('Redo applied');
+  }
+
   clientButton?.addEventListener?.('click', () => {
     setDirection('client');
   });
@@ -821,20 +1223,33 @@ PipelineWorkbench.mount = function mountPipelineWorkbench(root) {
   publishButton?.addEventListener?.('click', () => {
     void openPublishModal();
   });
+  undoButton?.addEventListener?.('click', () => {
+    undoGraphChange();
+  });
+  redoButton?.addEventListener?.('click', () => {
+    redoGraphChange();
+  });
   paletteToggle?.addEventListener?.('click', () => {
     const collapsed = !(workbench.getAttribute?.('class') ?? '')
       .split(/\s+/)
       .includes('palette-collapsed');
     setPaletteCollapsed(collapsed);
   });
-  workbench.querySelectorAll?.('[data-node-id]')?.forEach?.((node) => {
-    node.addEventListener?.('dblclick', () => {
-      if (isStartNode(node)) {
-        openPlaygroundModal(node);
-        return;
-      }
-      openSettingsModal(node);
+  workbench.querySelectorAll?.('.policy-palette-item')?.forEach?.((item) => {
+    item.removeAttribute?.('disabled');
+    item.addEventListener?.('click', () => {
+      const policy = item.getAttribute?.('data-policy') || item.textContent?.trim?.();
+      if (policy) addPolicyNode(policy);
     });
   });
+  globalThis.window?.addEventListener?.('pointermove', (event) => {
+    moveDraggedNode(event);
+  });
+  globalThis.window?.addEventListener?.('pointerup', () => {
+    finishDraggedNode();
+    activeWire = null;
+  });
+  decorateRenderedGraph();
+  updateHistoryControls();
   initialLoadPromise = loadInitialData();
 };

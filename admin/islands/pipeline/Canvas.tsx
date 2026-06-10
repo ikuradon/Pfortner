@@ -7,7 +7,6 @@ const NODE_HEIGHT = 72;
 export function Canvas(props: {
   graph: PipelineGraph;
   selectedNodeIds: string[];
-  onNodePointerDown(nodeId: string, event: PointerEvent): void;
   onNodeDoubleClick(nodeId: string): void;
 }) {
   return (
@@ -59,7 +58,6 @@ export function Canvas(props: {
                 data-node-policy={node.policy ?? ''}
                 data-node-type={node.type ?? ''}
                 data-node-config={formatNodeConfig(node.config)}
-                onPointerDown={(event) => props.onNodePointerDown(node.id, event as PointerEvent)}
                 onDblClick={() => props.onNodeDoubleClick(node.id)}
               >
                 <rect
@@ -74,6 +72,34 @@ export function Canvas(props: {
                 <text class='pipeline-node-subtitle' x='16' y='50'>
                   {nodeSubtitle(node)}
                 </text>
+                {!isStartNode(node)
+                  ? (
+                    <circle
+                      class='pipeline-port pipeline-port-input'
+                      cx='0'
+                      cy={height / 2}
+                      r='6'
+                      role='button'
+                      tabIndex={0}
+                      aria-label={`Input port for ${node.policy ?? node.id}`}
+                      data-node-id={node.id}
+                      data-port-kind='input'
+                      data-port-name='in'
+                    />
+                  )
+                  : null}
+                <circle
+                  class='pipeline-port pipeline-port-output'
+                  cx={width}
+                  cy={height / 2}
+                  r='6'
+                  role='button'
+                  tabIndex={0}
+                  aria-label={`Output port for ${node.policy ?? node.id}`}
+                  data-node-id={node.id}
+                  data-port-kind='output'
+                  data-port-name='next'
+                />
               </g>
             );
           })}

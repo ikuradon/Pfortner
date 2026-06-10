@@ -82,6 +82,12 @@ class FakeWindow {
   addEventListener(type, listener) {
     this.listeners.push({ type, listener });
   }
+
+  dispatchEvent(event) {
+    for (const { type, listener } of this.listeners) {
+      if (type === event.type) listener(event);
+    }
+  }
 }
 
 class FakeComment {
@@ -163,6 +169,10 @@ class FakeElement {
     if (selector.startsWith('.')) {
       return (this.getAttribute('class') ?? '').split(/\s+/).includes(selector.slice(1));
     }
+    if (/^(?:\[[^\]]+\])+$/.test(selector) && (selector.match(/\[/g)?.length ?? 0) > 1) {
+      const parts = selector.match(/\[[^\]]+\]/g) ?? [];
+      return parts.every((part) => this.matchesSelector(part));
+    }
     const attrMatch = /^\[([^=\]]+)(?:="([^"]*)")?\]$/.exec(selector);
     if (attrMatch) {
       const [, name, value] = attrMatch;
@@ -226,7 +236,15 @@ class FakeElement {
 
   dispatchEvent(event) {
     for (const { type, listener } of this.listeners) {
-      if (type === event.type) listener({ target: this, currentTarget: this, ...event });
+      if (type === event.type) {
+        listener({
+          target: this,
+          currentTarget: this,
+          preventDefault() {},
+          stopPropagation() {},
+          ...event,
+        });
+      }
     }
   }
 
@@ -279,7 +297,15 @@ async function waitFor(predicate) {
   throw new Error('Timed out waiting for condition');
 }
 
-function pipelineWorkbenchFixture() {
+function paletteItem(policy) {
+  return new FakeElement('button', {
+    class: 'policy-palette-item',
+    'data-policy': policy,
+    disabled: '',
+  }, policy);
+}
+
+function pipelineWorkbenchFixture({ standalonePolicy = null } = {}) {
   const clientButton = new FakeElement('button', {
     id: 'tab-client',
     'aria-pressed': 'true',
@@ -317,7 +343,11 @@ function pipelineWorkbenchFixture() {
       class: 'workbench-panel palette-panel',
     },
     '',
-    [paletteToggle],
+    [
+      paletteToggle,
+      paletteItem('accept'),
+      paletteItem('rate-limit'),
+    ],
   );
   const canvasTitle = new FakeElement('span', {
     id: 'canvas-title',
@@ -340,14 +370,24 @@ function pipelineWorkbenchFixture() {
     'data-node-policy': 'write-guard',
     'data-node-type': 'policy',
     'data-node-config': '{"require_auth":true}',
+    transform: 'translate(260, 80)',
   });
+  const standaloneNode = standalonePolicy
+    ? new FakeElement('g', {
+      'data-node-id': 'client-node-2',
+      'data-node-policy': standalonePolicy,
+      'data-node-type': 'policy',
+      'data-node-config': '{}',
+      transform: 'translate(520, 80)',
+    })
+    : null;
   const canvas = new FakeElement(
     'svg',
     {
       id: 'pipeline-svg',
     },
     '',
-    [edge, startNode, policyNode],
+    [edge, startNode, policyNode, standaloneNode].filter(Boolean),
   );
   const workbench = new FakeElement(
     'div',
@@ -377,6 +417,7 @@ function pipelineWorkbenchFixture() {
     loadButton,
     paletteToggle,
     policyNode,
+    standaloneNode,
     publishButton,
     redoButton,
     saveButton,
@@ -822,6 +863,153 @@ Deno.test('PipelineWorkbench static chunk wires shell controls', async () => {
   );
   assertEquals(fixture.paletteToggle.getAttribute('aria-label'), 'Expand palette');
   assertEquals(fixture.paletteToggle.textContent, '›');
+});
+
+Deno.test('PipelineWorkbench static chunk adds palette policies to the active graph', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture();
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+
+  mod.default.mount(document);
+  const acceptButton = document.querySelector('[data-policy="accept"]');
+
+  assertEquals(acceptButton.disabled, false);
+  acceptButton.click();
+
+  const acceptNode = document.querySelector('[data-node-policy="accept"]');
+  assertEquals(acceptNode !== null, true);
+  assertEquals(acceptNode?.getAttribute('data-node-id'), 'client-node-2');
+  assertEquals(
+    document.querySelector('[data-edge-from="client-start"][data-edge-to="client-node-2"]') !== null,
+    true,
+  );
+  assertEquals(
+    document.querySelector('[data-edge-from="client-node-2"][data-edge-to="client-node-1"]') !== null,
+    true,
+  );
+});
+
+Deno.test('PipelineWorkbench static chunk supports undo and redo after palette add', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture();
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+
+  mod.default.mount(document);
+  document.querySelector('[data-policy="accept"]').click();
+
+  assertEquals(fixture.undoButton.disabled, false);
+  assertEquals(document.querySelector('[data-node-policy="accept"]') !== null, true);
+
+  fixture.undoButton.click();
+
+  assertEquals(document.querySelector('[data-node-policy="accept"]'), null);
+  assertEquals(fixture.redoButton.disabled, false);
+
+  fixture.redoButton.click();
+
+  assertEquals(document.querySelector('[data-node-policy="accept"]') !== null, true);
+});
+
+Deno.test('PipelineWorkbench static chunk drags nodes and rerenders connected edges', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture();
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+  const window = new FakeWindow();
+  const restoreWindow = setGlobal('window', window);
+
+  try {
+    mod.default.mount(document);
+    const node = document.querySelector('[data-node-id="client-node-1"]');
+    const beforePath = document.querySelector('[data-edge-id="client-edge-1"]')
+      ?.getAttribute('d');
+
+    node.dispatchEvent({
+      type: 'pointerdown',
+      button: 0,
+      clientX: 260,
+      clientY: 80,
+      pointerId: 1,
+    });
+    window.dispatchEvent({
+      type: 'pointermove',
+      clientX: 320,
+      clientY: 116,
+      pointerId: 1,
+    });
+    window.dispatchEvent({
+      type: 'pointerup',
+      clientX: 320,
+      clientY: 116,
+      pointerId: 1,
+    });
+
+    const movedNode = document.querySelector('[data-node-id="client-node-1"]');
+    const afterPath = document.querySelector('[data-edge-id="client-edge-1"]')
+      ?.getAttribute('d');
+    assertEquals(movedNode?.getAttribute('transform'), 'translate(320, 116)');
+    assertEquals(movedNode?.getAttribute('class')?.includes('selected'), true);
+    assertEquals(afterPath === beforePath, false);
+    assertEquals(fixture.undoButton.disabled, false);
+  } finally {
+    restoreWindow();
+  }
+});
+
+Deno.test('PipelineWorkbench static chunk rewires output ports to policy input ports', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture({ standalonePolicy: 'accept' });
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+
+  mod.default.mount(document);
+  const startOutput = document.querySelector(
+    '[data-node-id="client-start"][data-port-kind="output"]',
+  );
+  const acceptInput = document.querySelector(
+    '[data-node-id="client-node-2"][data-port-kind="input"]',
+  );
+
+  assertEquals(
+    document.querySelector('[data-node-id="client-start"][data-port-kind="input"]'),
+    null,
+  );
+  assertEquals(startOutput !== null, true);
+  assertEquals(acceptInput !== null, true);
+
+  startOutput.dispatchEvent({
+    type: 'pointerdown',
+    button: 0,
+    pointerId: 1,
+  });
+  acceptInput.dispatchEvent({
+    type: 'pointerup',
+    pointerId: 1,
+  });
+
+  assertEquals(
+    document.querySelector('[data-edge-from="client-start"][data-edge-to="client-node-2"]') !== null,
+    true,
+  );
+  assertEquals(
+    document.querySelector('[data-edge-from="client-node-2"][data-edge-to="client-node-1"]') !== null,
+    true,
+  );
+  assertEquals(fixture.undoButton.disabled, false);
 });
 
 Deno.test('PipelineWorkbench static chunk opens playground modal from start node double click', async () => {

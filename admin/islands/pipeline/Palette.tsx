@@ -33,7 +33,7 @@ export function Palette(props: {
             key={name}
             type='button'
             class='policy-palette-item'
-            disabled
+            data-policy={name}
             onClick={() => props.onAdd(name)}
             aria-label={`Add ${name}`}
           >
