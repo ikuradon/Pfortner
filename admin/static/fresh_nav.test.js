@@ -454,6 +454,18 @@ async function waitFor(predicate) {
   throw new Error('Timed out waiting for condition');
 }
 
+function transformPan(transform) {
+  const match = /^translate\(([-\d.]+), ([-\d.]+)\) scale\(([-\d.]+)\)$/.exec(
+    transform ?? '',
+  );
+  if (!match) throw new Error(`Unexpected transform: ${transform}`);
+  return {
+    x: Number(match[1]),
+    y: Number(match[2]),
+    zoom: Number(match[3]),
+  };
+}
+
 function paletteItem(policy) {
   return new FakeElement('button', {
     class: 'policy-palette-item',
@@ -622,8 +634,10 @@ function pipelineWorkbenchFixture({ standalonePolicy = null, extraNodes = [] } =
 
   return {
     canvasTitle,
+    canvas,
     clientButton,
     loadButton,
+    minimap,
     paletteToggle,
     policyNode,
     standaloneNode,
@@ -632,10 +646,12 @@ function pipelineWorkbenchFixture({ standalonePolicy = null, extraNodes = [] } =
     runButton,
     saveButton,
     serverButton,
+    svg,
     startNode,
     statusSummary,
     undoButton,
     workbench,
+    zoomLabel,
   };
 }
 
@@ -1175,6 +1191,120 @@ Deno.test('PipelineWorkbench static chunk drags nodes and rerenders connected ed
   } finally {
     restoreWindow();
   }
+});
+
+Deno.test('PipelineWorkbench static chunk pans with wheel and zooms with modifier wheel', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture();
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+
+  mod.default.mount(document);
+  const before = transformPan(
+    document.querySelector('.pipeline-viewport')?.getAttribute('transform'),
+  );
+  let prevented = false;
+
+  fixture.svg.dispatchEvent({
+    type: 'wheel',
+    deltaX: 20,
+    deltaY: 40,
+    clientX: 120,
+    clientY: 96,
+    preventDefault() {
+      prevented = true;
+    },
+  });
+
+  const panned = transformPan(
+    document.querySelector('.pipeline-viewport')?.getAttribute('transform'),
+  );
+  assertEquals(prevented, true);
+  assertEquals(panned.zoom, before.zoom);
+  assertEquals(panned.x, before.x - 20);
+  assertEquals(panned.y, before.y - 40);
+  assertEquals(fixture.zoomLabel.textContent, '100%');
+
+  fixture.svg.dispatchEvent({
+    type: 'wheel',
+    ctrlKey: true,
+    deltaY: -80,
+    clientX: 120,
+    clientY: 96,
+    preventDefault() {},
+  });
+
+  const zoomed = transformPan(
+    document.querySelector('.pipeline-viewport')?.getAttribute('transform'),
+  );
+  assertEquals(zoomed.zoom > panned.zoom, true);
+  assertEquals(fixture.zoomLabel.textContent === '100%', false);
+});
+
+Deno.test('PipelineWorkbench static chunk renders and drags minimap viewport', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture();
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+  fixture.minimap.getBoundingClientRect = () => ({
+    left: 0,
+    top: 0,
+    right: 160,
+    bottom: 96,
+    width: 160,
+    height: 96,
+  });
+  fixture.svg.getBoundingClientRect = () => ({
+    left: 0,
+    top: 0,
+    right: 320,
+    bottom: 180,
+    width: 320,
+    height: 180,
+  });
+
+  mod.default.mount(document);
+  const before = transformPan(
+    document.querySelector('.pipeline-viewport')?.getAttribute('transform'),
+  );
+  const viewport = document.querySelector('.minimap-viewport');
+
+  assertEquals(viewport !== null, true);
+  assertEquals(Number(viewport?.getAttribute('width')) > 0, true);
+  assertEquals(Number(viewport?.getAttribute('height')) > 0, true);
+
+  viewport.dispatchEvent({
+    type: 'pointerdown',
+    button: 0,
+    clientX: 30,
+    clientY: 30,
+    pointerId: 1,
+  });
+  document.dispatchEvent({
+    type: 'pointermove',
+    clientX: 60,
+    clientY: 52,
+    pointerId: 1,
+  });
+  document.dispatchEvent({
+    type: 'pointerup',
+    clientX: 60,
+    clientY: 52,
+    pointerId: 1,
+  });
+
+  const after = transformPan(
+    document.querySelector('.pipeline-viewport')?.getAttribute('transform'),
+  );
+  assertEquals(after.zoom, before.zoom);
+  assertEquals(after.x < before.x, true);
+  assertEquals(after.y < before.y, true);
 });
 
 Deno.test('PipelineWorkbench static chunk rewires output ports to policy input ports', async () => {

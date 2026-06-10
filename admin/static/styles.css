@@ -1382,7 +1382,13 @@ body {
   border-radius: 8px;
   background: var(--color-surface);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
-  pointer-events: none;
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.canvas-minimap:active {
+  cursor: grabbing;
 }
 
 .minimap-svg {
@@ -1392,6 +1398,7 @@ body {
 
 .minimap-bg {
   fill: var(--color-surface);
+  cursor: grab;
 }
 
 .minimap-edge {
@@ -1407,6 +1414,18 @@ body {
 .minimap-node.selected {
   fill: var(--color-accent);
   opacity: 0.95;
+}
+
+.minimap-viewport {
+  fill: rgba(76, 110, 245, 0.16);
+  stroke: var(--color-accent);
+  stroke-width: 1.5;
+  cursor: grab;
+  pointer-events: all;
+}
+
+.minimap-viewport:active {
+  cursor: grabbing;
 }
 
 .node-inspector {

@@ -32,6 +32,8 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const NODE_WIDTH = 180;
 const NODE_BASE_HEIGHT = 72;
 const NODE_PORT_GAP = 18;
+const MINIMAP_WIDTH = 160;
+const MINIMAP_HEIGHT = 96;
 const DEFAULT_PLUGINS = [
   'accept',
   'kind-filter',
@@ -1204,6 +1206,14 @@ function handlePointerMove(event) {
       y: dragState.startPan.y + event.clientY - dragState.startClient.y,
     };
     renderCanvas();
+    renderMinimap();
+    return;
+  }
+
+  if (dragState?.type === 'minimap') {
+    setPanFromMinimapEvent(event, dragState);
+    renderCanvas();
+    renderMinimap();
     return;
   }
 
@@ -1259,6 +1269,11 @@ function handlePointerUp(event) {
   }
 
   if (dragState?.type === 'pan') {
+    saveCurrentViewport();
+    updateWorkbenchChangeBadges();
+  }
+
+  if (dragState?.type === 'minimap') {
     saveCurrentViewport();
     updateWorkbenchChangeBadges();
   }
@@ -1498,6 +1513,103 @@ function graphBounds(graph) {
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
+function visibleGraphBounds() {
+  const svg = document.getElementById('pipeline-svg');
+  const rect = svg?.getBoundingClientRect?.() ?? { width: 1, height: 1 };
+  return {
+    x: -pan.x / zoom,
+    y: -pan.y / zoom,
+    width: Math.max(1, rect.width / zoom),
+    height: Math.max(1, rect.height / zoom),
+  };
+}
+
+function unionBounds(a, b) {
+  const minX = Math.min(a.x, b.x);
+  const minY = Math.min(a.y, b.y);
+  const maxX = Math.max(a.x + a.width, b.x + b.width);
+  const maxY = Math.max(a.y + a.height, b.y + b.height);
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
+}
+
+function buildMinimapModel(graph) {
+  const viewport = visibleGraphBounds();
+  const content = unionBounds(graphBounds(graph), viewport);
+  const scale = Math.min(
+    (MINIMAP_WIDTH - 16) / Math.max(1, content.width),
+    (MINIMAP_HEIGHT - 16) / Math.max(1, content.height),
+  );
+  const offsetX = 8 - content.x * scale;
+  const offsetY = 8 - content.y * scale;
+  return {
+    width: MINIMAP_WIDTH,
+    height: MINIMAP_HEIGHT,
+    scale,
+    offsetX,
+    offsetY,
+    viewport,
+    viewportRect: {
+      x: offsetX + viewport.x * scale,
+      y: offsetY + viewport.y * scale,
+      width: viewport.width * scale,
+      height: viewport.height * scale,
+    },
+  };
+}
+
+function minimapPointFromEvent(event, minimap) {
+  const rect = minimap.getBoundingClientRect();
+  return {
+    x: ((event.clientX - rect.left) / Math.max(1, rect.width)) * MINIMAP_WIDTH,
+    y: ((event.clientY - rect.top) / Math.max(1, rect.height)) * MINIMAP_HEIGHT,
+  };
+}
+
+function setPanFromMinimapEvent(event, state) {
+  const minimap = document.getElementById('minimap-svg');
+  if (!minimap) return;
+  const point = minimapPointFromEvent(event, minimap);
+  const viewportX = point.x - state.pointerOffset.x;
+  const viewportY = point.y - state.pointerOffset.y;
+  pan = {
+    x: -((viewportX - state.model.offsetX) / state.model.scale) * zoom,
+    y: -((viewportY - state.model.offsetY) / state.model.scale) * zoom,
+  };
+}
+
+function startMinimapPointer(event) {
+  if (event.button !== undefined && event.button !== 0) return;
+  const minimap = document.getElementById('minimap-svg');
+  if (!minimap) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const model = buildMinimapModel(currentGraph());
+  const point = minimapPointFromEvent(event, minimap);
+  const isViewport = event.currentTarget?.classList?.contains('minimap-viewport');
+  const pointerOffset = isViewport
+    ? {
+      x: point.x - model.viewportRect.x,
+      y: point.y - model.viewportRect.y,
+    }
+    : {
+      x: model.viewportRect.width / 2,
+      y: model.viewportRect.height / 2,
+    };
+  dragState = {
+    type: 'minimap',
+    model,
+    pointerOffset,
+  };
+  setPanFromMinimapEvent(event, dragState);
+  renderCanvas();
+  renderMinimap();
+}
+
 function fitCanvas() {
   const svg = document.getElementById('pipeline-svg');
   if (!svg) return;
@@ -1546,29 +1658,57 @@ function setZoom(nextZoom, pivotEvent = null) {
   renderMinimap();
 }
 
+function wheelDeltaFactor(event) {
+  if (event.deltaMode === 1) return 16;
+  if (event.deltaMode === 2) return 80;
+  return 1;
+}
+
+function panCanvasBy(deltaX, deltaY) {
+  pan = {
+    x: pan.x - deltaX,
+    y: pan.y - deltaY,
+  };
+  saveCurrentViewport();
+  updateWorkbenchChangeBadges();
+  renderCanvas();
+  renderMinimap();
+}
+
+function handleCanvasWheel(event) {
+  event.preventDefault();
+  if (event.ctrlKey || event.metaKey) {
+    setZoom(zoom * (event.deltaY > 0 ? 0.92 : 1.08), event);
+    return;
+  }
+
+  const factor = wheelDeltaFactor(event);
+  const deltaX = Number(event.deltaX || 0) * factor;
+  const deltaY = Number(event.deltaY || 0) * factor;
+  panCanvasBy(
+    event.shiftKey && deltaX === 0 ? deltaY : deltaX,
+    event.shiftKey ? 0 : deltaY,
+  );
+}
+
 function renderMinimap() {
   const minimap = document.getElementById('minimap-svg');
   if (!minimap) return;
   clearChildren(minimap);
   const graph = currentGraph();
-  const bounds = graphBounds(graph);
-  const width = 160;
-  const height = 96;
-  const scale = Math.min(
-    (width - 16) / Math.max(1, bounds.width),
-    (height - 16) / Math.max(1, bounds.height),
-  );
-  const offsetX = 8 - bounds.x * scale;
-  const offsetY = 8 - bounds.y * scale;
+  const model = buildMinimapModel(graph);
+  const { width, height, scale, offsetX, offsetY } = model;
   minimap.setAttribute('viewBox', `0 0 ${width} ${height}`);
-  minimap.appendChild(svgEl('rect', {
+  const background = svgEl('rect', {
     class: 'minimap-bg',
     x: 0,
     y: 0,
     width,
     height,
     rx: 8,
-  }));
+  });
+  background.addEventListener('pointerdown', startMinimapPointer);
+  minimap.appendChild(background);
   for (const edge of graph.edges ?? []) {
     const from = findNode(graph, edge.from);
     const to = findNode(graph, edge.to);
@@ -1591,6 +1731,16 @@ function renderMinimap() {
       rx: 3,
     }));
   }
+  const viewport = svgEl('rect', {
+    class: 'minimap-viewport',
+    x: model.viewportRect.x,
+    y: model.viewportRect.y,
+    width: Math.max(4, model.viewportRect.width),
+    height: Math.max(4, model.viewportRect.height),
+    rx: 3,
+  });
+  viewport.addEventListener('pointerdown', startMinimapPointer);
+  minimap.appendChild(viewport);
 }
 
 function renderInspector() {
@@ -2780,10 +2930,7 @@ function bindControls() {
     addPolicyNode(policy, graphPointFromEvent(event));
   }, { signal });
   svg?.addEventListener('pointerdown', startCanvasPointer, { signal });
-  svg?.addEventListener('wheel', (event) => {
-    event.preventDefault();
-    setZoom(zoom * (event.deltaY > 0 ? 0.92 : 1.08), event);
-  }, { signal });
+  svg?.addEventListener('wheel', handleCanvasWheel, { signal });
 
   document.addEventListener('pointermove', handlePointerMove, { signal });
   document.addEventListener('pointerup', handlePointerUp, { signal });
