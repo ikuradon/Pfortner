@@ -134,6 +134,32 @@ Deno.test('admin app installs Fresh island build cache for admin islands', async
   assertEquals(chunkText.includes('mountPipelineWorkbench'), true);
 });
 
+Deno.test('admin pipelines page renders legacy workbench canvas controls', async () => {
+  const handler = createAdminApp(makeState());
+  const res = await handler(makeRequest('/admin/pipelines', 'test-token'));
+
+  assertEquals(res.status, 200);
+  const html = await res.text();
+
+  for (
+    const id of [
+      'btn-run-pipeline',
+      'btn-fit-canvas',
+      'btn-zoom-in',
+      'btn-zoom-out',
+      'selection-marquee',
+      'minimap-svg',
+    ]
+  ) {
+    assertEquals(
+      html.includes(`id="${id}"`) || html.includes(`id='${id}'`),
+      true,
+      id,
+    );
+  }
+  assertEquals(/id="btn-run-pipeline"[^>]*disabled/.test(html), false);
+});
+
 Deno.test('admin app does not keep legacy deny-list page route', async () => {
   const handler = createAdminApp(makeState());
   const res = await handler(

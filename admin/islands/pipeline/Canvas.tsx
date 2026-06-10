@@ -16,6 +16,7 @@ export function Canvas(props: {
       role='region'
       aria-label='Pipeline canvas'
     >
+      <div class='selection-marquee' id='selection-marquee'></div>
       <svg
         class='pipeline-svg'
         id='pipeline-svg'
@@ -104,6 +105,12 @@ export function Canvas(props: {
             );
           })}
         </g>
+      </svg>
+      <svg
+        class='canvas-minimap'
+        id='minimap-svg'
+        aria-label='Pipeline minimap'
+      >
       </svg>
     </div>
   );

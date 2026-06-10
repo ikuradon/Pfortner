@@ -34,6 +34,14 @@ export function Palette(props: {
             type='button'
             class='policy-palette-item'
             data-policy={name}
+            draggable
+            onDragStart={(event) => {
+              event.dataTransfer?.setData(
+                'application/x-pfortner-policy',
+                name,
+              );
+              event.dataTransfer?.setData('text/plain', name);
+            }}
             onClick={() => props.onAdd(name)}
             aria-label={`Add ${name}`}
           >

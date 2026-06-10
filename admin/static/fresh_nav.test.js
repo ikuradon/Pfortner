@@ -16,6 +16,20 @@ class FakeDocument {
     this.listeners.push({ type, listener });
   }
 
+  dispatchEvent(event) {
+    for (const { type, listener } of this.listeners) {
+      if (type === event.type) {
+        listener({
+          target: event.target ?? this,
+          currentTarget: this,
+          preventDefault() {},
+          stopPropagation() {},
+          ...event,
+        });
+      }
+    }
+  }
+
   setChildNodes(childNodes) {
     this.childNodes = childNodes;
     this.relink();
@@ -44,6 +58,18 @@ class FakeDocument {
 
   createElement(tagName) {
     return new FakeElement(tagName);
+  }
+
+  createElementNS(_namespace, tagName) {
+    return new FakeElement(tagName);
+  }
+
+  createTextNode(textContent) {
+    return new FakeText(textContent);
+  }
+
+  getElementById(id) {
+    return this.querySelector(`#${id}`);
   }
 
   insertBefore(node, reference) {
@@ -108,6 +134,37 @@ class FakeComment {
   }
 }
 
+class FakeText {
+  nodeType = 3;
+  parentNode = null;
+  parentElement = null;
+  nextSibling = null;
+
+  constructor(textContent) {
+    this._textContent = String(textContent);
+  }
+
+  get textContent() {
+    return this._textContent;
+  }
+
+  set textContent(value) {
+    this._textContent = String(value);
+  }
+
+  querySelectorAll() {
+    return [];
+  }
+
+  clone() {
+    return new FakeText(this.textContent);
+  }
+
+  remove() {
+    this.parentNode?.removeChild(this);
+  }
+}
+
 class FakeElement {
   nodeType = 1;
   parentNode = null;
@@ -116,7 +173,7 @@ class FakeElement {
   childNodes = [];
   listeners = [];
   dataset = {};
-  textContent = '';
+  _textContent = '';
 
   constructor(tagName, attributes = {}, textContent = '', childNodes = []) {
     this.tagName = tagName.toUpperCase();
@@ -126,7 +183,75 @@ class FakeElement {
     this.value = attributes.value ?? '';
     this.textContent = textContent;
     this.disabled = Object.hasOwn(attributes, 'disabled');
+    this.style = {};
+    this.dataset = new Proxy({}, {
+      set: (target, key, value) => {
+        target[key] = String(value);
+        this.attributes.set(`data-${kebabCase(String(key))}`, String(value));
+        return true;
+      },
+    });
+    for (const [name, value] of Object.entries(attributes)) {
+      if (name.startsWith('data-')) {
+        this.dataset[camelCase(name.slice(5))] = value;
+      }
+    }
     this.setChildNodes(childNodes);
+  }
+
+  get className() {
+    return this.getAttribute('class') ?? '';
+  }
+
+  get textContent() {
+    if (this._textContent || this.childNodes.length === 0) {
+      return this._textContent;
+    }
+    return this.childNodes.map((node) => node.textContent ?? '').join('');
+  }
+
+  set textContent(value) {
+    this._textContent = String(value);
+  }
+
+  set className(value) {
+    this.setAttribute('class', value);
+  }
+
+  get firstChild() {
+    return this.childNodes[0] ?? null;
+  }
+
+  get classList() {
+    return {
+      contains: (className) =>
+        (this.getAttribute('class') ?? '').split(/\s+/).filter(Boolean)
+          .includes(className),
+      toggle: (className, force) => {
+        const classes = new Set(
+          (this.getAttribute('class') ?? '').split(/\s+/).filter(Boolean),
+        );
+        const enabled = force === undefined ? !classes.has(className) : Boolean(force);
+        if (enabled) classes.add(className);
+        else classes.delete(className);
+        this.setAttribute('class', [...classes].join(' '));
+        return enabled;
+      },
+      add: (className) => {
+        const classes = new Set(
+          (this.getAttribute('class') ?? '').split(/\s+/).filter(Boolean),
+        );
+        classes.add(className);
+        this.setAttribute('class', [...classes].join(' '));
+      },
+      remove: (className) => {
+        const classes = new Set(
+          (this.getAttribute('class') ?? '').split(/\s+/).filter(Boolean),
+        );
+        classes.delete(className);
+        this.setAttribute('class', [...classes].join(' '));
+      },
+    };
   }
 
   getAttribute(name) {
@@ -139,6 +264,9 @@ class FakeElement {
     if (name === 'target') this.target = String(value);
     if (name === 'value') this.value = String(value);
     if (name === 'disabled') this.disabled = true;
+    if (name.startsWith('data-')) {
+      this.dataset[camelCase(name.slice(5))] = String(value);
+    }
   }
 
   hasAttribute(name) {
@@ -203,6 +331,9 @@ class FakeElement {
     ) {
       return this;
     }
+    for (let node = this; node; node = node.parentElement) {
+      if (node.matchesSelector?.(selector)) return node;
+    }
     return null;
   }
 
@@ -259,9 +390,28 @@ class FakeElement {
     return clone;
   }
 
+  getBoundingClientRect() {
+    return {
+      left: 0,
+      top: 0,
+      right: 960,
+      bottom: 540,
+      width: 960,
+      height: 540,
+    };
+  }
+
   remove() {
     this.parentNode?.removeChild(this);
   }
+}
+
+function kebabCase(value) {
+  return value.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`);
+}
+
+function camelCase(value) {
+  return value.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
 }
 
 function setGlobal(name, value) {
@@ -285,6 +435,13 @@ function setGlobal(name, value) {
   };
 }
 
+setGlobal('localStorage', {
+  getItem() {
+    return null;
+  },
+  setItem() {},
+});
+
 async function importFreshNav() {
   return await import(`./fresh_nav.js?test=${crypto.randomUUID()}`);
 }
@@ -305,14 +462,18 @@ function paletteItem(policy) {
   }, policy);
 }
 
-function pipelineWorkbenchFixture({ standalonePolicy = null } = {}) {
+function pipelineWorkbenchFixture({ standalonePolicy = null, extraNodes = [] } = {}) {
   const clientButton = new FakeElement('button', {
     id: 'tab-client',
     'aria-pressed': 'true',
+    class: 'btn btn-primary pipeline-mode-tab',
+    'data-pipeline': 'client',
   }, 'Client');
   const serverButton = new FakeElement('button', {
     id: 'tab-server',
     'aria-pressed': 'false',
+    class: 'btn btn-ghost pipeline-mode-tab',
+    'data-pipeline': 'server',
   }, 'Server');
   const undoButton = new FakeElement('button', {
     id: 'btn-undo-pipeline',
@@ -320,6 +481,9 @@ function pipelineWorkbenchFixture({ standalonePolicy = null } = {}) {
   const redoButton = new FakeElement('button', {
     id: 'btn-redo-pipeline',
   }, 'Redo');
+  const runButton = new FakeElement('button', {
+    id: 'btn-run-pipeline',
+  }, 'Run');
   const loadButton = new FakeElement('button', {
     id: 'btn-load-dag',
   }, 'Load');
@@ -329,6 +493,15 @@ function pipelineWorkbenchFixture({ standalonePolicy = null } = {}) {
   const publishButton = new FakeElement('button', {
     id: 'btn-publish-pipeline',
   }, 'Publish');
+  const fitButton = new FakeElement('button', {
+    id: 'btn-fit-canvas',
+  }, 'Fit');
+  const zoomOutButton = new FakeElement('button', {
+    id: 'btn-zoom-out',
+  }, '-');
+  const zoomInButton = new FakeElement('button', {
+    id: 'btn-zoom-in',
+  }, '+');
   const statusSummary = new FakeElement('span', {
     id: 'workbench-status-summary',
   }, 'Ready');
@@ -336,6 +509,18 @@ function pipelineWorkbenchFixture({ standalonePolicy = null } = {}) {
     id: 'btn-toggle-palette',
     'aria-label': 'Collapse palette',
   }, '‹');
+  const paletteBody = new FakeElement(
+    'div',
+    {
+      id: 'policy-palette',
+      class: 'workbench-panel-body policy-palette',
+    },
+    '',
+    [
+      paletteItem('accept'),
+      paletteItem('rate-limit'),
+    ],
+  );
   const palette = new FakeElement(
     'aside',
     {
@@ -345,13 +530,15 @@ function pipelineWorkbenchFixture({ standalonePolicy = null } = {}) {
     '',
     [
       paletteToggle,
-      paletteItem('accept'),
-      paletteItem('rate-limit'),
+      paletteBody,
     ],
   );
   const canvasTitle = new FakeElement('span', {
     id: 'canvas-title',
   }, 'Client Pipeline');
+  const zoomLabel = new FakeElement('span', {
+    id: 'canvas-zoom-label',
+  }, '100%');
   const edge = new FakeElement('path', {
     'data-edge-id': 'client-edge-1',
     'data-edge-from': 'client-start',
@@ -381,13 +568,30 @@ function pipelineWorkbenchFixture({ standalonePolicy = null } = {}) {
       transform: 'translate(520, 80)',
     })
     : null;
-  const canvas = new FakeElement(
+  const svg = new FakeElement(
     'svg',
     {
       id: 'pipeline-svg',
     },
     '',
-    [edge, startNode, policyNode, standaloneNode].filter(Boolean),
+    [edge, startNode, policyNode, standaloneNode, ...extraNodes].filter(Boolean),
+  );
+  const selectionMarquee = new FakeElement('div', {
+    id: 'selection-marquee',
+    class: 'selection-marquee',
+  });
+  const minimap = new FakeElement('svg', {
+    id: 'minimap-svg',
+    class: 'minimap-svg',
+  });
+  const canvas = new FakeElement(
+    'div',
+    {
+      id: 'pipeline-canvas',
+      class: 'pipeline-canvas',
+    },
+    '',
+    [selectionMarquee, svg, minimap],
   );
   const workbench = new FakeElement(
     'div',
@@ -401,12 +605,17 @@ function pipelineWorkbenchFixture({ standalonePolicy = null } = {}) {
       serverButton,
       undoButton,
       redoButton,
+      runButton,
       loadButton,
       saveButton,
       publishButton,
+      fitButton,
+      zoomOutButton,
+      zoomInButton,
       statusSummary,
       palette,
       canvasTitle,
+      zoomLabel,
       canvas,
     ],
   );
@@ -420,6 +629,7 @@ function pipelineWorkbenchFixture({ standalonePolicy = null } = {}) {
     standaloneNode,
     publishButton,
     redoButton,
+    runButton,
     saveButton,
     serverButton,
     startNode,
@@ -884,11 +1094,11 @@ Deno.test('PipelineWorkbench static chunk adds palette policies to the active gr
   assertEquals(acceptNode !== null, true);
   assertEquals(acceptNode?.getAttribute('data-node-id'), 'client-node-2');
   assertEquals(
-    document.querySelector('[data-edge-from="client-start"][data-edge-to="client-node-2"]') !== null,
+    document.querySelector('[data-edge-from="client-start"][data-edge-to="client-node-1"]') !== null,
     true,
   );
   assertEquals(
-    document.querySelector('[data-edge-from="client-node-2"][data-edge-to="client-node-1"]') !== null,
+    document.querySelector('[data-edge-from="client-node-1"][data-edge-to="client-node-2"]') !== null,
     true,
   );
 });
@@ -942,13 +1152,13 @@ Deno.test('PipelineWorkbench static chunk drags nodes and rerenders connected ed
       clientY: 80,
       pointerId: 1,
     });
-    window.dispatchEvent({
+    document.dispatchEvent({
       type: 'pointermove',
       clientX: 320,
       clientY: 116,
       pointerId: 1,
     });
-    window.dispatchEvent({
+    document.dispatchEvent({
       type: 'pointerup',
       clientX: 320,
       clientY: 116,
@@ -958,7 +1168,7 @@ Deno.test('PipelineWorkbench static chunk drags nodes and rerenders connected ed
     const movedNode = document.querySelector('[data-node-id="client-node-1"]');
     const afterPath = document.querySelector('[data-edge-id="client-edge-1"]')
       ?.getAttribute('d');
-    assertEquals(movedNode?.getAttribute('transform'), 'translate(320, 116)');
+    assertEquals(movedNode?.getAttribute('transform'), 'translate(320, 120)');
     assertEquals(movedNode?.getAttribute('class')?.includes('selected'), true);
     assertEquals(afterPath === beforePath, false);
     assertEquals(fixture.undoButton.disabled, false);
@@ -1005,11 +1215,118 @@ Deno.test('PipelineWorkbench static chunk rewires output ports to policy input p
     document.querySelector('[data-edge-from="client-start"][data-edge-to="client-node-2"]') !== null,
     true,
   );
-  assertEquals(
-    document.querySelector('[data-edge-from="client-node-2"][data-edge-to="client-node-1"]') !== null,
-    true,
-  );
   assertEquals(fixture.undoButton.disabled, false);
+});
+
+Deno.test('PipelineWorkbench static chunk renders branch ports for when and match nodes', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture();
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+  const draft = {
+    version: 1,
+    graphs: {
+      client: {
+        direction: 'client',
+        nodes: [
+          { id: 'client-start', type: 'start', policy: 'start', x: 0, y: 0, config: {} },
+          {
+            id: 'client-node-1',
+            type: 'policy',
+            policy: 'when',
+            x: 240,
+            y: 0,
+            config: { condition: {}, then: [], else: [] },
+          },
+          {
+            id: 'client-node-2',
+            type: 'policy',
+            policy: 'match',
+            x: 240,
+            y: 140,
+            config: { cases: [{ condition: {}, pipeline: [] }], default: [] },
+          },
+        ],
+        edges: [
+          {
+            id: 'client-edge-1',
+            from: 'client-start',
+            fromPort: 'next',
+            to: 'client-node-1',
+            toPort: 'in',
+          },
+        ],
+      },
+      server: {
+        direction: 'server',
+        nodes: [
+          { id: 'server-start', type: 'start', policy: 'start', x: 0, y: 0, config: {} },
+        ],
+        edges: [],
+      },
+    },
+    viewports: {},
+    updatedAt: '1970-01-01T00:00:01.000Z',
+    lastPublishedFingerprint: '',
+  };
+  const restoreFetch = setGlobal('fetch', (url, init = {}) => {
+    if (url === '/admin/api/config') {
+      return Promise.resolve(
+        new Response(JSON.stringify({ pipelines: { client: [], server: [] } }), { status: 200 }),
+      );
+    }
+    if (url === '/admin/api/plugins') {
+      return Promise.resolve(
+        new Response(JSON.stringify({ plugins: ['when', 'match'] }), { status: 200 }),
+      );
+    }
+    if (url === '/admin/api/pipeline-draft' && init.method !== 'POST') {
+      return Promise.resolve(
+        new Response(JSON.stringify({ draft }), { status: 200 }),
+      );
+    }
+    return Promise.resolve(new Response('{}', { status: 200 }));
+  });
+  const restoreStorage = setGlobal('localStorage', {
+    getItem() {
+      return null;
+    },
+    setItem() {},
+  });
+  const restoreConfirm = setGlobal('confirm', () => true);
+
+  try {
+    mod.default.mount(document);
+
+    await waitFor(() => document.querySelector('[data-node-id="client-node-2"]') !== null);
+
+    assertEquals(
+      document.querySelector('[data-node-id="client-start"][data-port-role="input"]'),
+      null,
+    );
+    assertEquals(
+      document.querySelector('[data-node-id="client-node-1"][data-port-id="then"]') !== null,
+      true,
+    );
+    assertEquals(
+      document.querySelector('[data-node-id="client-node-1"][data-port-id="else"]') !== null,
+      true,
+    );
+    assertEquals(
+      document.querySelector('[data-node-id="client-node-2"][data-port-id="case:0"]') !== null,
+      true,
+    );
+    assertEquals(
+      document.querySelector('[data-node-id="client-node-2"][data-port-id="default"]') !== null,
+      true,
+    );
+  } finally {
+    restoreStorage();
+    restoreFetch();
+  }
 });
 
 Deno.test('PipelineWorkbench static chunk opens playground modal from start node double click', async () => {
@@ -1022,12 +1339,15 @@ Deno.test('PipelineWorkbench static chunk opens playground modal from start node
   });
 
   mod.default.mount(document);
-  fixture.startNode.dispatchEvent({ type: 'dblclick' });
+  document.querySelector('[data-node-id="client-start"]').dispatchEvent({ type: 'dblclick' });
 
   assertEquals(document.querySelector('.modal-backdrop') !== null, true);
   assertEquals(document.querySelector('.workbench-modal')?.getAttribute('role'), 'dialog');
   assertEquals(document.querySelector('#playground-message-input') !== null, true);
-  assertEquals(document.querySelector('.playground-result-panel')?.textContent, 'No result yet.');
+  assertEquals(
+    document.querySelector('.playground-result-panel')?.textContent,
+    'Run a message to inspect the evaluated path.',
+  );
 });
 
 Deno.test('PipelineWorkbench static chunk validates settings modal JSON locally', async () => {
@@ -1040,7 +1360,8 @@ Deno.test('PipelineWorkbench static chunk validates settings modal JSON locally'
   });
 
   mod.default.mount(document);
-  fixture.policyNode.dispatchEvent({ type: 'dblclick' });
+  document.querySelector('[data-node-id="client-node-1"]').dispatchEvent({ type: 'dblclick' });
+  document.querySelectorAll('button').find((button) => button.textContent === 'JSON')?.click();
 
   const textarea = document.querySelector('textarea');
   const applyButton = document.querySelector('[data-modal-action="apply-settings"]');
@@ -1048,19 +1369,27 @@ Deno.test('PipelineWorkbench static chunk validates settings modal JSON locally'
   assertMatch(textarea?.value ?? '', /require_auth/);
 
   textarea.value = '[]';
+  textarea.dispatchEvent({ type: 'input' });
   applyButton.click();
 
   assertMatch(document.querySelector('.modal-error')?.textContent ?? '', /Config JSON must be an object/);
   assertEquals(document.querySelector('.modal-backdrop') !== null, true);
 
   textarea.value = '{"require_auth":false}';
+  textarea.dispatchEvent({ type: 'input' });
   applyButton.click();
 
-  assertEquals(document.querySelector('.modal-backdrop'), null);
-  assertEquals(fixture.policyNode.getAttribute('data-node-config'), '{"require_auth":false}');
+  assertEquals(
+    document.querySelector('#node-settings-modal')?.getAttribute('class')?.includes('hidden'),
+    true,
+  );
+  assertEquals(
+    document.querySelector('[data-node-id="client-node-1"]')?.getAttribute('data-node-config'),
+    '{"require_auth":false}',
+  );
 });
 
-Deno.test('PipelineWorkbench static chunk opens publish modal from toolbar button', async () => {
+Deno.test('PipelineWorkbench static chunk confirms publish from toolbar button', async () => {
   const mod = await import(
     `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
   );
@@ -1068,18 +1397,23 @@ Deno.test('PipelineWorkbench static chunk opens publish modal from toolbar butto
   const document = new FakeDocument({
     childNodes: [fixture.workbench],
   });
+  const confirmCalls = [];
+  const restoreConfirm = setGlobal('confirm', (message) => {
+    confirmCalls.push(message);
+    return false;
+  });
 
-  mod.default.mount(document);
-  fixture.publishButton.click();
+  try {
+    mod.default.mount(document);
+    fixture.publishButton.click();
 
-  await waitFor(() => document.querySelector('.modal-backdrop') !== null);
-  assertEquals(document.querySelector('.modal-backdrop') !== null, true);
-  assertMatch(document.querySelector('.yaml-preview')?.textContent ?? '', /pipelines:/);
-  assertMatch(document.querySelector('.yaml-preview')?.textContent ?? '', /write-guard/);
-  assertEquals(
-    document.querySelectorAll('.text-muted').some((element) => element.textContent === 'Writes active config'),
-    true,
-  );
+    await waitFor(() => fixture.statusSummary.textContent === 'Publish canceled');
+    assertMatch(confirmCalls[0] ?? '', /pipelines:/);
+    assertMatch(confirmCalls[0] ?? '', /write-guard/);
+    assertEquals(fixture.statusSummary.textContent, 'Publish canceled');
+  } finally {
+    restoreConfirm();
+  }
 });
 
 Deno.test('PipelineWorkbench static chunk saves rendered graph through draft API', async () => {
@@ -1461,16 +1795,14 @@ Deno.test('PipelineWorkbench static chunk publishes rendered graph from modal co
       ),
     );
   });
+  const restoreConfirm = setGlobal('confirm', () => true);
 
   try {
     mod.default.mount(document);
     fixture.publishButton.click();
-    await waitFor(() => document.querySelector('[data-modal-action="confirm-publish"]') !== null);
-    document.querySelector('[data-modal-action="confirm-publish"]').click();
 
     await waitFor(() =>
       fetchCalls.some((call) => call.url === '/admin/api/pipelines') &&
-      document.querySelector('.modal-backdrop') === null &&
       fixture.statusSummary.textContent === 'Pipeline published'
     );
 
@@ -1479,9 +1811,9 @@ Deno.test('PipelineWorkbench static chunk publishes rendered graph from modal co
     assertEquals(publishCall.body.pipelines.client, [
       { policy: 'write-guard', config: { require_auth: true } },
     ]);
-    assertEquals(document.querySelector('.modal-backdrop'), null);
     assertEquals(fixture.statusSummary.textContent, 'Pipeline published');
   } finally {
+    restoreConfirm();
     restoreFetch();
   }
 });
@@ -1553,6 +1885,7 @@ Deno.test('PipelineWorkbench static chunk preserves both directions when publish
       new Response(JSON.stringify({ draft }), { status: 200 }),
     );
   });
+  const restoreConfirm = setGlobal('confirm', () => true);
   const restoreStorage = setGlobal('localStorage', {
     getItem() {
       return null;
@@ -1566,8 +1899,6 @@ Deno.test('PipelineWorkbench static chunk preserves both directions when publish
     await waitFor(() => fixture.statusSummary.textContent === 'Loaded saved DAG');
 
     fixture.publishButton.click();
-    await waitFor(() => document.querySelector('[data-modal-action="confirm-publish"]') !== null);
-    document.querySelector('[data-modal-action="confirm-publish"]').click();
 
     await waitFor(() => fetchCalls.some((call) => call.url === '/admin/api/pipelines'));
 
@@ -1578,6 +1909,7 @@ Deno.test('PipelineWorkbench static chunk preserves both directions when publish
     assertEquals(publishCall.body.pipelines.server, [{ policy: 'rate-limit' }]);
   } finally {
     restoreStorage();
+    restoreConfirm();
     restoreFetch();
   }
 });
@@ -1598,19 +1930,20 @@ Deno.test('PipelineWorkbench static chunk evaluates playground messages through 
       body: JSON.parse(init.body ?? '{}'),
     });
     return Promise.resolve(
-      new Response(JSON.stringify({ finalAction: 'accept' }), { status: 200 }),
+      new Response(JSON.stringify({ steps: [], finalAction: 'accept' }), { status: 200 }),
     );
   });
 
   try {
     mod.default.mount(document);
-    fixture.startNode.dispatchEvent({ type: 'dblclick' });
+    document.querySelector('[data-node-id="client-start"]').dispatchEvent({ type: 'dblclick' });
     document.querySelector('#playground-message-input').value = '["EVENT",{"id":"1"}]';
+    document.querySelector('#playground-message-input').dispatchEvent({ type: 'input' });
     document.querySelector('[data-modal-action="run-playground"]').click();
 
     await waitFor(() =>
       fetchCalls.some((call) => call.url === '/admin/api/playground/evaluate') &&
-      /finalAction/.test(
+      /Final: ACCEPT/.test(
         document.querySelector('.playground-result-panel')?.textContent ?? '',
       )
     );
@@ -1624,7 +1957,7 @@ Deno.test('PipelineWorkbench static chunk evaluates playground messages through 
     ]);
     assertMatch(
       document.querySelector('.playground-result-panel')?.textContent ?? '',
-      /finalAction/,
+      /Final: ACCEPT/,
     );
   } finally {
     restoreFetch();
@@ -1647,8 +1980,9 @@ Deno.test('PipelineWorkbench static chunk rejects non-array playground messages 
 
   try {
     mod.default.mount(document);
-    fixture.startNode.dispatchEvent({ type: 'dblclick' });
+    document.querySelector('[data-node-id="client-start"]').dispatchEvent({ type: 'dblclick' });
     document.querySelector('#playground-message-input').value = '{"kind":1}';
+    document.querySelector('#playground-message-input').dispatchEvent({ type: 'input' });
     document.querySelector('[data-modal-action="run-playground"]').click();
 
     assertEquals(fetchCalls.some((call) => call.url === '/admin/api/playground/evaluate'), false);

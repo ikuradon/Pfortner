@@ -57,10 +57,32 @@ export function Toolbar(props: {
         type='button'
         id='btn-run-pipeline'
         class='btn btn-ghost'
-        disabled
         onClick={props.onRun}
       >
         ▷ Run
+      </button>
+      <button
+        type='button'
+        id='btn-fit-canvas'
+        class='btn btn-ghost'
+      >
+        Fit
+      </button>
+      <button
+        type='button'
+        id='btn-zoom-out'
+        class='btn btn-ghost'
+        aria-label='Zoom out'
+      >
+        -
+      </button>
+      <button
+        type='button'
+        id='btn-zoom-in'
+        class='btn btn-ghost'
+        aria-label='Zoom in'
+      >
+        +
       </button>
       <button
         type='button'

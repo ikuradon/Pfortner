@@ -1703,12 +1703,6 @@ body {
     min-height: 420px;
   }
 
-  .pipeline-edge-layer,
-  .pipeline-node-layer {
-    transform: scale(0.58);
-    transform-origin: 0 0;
-  }
-
   .canvas-minimap {
     display: none;
   }
