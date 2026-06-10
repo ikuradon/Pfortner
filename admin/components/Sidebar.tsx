@@ -25,8 +25,22 @@ interface SidebarProps {
 export function Sidebar({ currentPath }: SidebarProps) {
   return (
     <aside class='sidebar'>
-      <div class='sidebar-logo'>
-        Pf<span>ö</span>rtner
+      <div class='sidebar-header'>
+        <div class='sidebar-logo' aria-label='Pförtner Admin'>
+          <span class='sidebar-logo-text'>
+            Pf<span>ö</span>rtner
+          </span>
+        </div>
+        <button
+          type='button'
+          class='sidebar-toggle'
+          id='btn-toggle-sidebar'
+          aria-label='Collapse sidebar'
+          aria-expanded='true'
+          title='Collapse sidebar'
+        >
+          ‹
+        </button>
       </div>
       <nav class='sidebar-nav'>
         {NAV_ITEMS.map((item) => (
@@ -38,8 +52,8 @@ export function Sidebar({ currentPath }: SidebarProps) {
               ? 'active'
               : ''}
           >
-            <span style='width:18px;text-align:center'>{item.icon}</span>
-            {item.label}
+            <span class='sidebar-nav-icon'>{item.icon}</span>
+            <span class='sidebar-nav-label'>{item.label}</span>
           </a>
         ))}
       </nav>
@@ -64,6 +78,9 @@ const THEME_INIT_SCRIPT = `(function(){try{var t=localStorage.getItem('pfortner-
   `if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){` +
   `document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();`;
 
+const SIDEBAR_INIT_SCRIPT = `(function(){try{if(localStorage.getItem('pfortner-sidebar-collapsed')==='true'){` +
+  `document.documentElement.setAttribute('data-sidebar','collapsed');}}catch(e){}})();`;
+
 export function Layout({ currentPath, title, children }: LayoutProps) {
   return (
     <html lang='en'>
@@ -75,6 +92,8 @@ export function Layout({ currentPath, title, children }: LayoutProps) {
         <link rel='stylesheet' href='/admin/static/styles.css' />
         {/* deno-lint-ignore -- safe: hardcoded string literal, no user input */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        {/* deno-lint-ignore -- safe: hardcoded string literal, no user input */}
+        <script dangerouslySetInnerHTML={{ __html: SIDEBAR_INIT_SCRIPT }} />
       </head>
       <body {...{ 'f-client-nav': true }}>
         <div class='layout'>

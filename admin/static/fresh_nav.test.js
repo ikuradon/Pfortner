@@ -996,6 +996,59 @@ Deno.test('fresh nav boot mounts the layout theme toggle', async () => {
   }
 });
 
+Deno.test('fresh nav boot mounts the explicit sidebar collapse toggle', async () => {
+  const button = new FakeElement('button', {
+    id: 'btn-toggle-sidebar',
+    'aria-expanded': 'true',
+  }, '‹');
+  const document = new FakeDocument({ childNodes: [button] });
+  document.documentElement = new FakeElement('html');
+  const window = new FakeWindow();
+  const stored = [];
+  const restoreDocument = setGlobal('document', document);
+  const restoreWindow = setGlobal('window', window);
+  const restoreLocalStorage = setGlobal('localStorage', {
+    getItem(key) {
+      return key === 'pfortner-sidebar-collapsed' ? 'true' : null;
+    },
+    setItem(key, value) {
+      stored.push([key, value]);
+    },
+  });
+  const restoreBootArgs = setGlobal(
+    '__PFORTNER_FRESH_ISLAND_BOOT_ARGS__',
+    undefined,
+  );
+  delete globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__;
+
+  try {
+    const { boot } = await importFreshNav();
+
+    boot({}, []);
+
+    assertEquals(
+      document.documentElement.getAttribute('data-sidebar'),
+      'collapsed',
+    );
+    assertEquals(button.getAttribute('aria-label'), 'Expand sidebar');
+    assertEquals(button.getAttribute('aria-expanded'), 'false');
+    assertEquals(button.textContent, '›');
+
+    button.click();
+
+    assertEquals(document.documentElement.getAttribute('data-sidebar'), null);
+    assertEquals(button.getAttribute('aria-label'), 'Collapse sidebar');
+    assertEquals(button.getAttribute('aria-expanded'), 'true');
+    assertEquals(button.textContent, '‹');
+    assertEquals(stored, [['pfortner-sidebar-collapsed', 'false']]);
+  } finally {
+    restoreBootArgs();
+    restoreLocalStorage();
+    restoreWindow();
+    restoreDocument();
+  }
+});
+
 Deno.test('fresh nav boot initializes dashboard page behavior from the client entry', async () => {
   const fixture = dashboardFixture();
   const document = new FakeDocument({ childNodes: fixture.nodes });

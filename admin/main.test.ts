@@ -88,6 +88,8 @@ Deno.test('admin app page routes render Fresh SSR pages with partial navigation'
   assertEquals(html.includes('f-client-nav="true"'), true);
   assertEquals(html.includes('frsh:partial:admin-sidebar'), true);
   assertEquals(html.includes('frsh:partial:admin-content'), true);
+  assertEquals(html.includes('id="btn-toggle-sidebar"'), true);
+  assertEquals(html.includes('pfortner-sidebar-collapsed'), true);
   const removedEmptyFreshBootImport = 'import { boot } from ' + '"";';
   assertEquals(html.includes(removedEmptyFreshBootImport), false);
   assertEquals(html.includes('/admin/static/fresh_nav.js'), true);

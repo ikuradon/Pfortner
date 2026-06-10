@@ -6,6 +6,7 @@ const CONNECTIONS_POLL_INTERVAL_MS = 10000;
 const METRICS_POLL_INTERVAL_MS = 10000;
 const MAX_METRICS_TRACKER_MINUTES = 5;
 const MAX_VISIBLE_LOGS = 500;
+const SIDEBAR_COLLAPSED_KEY = 'pfortner-sidebar-collapsed';
 
 const ADMIN_ISLAND_MODULES = {
   '/admin/static/islands/AdminIslandSmoke.js': () => import('../static/islands/AdminIslandSmoke.js'),
@@ -62,8 +63,51 @@ function mountThemeToggle() {
   mount.appendChild(button);
 }
 
+function readSidebarCollapsedPreference() {
+  try {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
+  } catch {
+    return document.documentElement?.getAttribute('data-sidebar') === 'collapsed';
+  }
+}
+
+function applySidebarCollapsedState(collapsed) {
+  const root = document.documentElement;
+  if (!root) return;
+  if (collapsed) root.setAttribute('data-sidebar', 'collapsed');
+  else root.removeAttribute('data-sidebar');
+}
+
+function updateSidebarToggleButton(button, collapsed) {
+  button.textContent = collapsed ? '›' : '‹';
+  button.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+  button.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+  button.setAttribute('aria-expanded', String(!collapsed));
+}
+
+function mountSidebarToggle() {
+  const button = document.getElementById('btn-toggle-sidebar');
+  if (!button) return;
+
+  let collapsed = readSidebarCollapsedPreference();
+  applySidebarCollapsedState(collapsed);
+  updateSidebarToggleButton(button, collapsed);
+
+  bindOnce(button, 'sidebar-toggle', () => {
+    collapsed = document.documentElement?.getAttribute('data-sidebar') !== 'collapsed';
+    applySidebarCollapsedState(collapsed);
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
+    } catch {
+      // ストレージに失敗しても現在の layout 更新は維持する。
+    }
+    updateSidebarToggleButton(button, collapsed);
+  });
+}
+
 function mountLayoutBehaviors() {
   mountThemeToggle();
+  mountSidebarToggle();
 }
 
 function getErrorMessage(error) {
