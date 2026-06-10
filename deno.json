@@ -4,6 +4,7 @@
     "@std/yaml": "jsr:@std/yaml@1.0.5",
     "@std/path": "jsr:@std/path@1.1.4",
     "ajv": "npm:ajv@8.17.1",
+    "esbuild": "npm:esbuild@0.21.5",
     "maxmind": "npm:maxmind@4.3.21",
     "redis": "npm:redis@4.7.0",
     "@fresh/core": "jsr:@fresh/core@^2.2.0",
@@ -53,6 +54,7 @@
     "dev:admin": "deno task dev",
     "serve": "deno run --unstable-net --allow-env --allow-net --allow-read scripts/serve.ts",
     "serve:config": "deno run --unstable-net --allow-env --allow-net --allow-read --allow-write=pfortner.yaml,pfortner.yaml.workbench.json scripts/serve.ts pfortner.yaml",
+    "build:admin-islands": "deno run --allow-env --allow-read --allow-write --allow-run scripts/build_admin_islands.ts",
     "test": "deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --unstable-kv admin/ src/",
     "bench": "deno run --allow-env --allow-net --allow-read --allow-write --unstable-net scripts/bench.ts bench.scenario.yaml"
   }
