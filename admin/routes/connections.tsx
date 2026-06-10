@@ -105,9 +105,6 @@ export function ConnectionsPage({ currentPath }: ConnectionsPageProps) {
           </tbody>
         </table>
       </div>
-
-      <script src='/admin/static/utils.js'></script>
-      <script src='/admin/static/connections.js' type='module'></script>
     </Layout>
   );
 }

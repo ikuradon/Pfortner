@@ -734,6 +734,66 @@ function dashboardFixture() {
   };
 }
 
+function connectionsFixture() {
+  const loadingRow = () =>
+    new FakeElement(
+      'tr',
+      {},
+      '',
+      [new FakeElement('td', { colspan: '7' }, 'Loading...')],
+    );
+  const refreshButton = new FakeElement('button', { id: 'btn-refresh' }, 'Refresh');
+  const bulkButton = new FakeElement('button', {
+    id: 'btn-disconnect-selected',
+    disabled: '',
+  }, 'Disconnect Selected');
+  const summaryTotal = new FakeElement('div', { id: 'summary-total' }, '—');
+  const summaryAuthed = new FakeElement('div', { id: 'summary-authed' }, '—');
+  const summaryUnauthed = new FakeElement('div', { id: 'summary-unauthed' }, '—');
+  const searchInput = new FakeElement('input', { id: 'search-input', value: '' });
+  const filterAll = new FakeElement('button', {
+    class: 'btn btn-primary auth-filter-btn',
+    'data-filter': 'all',
+  }, 'All');
+  const filterAuthenticated = new FakeElement('button', {
+    class: 'btn btn-ghost auth-filter-btn',
+    'data-filter': 'authenticated',
+  }, 'Authenticated');
+  const filterUnauthenticated = new FakeElement('button', {
+    class: 'btn btn-ghost auth-filter-btn',
+    'data-filter': 'unauthenticated',
+  }, 'Unauthenticated');
+  const selectAll = new FakeElement('input', { id: 'select-all' });
+  const tbody = new FakeElement('tbody', { id: 'connections-tbody' }, '', [loadingRow()]);
+
+  return {
+    bulkButton,
+    filterAll,
+    filterAuthenticated,
+    filterUnauthenticated,
+    refreshButton,
+    searchInput,
+    selectAll,
+    summaryAuthed,
+    summaryTotal,
+    summaryUnauthed,
+    tbody,
+    nodes: [
+      refreshButton,
+      bulkButton,
+      summaryTotal,
+      summaryAuthed,
+      summaryUnauthed,
+      searchInput,
+      filterAll,
+      filterAuthenticated,
+      filterUnauthenticated,
+      selectAll,
+      tbody,
+    ],
+  };
+}
+
 Deno.test('fresh nav boot stores Fresh island boot arguments and mounts islands', async () => {
   const document = new FakeDocument();
   const window = new FakeWindow();
@@ -943,6 +1003,100 @@ Deno.test('fresh nav boot initializes config page behavior from the client entry
   } finally {
     restoreBootArgs();
     restoreFetch();
+    restoreWindow();
+    restoreDocument();
+  }
+});
+
+Deno.test('fresh nav boot initializes connections page behavior from the client entry', async () => {
+  const fixture = connectionsFixture();
+  const document = new FakeDocument({ childNodes: fixture.nodes });
+  const window = new FakeWindow();
+  const state = {
+    connections: [
+      {
+        id: 'conn-authenticated',
+        ip: '203.0.113.1',
+        authenticated: true,
+        pubkey: 'abcdef1234567890',
+        connectedAt: new Date(Date.now() - 3000).toISOString(),
+      },
+      {
+        id: 'conn-guest',
+        ip: '198.51.100.9',
+        authenticated: false,
+        pubkey: '',
+        connectedAt: null,
+      },
+    ],
+  };
+  const fetchCalls = [];
+  const alerts = [];
+  const restoreDocument = setGlobal('document', document);
+  const restoreWindow = setGlobal('window', window);
+  const restoreAlert = setGlobal('alert', (message) => alerts.push(message));
+  const restoreConfirm = setGlobal('confirm', () => true);
+  const restoreSetInterval = setGlobal('setInterval', () => 1);
+  const restoreClearInterval = setGlobal('clearInterval', () => {});
+  const restoreFetch = setGlobal('fetch', (url, init = {}) => {
+    fetchCalls.push([url, init.method ?? 'GET', init.body ?? null]);
+    if (url === '/admin/api/connections/disconnect-batch' && init.method === 'POST') {
+      const ids = JSON.parse(init.body).ids;
+      state.connections = state.connections.filter((connection) => !ids.includes(connection.id));
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
+    }
+    return Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ connections: state.connections }),
+    });
+  });
+  const restoreBootArgs = setGlobal(
+    '__PFORTNER_FRESH_ISLAND_BOOT_ARGS__',
+    undefined,
+  );
+  delete globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__;
+
+  try {
+    const { boot } = await importFreshNav();
+
+    boot({}, []);
+    await waitFor(() => fixture.tbody.textContent.includes('203.0.113.1'));
+
+    assertEquals(fixture.summaryTotal.textContent, '2');
+    assertEquals(fixture.summaryAuthed.textContent, '1');
+    assertEquals(fixture.summaryUnauthed.textContent, '1');
+
+    fixture.searchInput.value = '198.51.100.9';
+    fixture.searchInput.dispatchEvent({ type: 'input', target: fixture.searchInput });
+    assertEquals(fixture.tbody.textContent.includes('conn-auth'), false);
+    assertEquals(fixture.tbody.textContent.includes('198.51.100.9'), true);
+
+    fixture.filterAuthenticated.click();
+    assertEquals(fixture.tbody.textContent, 'No connections');
+
+    fixture.filterAll.click();
+    fixture.searchInput.value = '';
+    fixture.searchInput.dispatchEvent({ type: 'input', target: fixture.searchInput });
+    const disconnectButton = fixture.tbody.querySelector('.btn-disconnect');
+    disconnectButton.click();
+    await waitFor(() => fixture.summaryTotal.textContent === '1');
+
+    assertEquals(fixture.summaryTotal.textContent, '1');
+    assertEquals(fixture.summaryAuthed.textContent, '0');
+    assertEquals(fixture.summaryUnauthed.textContent, '1');
+    assertEquals(fetchCalls.map(([url, method]) => [url, method]), [
+      ['/admin/api/connections', 'GET'],
+      ['/admin/api/connections/disconnect-batch', 'POST'],
+      ['/admin/api/connections', 'GET'],
+    ]);
+    assertEquals(alerts, []);
+  } finally {
+    restoreBootArgs();
+    restoreFetch();
+    restoreClearInterval();
+    restoreSetInterval();
+    restoreConfirm();
+    restoreAlert();
     restoreWindow();
     restoreDocument();
   }
@@ -1359,6 +1513,133 @@ Deno.test('fresh nav initializes config behavior after partial navigation withou
     restoreBootArgs();
     restoreParser();
     restoreFetch();
+    restoreHistory();
+    restoreLocation();
+    restoreNodeFilter();
+    restoreNode();
+    restoreWindow();
+    restoreDocument();
+  }
+});
+
+Deno.test('fresh nav initializes connections behavior after partial navigation without a page script', async () => {
+  const currentDocument = new FakeDocument({
+    title: 'Dashboard',
+    childNodes: [
+      new FakeComment('frsh:partial:admin-content'),
+      new FakeElement('div'),
+      new FakeComment('/frsh:partial'),
+    ],
+  });
+  const fixture = connectionsFixture();
+  const nextDocument = new FakeDocument({
+    title: 'Connections',
+    childNodes: [
+      new FakeComment('frsh:partial:admin-content'),
+      ...fixture.nodes,
+      new FakeComment('/frsh:partial'),
+    ],
+  });
+  const window = new FakeWindow();
+  const location = {
+    href: 'http://localhost/admin/',
+    origin: 'http://localhost',
+    assignCalls: [],
+    assign(url) {
+      this.assignCalls.push(url);
+    },
+  };
+  const fetchCalls = [];
+  const restoreDocument = setGlobal('document', currentDocument);
+  const restoreWindow = setGlobal('window', window);
+  const restoreNode = setGlobal('Node', { ELEMENT_NODE: 1, COMMENT_NODE: 8 });
+  const restoreNodeFilter = setGlobal('NodeFilter', { SHOW_COMMENT: 128 });
+  const restoreLocation = setGlobal('location', location);
+  const restoreHistory = setGlobal('history', {
+    pushState(_state, _title, url) {
+      location.href = new URL(url, location.href).href;
+    },
+    replaceState(_state, _title, url) {
+      location.href = new URL(url, location.href).href;
+    },
+  });
+  const restoreSetInterval = setGlobal('setInterval', () => 1);
+  const restoreClearInterval = setGlobal('clearInterval', () => {});
+  const restoreFetch = setGlobal('fetch', (url) => {
+    fetchCalls.push(url);
+    if (url === '/admin/api/connections') {
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            connections: [
+              {
+                id: 'conn-from-partial',
+                ip: '203.0.113.88',
+                authenticated: true,
+                pubkey: 'pk-from-partial',
+                connectedAt: null,
+              },
+            ],
+          }),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      url: 'http://localhost/admin/connections',
+      headers: { get: () => null },
+      text: () => Promise.resolve('<html></html>'),
+    });
+  });
+  const restoreParser = setGlobal(
+    'DOMParser',
+    class {
+      parseFromString() {
+        return nextDocument;
+      }
+    },
+  );
+  const restoreBootArgs = setGlobal(
+    '__PFORTNER_FRESH_ISLAND_BOOT_ARGS__',
+    undefined,
+  );
+  delete globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__;
+
+  try {
+    const { boot } = await importFreshNav();
+
+    boot({}, []);
+    const clickListener = currentDocument.listeners.find((entry) => entry.type === 'click')?.listener;
+    const anchor = new FakeElement('a', {
+      href: 'http://localhost/admin/connections',
+      'f-client-nav': 'true',
+    });
+
+    clickListener({
+      target: anchor,
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault() {},
+    });
+
+    await waitFor(() => currentDocument.querySelector('#connections-tbody')?.textContent.includes('203.0.113.88'));
+
+    assertEquals(fetchCalls, [
+      'http://localhost/admin/connections',
+      '/admin/api/connections',
+    ]);
+    assertEquals(location.assignCalls, []);
+    assertEquals(currentDocument.querySelector('#summary-total')?.textContent, '1');
+  } finally {
+    restoreBootArgs();
+    restoreParser();
+    restoreFetch();
+    restoreClearInterval();
+    restoreSetInterval();
     restoreHistory();
     restoreLocation();
     restoreNodeFilter();

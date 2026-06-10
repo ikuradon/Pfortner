@@ -1,12 +1,12 @@
 // Lightweight Fresh-compatible partial navigation for the programmatic admin app.
 
 const PAGE_INITIALIZERS = {
-  '/admin/static/connections.js': 'initConnectionsPage',
   '/admin/static/metrics.js': 'initMetricsPage',
   '/admin/static/logs.js': 'initLogsPage',
 };
 
 const DASHBOARD_POLL_INTERVAL_MS = 5000;
+const CONNECTIONS_POLL_INTERVAL_MS = 10000;
 
 const ADMIN_ISLAND_MODULES = {
   '/admin/static/islands/AdminIslandSmoke.js': () => import('./islands/AdminIslandSmoke.js'),
@@ -16,6 +16,10 @@ const ADMIN_ISLAND_MODULES = {
 let booted = false;
 let navigating = false;
 let dashboardPoller = null;
+let connectionsPoller = null;
+let allConnections = [];
+let connectionsAuthFilter = 'all';
+let connectionsSearchText = '';
 
 function mountThemeToggle() {
   const mount = document.getElementById('theme-toggle-mount');
@@ -122,6 +126,39 @@ function createPagePoller({ intervalMs, run, runImmediately = true }) {
   }
 
   return { refresh, start, stop };
+}
+
+function setElementText(id, value) {
+  const element = document.getElementById(id);
+  if (element) element.textContent = String(value);
+}
+
+function renderTableState(tbody, colSpan, message, kind) {
+  if (!tbody) return;
+  clearElementChildren(tbody);
+  const row = document.createElement('tr');
+  const cell = document.createElement('td');
+  cell.colSpan = colSpan;
+  cell.style.textAlign = 'center';
+  cell.style.padding = '32px';
+  cell.style.color = kind === 'error' ? 'var(--color-danger)' : 'var(--color-text-muted)';
+  cell.textContent = message;
+  row.appendChild(cell);
+  tbody.appendChild(row);
+}
+
+function formatRelativeTime(isoString) {
+  if (!isoString) return '—';
+  const time = new Date(isoString).getTime();
+  if (Number.isNaN(time)) return '—';
+  const diff = Date.now() - time;
+  const seconds = Math.max(0, Math.floor(diff / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
 function stopDashboardPoller() {
@@ -328,6 +365,275 @@ function initializeDashboardPage() {
     run: pollDashboard,
   });
   dashboardPoller.start();
+}
+
+function stopConnectionsPoller() {
+  connectionsPoller?.stop();
+  connectionsPoller = null;
+}
+
+function normalizeConnection(raw) {
+  const id = raw?.id ?? raw?.connectionId ?? '';
+  const ip = raw?.ip ?? raw?.remoteAddr ?? raw?.connectionIpAddr ?? '';
+  const pubkey = raw?.pubkey ?? raw?.clientPubkey ?? '';
+  const authenticated = Boolean(raw?.authenticated ?? raw?.clientAuthorized ?? pubkey);
+  const connectedAt = raw?.connectedAt ?? raw?.connected_at ?? null;
+  return {
+    id: String(id),
+    ip: String(ip),
+    authenticated,
+    pubkey: String(pubkey),
+    connectedAt: connectedAt == null ? null : String(connectedAt),
+  };
+}
+
+function shortConnectionId(id) {
+  if (!id) return '—';
+  return id.slice(0, 8);
+}
+
+function shortPubkey(pubkey) {
+  if (!pubkey) return '—';
+  return `${pubkey.slice(0, 8)}\u2026`;
+}
+
+function updateConnectionsSummary(connections) {
+  const total = connections.length;
+  const authed = connections.filter((connection) => connection.authenticated || connection.pubkey).length;
+  const unauthed = total - authed;
+
+  setElementText('summary-total', total);
+  setElementText('summary-authed', authed);
+  setElementText('summary-unauthed', unauthed);
+}
+
+function filterConnections(connections) {
+  return connections.filter((connection) => {
+    const isAuthed = Boolean(connection.authenticated || connection.pubkey);
+    if (connectionsAuthFilter === 'authenticated' && !isAuthed) return false;
+    if (connectionsAuthFilter === 'unauthenticated' && isAuthed) return false;
+
+    if (connectionsSearchText) {
+      const query = connectionsSearchText.toLowerCase();
+      const ip = connection.ip.toLowerCase();
+      const pubkey = connection.pubkey.toLowerCase();
+      if (!ip.includes(query) && !pubkey.includes(query)) return false;
+    }
+    return true;
+  });
+}
+
+function makeConnectionAuthBadge(isAuthed) {
+  const span = document.createElement('span');
+  span.className = isAuthed ? 'badge badge-success' : 'badge badge-danger';
+  span.textContent = isAuthed ? 'Auth' : 'No Auth';
+  return span;
+}
+
+function makeConnectionDisconnectButton(id) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'btn btn-danger btn-disconnect';
+  button.dataset.id = id;
+  button.style.padding = '4px 10px';
+  button.style.fontSize = '12px';
+  button.textContent = 'Disconnect';
+  button.addEventListener('click', () => {
+    disconnectConnectionsBatch([id]);
+  });
+  return button;
+}
+
+function makeConnectionRow(connection) {
+  const id = connection.id;
+  const ip = connection.ip || '—';
+  const pubkey = connection.pubkey;
+  const isAuthed = Boolean(connection.authenticated || pubkey);
+
+  const row = document.createElement('tr');
+  row.dataset.id = id;
+
+  const checkCell = document.createElement('td');
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.className = 'row-check';
+  checkbox.dataset.id = id;
+  checkbox.addEventListener('change', updateConnectionsBulkButton);
+  checkCell.appendChild(checkbox);
+  row.appendChild(checkCell);
+
+  const idCell = document.createElement('td');
+  const idSpan = document.createElement('span');
+  idSpan.title = id;
+  idSpan.style.fontFamily = 'monospace';
+  idSpan.style.fontSize = '12px';
+  idSpan.textContent = shortConnectionId(id);
+  idCell.appendChild(idSpan);
+  row.appendChild(idCell);
+
+  const ipCell = document.createElement('td');
+  ipCell.style.fontFamily = 'monospace';
+  ipCell.style.fontSize = '12px';
+  ipCell.textContent = ip;
+  row.appendChild(ipCell);
+
+  const pubkeyCell = document.createElement('td');
+  pubkeyCell.style.fontFamily = 'monospace';
+  pubkeyCell.style.fontSize = '12px';
+  if (pubkey) {
+    const pubkeySpan = document.createElement('span');
+    pubkeySpan.title = pubkey;
+    pubkeySpan.textContent = shortPubkey(pubkey);
+    pubkeyCell.appendChild(pubkeySpan);
+  } else {
+    pubkeyCell.textContent = '—';
+  }
+  row.appendChild(pubkeyCell);
+
+  const authCell = document.createElement('td');
+  authCell.appendChild(makeConnectionAuthBadge(isAuthed));
+  row.appendChild(authCell);
+
+  const timeCell = document.createElement('td');
+  timeCell.style.fontSize = '12px';
+  timeCell.style.color = 'var(--color-text-muted)';
+  timeCell.textContent = formatRelativeTime(connection.connectedAt);
+  row.appendChild(timeCell);
+
+  const actionCell = document.createElement('td');
+  actionCell.appendChild(makeConnectionDisconnectButton(id));
+  row.appendChild(actionCell);
+
+  return row;
+}
+
+function renderConnectionsTable(connections) {
+  const tbody = document.getElementById('connections-tbody');
+  if (!tbody) return;
+
+  clearElementChildren(tbody);
+
+  if (connections.length === 0) {
+    renderTableState(tbody, 7, 'No connections', 'empty');
+    return;
+  }
+
+  for (const connection of connections) {
+    tbody.appendChild(makeConnectionRow(connection));
+  }
+}
+
+function getCheckedConnectionIds() {
+  return [...document.querySelectorAll('.row-check')]
+    .filter((element) => element.checked)
+    .map((element) => element.dataset.id);
+}
+
+function updateConnectionsBulkButton() {
+  const button = document.getElementById('btn-disconnect-selected');
+  if (!button) return;
+  button.disabled = getCheckedConnectionIds().length === 0;
+}
+
+async function disconnectConnectionsBatch(ids) {
+  if (!ids || ids.length === 0) return;
+  if (!confirm(`Disconnect ${ids.length} connection(s)?`)) return;
+
+  try {
+    const response = await fetch('/admin/api/connections/disconnect-batch', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    if (!response.ok) throw new Error(`Request failed: ${response.status}`);
+    await fetchConnectionsForPage();
+  } catch (error) {
+    alert(`Error: ${getErrorMessage(error)}`);
+  }
+}
+
+function applyConnectionFiltersAndRender() {
+  renderConnectionsTable(filterConnections(allConnections));
+  updateConnectionsBulkButton();
+}
+
+async function fetchConnectionsForPage() {
+  try {
+    const response = await fetch('/admin/api/connections', {
+      credentials: 'same-origin',
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    allConnections = Array.isArray(data.connections) ? data.connections.map(normalizeConnection) : [];
+    updateConnectionsSummary(allConnections);
+    applyConnectionFiltersAndRender();
+  } catch (error) {
+    const tbody = document.getElementById('connections-tbody');
+    renderTableState(tbody, 7, `Error loading connections: ${getErrorMessage(error)}`, 'error');
+  }
+}
+
+function initializeConnectionsPage() {
+  if (!document.getElementById('connections-tbody')) {
+    stopConnectionsPoller();
+    return;
+  }
+
+  stopConnectionsPoller();
+  allConnections = [];
+  connectionsAuthFilter = 'all';
+  connectionsSearchText = '';
+  connectionsPoller = createPagePoller({
+    intervalMs: CONNECTIONS_POLL_INTERVAL_MS,
+    run: fetchConnectionsForPage,
+  });
+  connectionsPoller.start();
+  const activePoller = connectionsPoller;
+
+  const refreshButton = document.getElementById('btn-refresh');
+  if (refreshButton) {
+    bindOnce(refreshButton, 'connections-refresh', () => {
+      activePoller.refresh();
+    });
+  }
+
+  const bulkButton = document.getElementById('btn-disconnect-selected');
+  if (bulkButton) {
+    bindOnce(bulkButton, 'connections-bulk-disconnect', () => {
+      disconnectConnectionsBatch(getCheckedConnectionIds());
+    });
+  }
+
+  const selectAll = document.getElementById('select-all');
+  if (selectAll) {
+    bindOnce(selectAll, 'connections-select-all', (event) => {
+      document.querySelectorAll('.row-check').forEach((checkbox) => {
+        checkbox.checked = event.target.checked;
+      });
+      updateConnectionsBulkButton();
+    }, 'change');
+  }
+
+  const searchInput = document.getElementById('search-input');
+  if (searchInput) {
+    bindOnce(searchInput, 'connections-search', (event) => {
+      connectionsSearchText = event.target.value.trim();
+      applyConnectionFiltersAndRender();
+    }, 'input');
+  }
+
+  document.querySelectorAll('.auth-filter-btn').forEach((button) => {
+    bindOnce(button, 'connections-auth-filter', (event) => {
+      connectionsAuthFilter = event.currentTarget.dataset.filter || 'all';
+      document.querySelectorAll('.auth-filter-btn').forEach((filterButton) => {
+        filterButton.className = filterButton.dataset.filter === connectionsAuthFilter
+          ? 'btn btn-primary auth-filter-btn'
+          : 'btn btn-ghost auth-filter-btn';
+      });
+      applyConnectionFiltersAndRender();
+    });
+  });
 }
 
 function showConfigStatus(message, isError) {
@@ -587,6 +893,7 @@ function initializeBlocklistPage() {
 
 function initializeClientEntryPageBehaviors() {
   initializeDashboardPage();
+  initializeConnectionsPage();
   initializeConfigPage();
   initializeBlocklistPage();
 }

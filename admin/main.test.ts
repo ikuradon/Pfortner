@@ -127,6 +127,19 @@ Deno.test('admin dashboard page uses the Fresh client entry without a page-local
   assertEquals(html.includes('id="throughput-chart-body"'), true);
 });
 
+Deno.test('admin connections page uses the Fresh client entry without a page-local static script', async () => {
+  const handler = createAdminApp(makeState());
+  const res = await handler(makeRequest('/admin/connections', 'test-token'));
+
+  assertEquals(res.status, 200);
+  const html = await res.text();
+  assertEquals(html.includes('/admin/static/fresh_nav.js'), true);
+  assertEquals(html.includes('/admin/static/connections.js'), false);
+  assertEquals(html.includes('/admin/static/utils.js'), false);
+  assertEquals(html.includes('id="connections-tbody"'), true);
+  assertEquals(html.includes('id="btn-disconnect-selected"'), true);
+});
+
 Deno.test('admin app installs Fresh island build cache for admin islands', async () => {
   const handler = createAdminApp(makeState());
   const res = await handler(makeRequest('/admin/pipelines', 'test-token'));
