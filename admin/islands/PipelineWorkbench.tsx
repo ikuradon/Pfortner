@@ -76,10 +76,6 @@ function createInitialState() {
   });
 }
 
-function noop(): void {
-  return undefined;
-}
-
 function isStartGraphNode(
   node: { type?: string; policy?: string } | null | undefined,
 ): boolean {
@@ -267,7 +263,6 @@ export default function PipelineWorkbench() {
         </button>
       </div>
       <Toolbar
-        onRun={noop}
         onLoad={handleLoad}
         onSave={handleSave}
         onPublish={() => dispatch({ type: 'publishModalOpened' })}

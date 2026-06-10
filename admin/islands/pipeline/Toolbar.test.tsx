@@ -32,7 +32,6 @@ function click(node: VNodeLike | null): void {
 Deno.test('Toolbar wires viewport control buttons to callbacks', () => {
   const calls: string[] = [];
   const toolbar = Toolbar({
-    onRun: () => calls.push('run'),
     onLoad: () => calls.push('load'),
     onSave: () => calls.push('save'),
     onPublish: () => calls.push('publish'),
@@ -51,4 +50,5 @@ Deno.test('Toolbar wires viewport control buttons to callbacks', () => {
 
   assertEquals(calls, ['fit', 'zoom-out', 'zoom-in']);
   assertStrictEquals(findById(toolbar, 'btn-fit-canvas')?.props?.disabled, undefined);
+  assertStrictEquals(findById(toolbar, 'btn-run-pipeline'), null);
 });

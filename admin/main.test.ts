@@ -143,7 +143,6 @@ Deno.test('admin pipelines page renders legacy workbench canvas controls', async
 
   for (
     const id of [
-      'btn-run-pipeline',
       'btn-fit-canvas',
       'btn-zoom-in',
       'btn-zoom-out',
@@ -157,7 +156,8 @@ Deno.test('admin pipelines page renders legacy workbench canvas controls', async
       id,
     );
   }
-  assertEquals(/id="btn-run-pipeline"[^>]*disabled/.test(html), false);
+  assertEquals(html.includes('id="btn-run-pipeline"'), false);
+  assertEquals(html.includes("id='btn-run-pipeline'"), false);
 });
 
 Deno.test('admin pipelines page renders direction selector above action toolbar', async () => {

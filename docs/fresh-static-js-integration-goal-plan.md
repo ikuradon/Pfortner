@@ -254,6 +254,7 @@
   Progress:
 
   - [x] Extracted Save/Load/Publish/Playground side effects into `admin/islands/pipeline/workbench_actions.ts` with injectable services and reducer action tests.
+  - [x] Removed the Fresh island toolbar Run no-op so playground launch is owned by the start-node action.
 
 - [ ] **Step 5: Shrink or remove the static bridge**
 

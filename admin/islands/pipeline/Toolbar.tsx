@@ -1,7 +1,6 @@
 /** @jsxImportSource preact */
 
 export function Toolbar(props: {
-  onRun(): void;
   onLoad(): void;
   onSave(): void;
   onPublish(): void;
@@ -32,14 +31,6 @@ export function Toolbar(props: {
         onClick={props.onRedo}
       >
         ↷ Redo
-      </button>
-      <button
-        type='button'
-        id='btn-run-pipeline'
-        class='btn btn-ghost'
-        onClick={props.onRun}
-      >
-        ▷ Run
       </button>
       <button
         type='button'
