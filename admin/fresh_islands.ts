@@ -12,8 +12,7 @@ interface AdminIslandSpec {
 
 const ADMIN_ISLAND_VERSION = 'admin-islands-v1';
 const ADMIN_CLIENT_ENTRY = '/admin/static/fresh_nav.js';
-export const ADMIN_ISLAND_SMOKE_CHUNK = '/admin/static/islands/AdminIslandSmoke.js';
-export const ADMIN_ISLAND_SMOKE_BROWSER_MODULE = 'export default function AdminIslandSmoke() {}\n';
+const ADMIN_ISLAND_SMOKE_CHUNK = '/admin/static/islands/AdminIslandSmoke.js';
 
 const ADMIN_ISLANDS: AdminIslandSpec[] = [
   {

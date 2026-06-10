@@ -10,16 +10,16 @@ const PAGE_INITIALIZERS = {
   '/admin/static/logs.js': 'initLogsPage',
 };
 
+const ADMIN_ISLAND_MODULES = {
+  '/admin/static/islands/AdminIslandSmoke.js': () => import('./islands/AdminIslandSmoke.js'),
+};
+
 let booted = false;
 let navigating = false;
 
-export function boot(islands = {}, props = []) {
+function installNavigation() {
   if (booted) return;
   booted = true;
-
-  if (islands && Object.keys(islands).length > 0) {
-    globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__ = { islands, props };
-  }
 
   document.addEventListener('click', (event) => {
     const anchor = event.target?.closest?.('a[href]');
@@ -32,6 +32,66 @@ export function boot(islands = {}, props = []) {
   window.addEventListener('popstate', () => {
     navigate(location.href, 'replace');
   });
+}
+
+function mountAdminIslands(islands) {
+  for (const island of Object.values(islands ?? {})) {
+    if (typeof island?.mount !== 'function') continue;
+    island.mount(document);
+  }
+}
+
+function addAdminIslandModulePath(paths, source, baseUrl) {
+  try {
+    const pathname = new URL(source, baseUrl).pathname;
+    if (ADMIN_ISLAND_MODULES[pathname]) paths.add(pathname);
+  } catch {
+    // Ignore non-URL strings in inline module source.
+  }
+}
+
+function addAdminIslandModulePathsFromSource(paths, sourceText, baseUrl) {
+  const stringLiterals = sourceText.matchAll(/["']([^"']+)["']/g);
+  for (const match of stringLiterals) {
+    addAdminIslandModulePath(paths, match[1], baseUrl);
+  }
+}
+
+function addAdminIslandModulePathsFromLinkHeader(paths, linkHeader, baseUrl) {
+  if (!linkHeader) return;
+
+  const linkTargets = linkHeader.matchAll(/<([^>]+)>/g);
+  for (const match of linkTargets) {
+    addAdminIslandModulePath(paths, match[1], baseUrl);
+  }
+}
+
+function getAdminIslandModulePaths(doc, linkHeader, baseUrl) {
+  const paths = new Set();
+  doc.querySelectorAll('script[type="module"], link[rel="modulepreload"]')
+    .forEach((element) => {
+      const source = element.getAttribute('src') ??
+        element.getAttribute('href');
+      if (source) addAdminIslandModulePath(paths, source, baseUrl);
+      addAdminIslandModulePathsFromSource(paths, element.textContent ?? '', baseUrl);
+    });
+  addAdminIslandModulePathsFromLinkHeader(paths, linkHeader, baseUrl);
+  return paths;
+}
+
+async function mountAdminIslandsForDocument(doc, linkHeader, baseUrl) {
+  const islands = {};
+  for (const pathname of getAdminIslandModulePaths(doc, linkHeader, baseUrl)) {
+    const mod = await ADMIN_ISLAND_MODULES[pathname]();
+    islands[pathname] = mod.default;
+  }
+  mountAdminIslands(islands);
+}
+
+export function boot(islands = {}, props = []) {
+  installNavigation();
+  globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__ = { islands, props };
+  mountAdminIslands(islands);
 }
 
 function shouldHandleAnchor(event, anchor) {
@@ -70,6 +130,7 @@ async function navigate(url, historyMode) {
     }
 
     const html = await response.text();
+    const responseUrl = response.url || url;
     const nextDocument = new DOMParser().parseFromString(html, 'text/html');
     const partialNames = getPartialNames(document);
     let replaced = 0;
@@ -89,12 +150,13 @@ async function navigate(url, historyMode) {
 
     document.title = nextDocument.title;
     if (historyMode === 'push') {
-      history.pushState(null, '', response.url || url);
+      history.pushState(null, '', responseUrl);
     } else {
-      history.replaceState(null, '', response.url || url);
+      history.replaceState(null, '', responseUrl);
     }
 
     await initializePageModules();
+    await mountAdminIslandsForDocument(nextDocument, response.headers.get('Link'), responseUrl);
   } catch {
     location.assign(url);
   } finally {

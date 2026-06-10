@@ -109,8 +109,10 @@ Deno.test('admin app installs Fresh island build cache for admin islands', async
 
   assertEquals(html.includes(removedEmptyFreshBootImport), false);
   assertEquals(html.includes('/admin/static/fresh_nav.js'), true);
+  assertEquals(html.includes('/admin/static/islands/AdminIslandSmoke.js'), true);
   assertEquals(html.includes('frsh:island'), true);
   assertEquals(html.includes('AdminIslandSmoke'), true);
+  assertEquals(html.includes('data-admin-island-smoke'), true);
   assertEquals(html.includes('rel="icon"'), true);
   assertEquals(html.includes('href="data:,"'), true);
 
@@ -122,6 +124,8 @@ Deno.test('admin app installs Fresh island build cache for admin islands', async
     chunkRes.headers.get('Content-Type')?.includes('application/javascript'),
     true,
   );
+  const chunkText = await chunkRes.text();
+  assertEquals(chunkText.includes('mountAdminIslandSmoke'), true);
 });
 
 Deno.test('admin app does not keep legacy deny-list page route', async () => {

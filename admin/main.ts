@@ -17,11 +17,7 @@ import { LogsPage } from './routes/logs.tsx';
 import { MetricsPage } from './routes/metrics.tsx';
 import { PipelinesPage } from './routes/pipelines.tsx';
 import { registerAdminApiRoutes } from './api_routes.ts';
-import {
-  ADMIN_ISLAND_SMOKE_BROWSER_MODULE,
-  ADMIN_ISLAND_SMOKE_CHUNK,
-  installAdminIslandBuildCache,
-} from './fresh_islands.ts';
+import { installAdminIslandBuildCache } from './fresh_islands.ts';
 import { registerAdminPageRoutes } from './page_routes.ts';
 import {
   buildAdminCookie,
@@ -135,14 +131,6 @@ export function createAdminApp(
   app.use(async (ctx) => {
     const url = new URL(ctx.req.url);
     const path = url.pathname;
-    if (path === ADMIN_ISLAND_SMOKE_CHUNK) {
-      return new Response(ADMIN_ISLAND_SMOKE_BROWSER_MODULE, {
-        headers: {
-          'Cache-Control': 'no-cache',
-          'Content-Type': 'application/javascript; charset=utf-8',
-        },
-      });
-    }
     if (path.startsWith(`${adminPath}/static/`)) {
       const relativePath = path.slice(`${adminPath}/static`.length);
       return await staticFiles.serve(relativePath);
