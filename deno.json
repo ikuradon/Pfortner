@@ -7,9 +7,11 @@
     "maxmind": "npm:maxmind@4.3.21",
     "redis": "npm:redis@4.7.0",
     "@fresh/core": "jsr:@fresh/core@^2.2.0",
+    "@fresh/core/internal": "jsr:@fresh/core@^2.2.0/internal",
     "@fresh/core/runtime": "jsr:@fresh/core@^2.2.0/runtime",
     "preact": "npm:preact@^10.25.0",
     "preact/": "npm:preact@^10.25.0/",
+    "preact/hooks": "npm:preact@^10.25.0/hooks",
     "preact/jsx-runtime": "npm:preact@^10.25.0/jsx-runtime",
     "@preact/signals": "npm:@preact/signals@^2.0.0",
     "preact-render-to-string": "npm:preact-render-to-string@^6.5.0",
@@ -51,7 +53,7 @@
     "dev:admin": "deno task dev",
     "serve": "deno run --unstable-net --allow-env --allow-net --allow-read scripts/serve.ts",
     "serve:config": "deno run --unstable-net --allow-env --allow-net --allow-read --allow-write=pfortner.yaml,pfortner.yaml.workbench.json scripts/serve.ts pfortner.yaml",
-    "test": "deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --unstable-kv src/",
+    "test": "deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --unstable-kv admin/ src/",
     "bench": "deno run --allow-env --allow-net --allow-read --allow-write --unstable-net scripts/bench.ts bench.scenario.yaml"
   }
 }

@@ -99,6 +99,31 @@ Deno.test('admin app page routes render Fresh SSR pages with partial navigation'
   assertEquals(html.includes(`/admin/static/${legacyDenyListTerm}.js`), false);
 });
 
+Deno.test('admin app installs Fresh island build cache for admin islands', async () => {
+  const handler = createAdminApp(makeState());
+  const res = await handler(makeRequest('/admin/pipelines', 'test-token'));
+
+  assertEquals(res.status, 200);
+  const html = await res.text();
+  const removedEmptyFreshBootImport = 'import { boot } from ' + '"";';
+
+  assertEquals(html.includes(removedEmptyFreshBootImport), false);
+  assertEquals(html.includes('/admin/static/fresh_nav.js'), true);
+  assertEquals(html.includes('frsh:island'), true);
+  assertEquals(html.includes('AdminIslandSmoke'), true);
+  assertEquals(html.includes('rel="icon"'), true);
+  assertEquals(html.includes('href="data:,"'), true);
+
+  const chunkRes = await handler(
+    makeRequest('/admin/static/islands/AdminIslandSmoke.js', 'test-token'),
+  );
+  assertEquals(chunkRes.status, 200);
+  assertEquals(
+    chunkRes.headers.get('Content-Type')?.includes('application/javascript'),
+    true,
+  );
+});
+
 Deno.test('admin app does not keep legacy deny-list page route', async () => {
   const handler = createAdminApp(makeState());
   const res = await handler(

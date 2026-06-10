@@ -13,9 +13,13 @@ const PAGE_INITIALIZERS = {
 let booted = false;
 let navigating = false;
 
-export function boot() {
+export function boot(islands = {}, props = []) {
   if (booted) return;
   booted = true;
+
+  if (islands && Object.keys(islands).length > 0) {
+    globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__ = { islands, props };
+  }
 
   document.addEventListener('click', (event) => {
     const anchor = event.target?.closest?.('a[href]');

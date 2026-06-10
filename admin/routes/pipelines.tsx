@@ -1,5 +1,6 @@
 /** @jsxImportSource preact */
 import { Layout } from '../components/Sidebar.tsx';
+import AdminIslandSmoke from '../islands/AdminIslandSmoke.tsx';
 
 interface PipelinesPageProps {
   currentPath: string;
@@ -92,6 +93,7 @@ export function PipelinesPage({ currentPath }: PipelinesPageProps) {
               Publish
             </button>
           </div>
+          <AdminIslandSmoke />
           <span class='workbench-state-badges'>
             <span class='text-muted' id='workbench-status-summary'>Ready</span>
             <span class='badge badge-success' id='workbench-save-state'>
