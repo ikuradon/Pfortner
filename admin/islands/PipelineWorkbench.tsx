@@ -323,6 +323,7 @@ export default function PipelineWorkbench() {
             onModeChange={(mode) => dispatch({ type: 'settingsModeChanged', mode })}
             onJsonChange={(value) => dispatch({ type: 'settingsJsonChanged', value })}
             onApply={() => dispatch({ type: 'settingsApplied' })}
+            onDelete={() => dispatch({ type: 'nodeDeleted', nodeId: settingsNode.id })}
             onClose={() => dispatch({ type: 'modalClosed' })}
           />
         )

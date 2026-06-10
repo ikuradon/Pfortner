@@ -9,6 +9,7 @@ export function NodeSettingsModal(props: {
   onModeChange(mode: 'interactive' | 'json'): void;
   onJsonChange(value: string): void;
   onApply(): void;
+  onDelete(): void;
   onClose(): void;
 }) {
   return (
@@ -72,6 +73,14 @@ export function NodeSettingsModal(props: {
         <footer class='workbench-modal-footer'>
           <span class='text-muted'>Node settings</span>
           <div class='modal-footer-actions'>
+            <button
+              type='button'
+              class='btn btn-danger'
+              data-modal-action='delete-node'
+              onClick={props.onDelete}
+            >
+              Delete Node
+            </button>
             <button type='button' class='btn btn-ghost' onClick={props.onClose}>
               Cancel
             </button>
