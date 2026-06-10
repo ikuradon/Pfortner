@@ -54,7 +54,7 @@ Task 1 の目的は、現在の programmatic admin sub-app で Fresh island boot
 - Modify: `admin/main.test.ts`
 - Modify: `admin/static/fresh_nav.js`
 
-- [ ] **Step 1: `@fresh/core/internal` alias を追加する**
+- [x] **Step 1: `@fresh/core/internal` alias を追加する**
 
 `deno.json` の `imports` に追加する。
 
@@ -62,7 +62,7 @@ Task 1 の目的は、現在の programmatic admin sub-app で Fresh island boot
 "@fresh/core/internal": "jsr:@fresh/core@^2.2.0/internal"
 ```
 
-- [ ] **Step 2: bootstrap gate test を先に書く**
+- [x] **Step 2: bootstrap gate test を先に書く**
 
 `admin/main.test.ts` の import はそのまま使い、既存の `admin app page routes render Fresh SSR pages with partial navigation` test の後に追加する。
 
@@ -82,7 +82,7 @@ Deno.test('admin app installs Fresh island build cache for admin islands', async
 });
 ```
 
-- [ ] **Step 3: RED を確認する**
+- [x] **Step 3: RED を確認する**
 
 Run:
 
@@ -92,7 +92,7 @@ deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --un
 
 Expected: FAIL。`frsh:island` または `AdminIslandSmoke` が HTML に含まれない。
 
-- [ ] **Step 4: smoke island を作る**
+- [x] **Step 4: smoke island を作る**
 
 `admin/islands/AdminIslandSmoke.tsx` を作成する。
 
@@ -115,7 +115,7 @@ export default function AdminIslandSmoke() {
 }
 ```
 
-- [ ] **Step 5: admin build cache adapter を作る**
+- [x] **Step 5: admin build cache adapter を作る**
 
 `admin/fresh_islands.ts` を作成する。`clientEntry` は既存の `/admin/static/fresh_nav.js` を使う。`fresh_nav.js` は partial navigation runtime として残し、Fresh の `boot(islands, props)` 呼び出しも受けられるようにする。
 
@@ -163,7 +163,7 @@ export function installAdminIslandBuildCache(app: App<unknown>): void {
 }
 ```
 
-- [ ] **Step 6: app assembly に build cache を install する**
+- [x] **Step 6: app assembly に build cache を install する**
 
 `admin/main.ts` に import を追加する。
 
@@ -177,7 +177,7 @@ import { installAdminIslandBuildCache } from './fresh_islands.ts';
 installAdminIslandBuildCache(app as App<unknown>);
 ```
 
-- [ ] **Step 7: `PipelinesPage` に smoke island を一時 mount する**
+- [x] **Step 7: `PipelinesPage` に smoke island を一時 mount する**
 
 `admin/routes/pipelines.tsx` に import を追加する。
 
@@ -191,7 +191,7 @@ import AdminIslandSmoke from '../islands/AdminIslandSmoke.tsx';
 <AdminIslandSmoke />;
 ```
 
-- [ ] **Step 8: `fresh_nav.js` の `boot()` を island boot 互換にする**
+- [x] **Step 8: `fresh_nav.js` の `boot()` を island boot 互換にする**
 
 `admin/static/fresh_nav.js` の `export function boot()` を、引数を受け取れる signature に変更する。
 
@@ -206,7 +206,7 @@ export function boot(islands = {}, props = []) {
 
 この step では hydration 実装はまだ入れない。HTML marker と inline boot args の存在を固定する gate である。
 
-- [ ] **Step 9: targeted test を通す**
+- [x] **Step 9: targeted test を通す**
 
 Run:
 
@@ -216,7 +216,7 @@ deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --un
 
 Expected: PASS。特に `admin app installs Fresh island build cache for admin islands` が通る。
 
-- [ ] **Step 10: browser QA で bootstrap args を確認する**
+- [x] **Step 10: browser QA で bootstrap args を確認する**
 
 一時 config を使って admin を起動する。
 
@@ -234,7 +234,7 @@ expect(Object.keys(args.islands)).toContain('AdminIslandSmoke');
 
 Expected: browser console error がなく、`args` が存在する。
 
-- [ ] **Step 11: Gate commit**
+- [x] **Step 11: Gate commit**
 
 ```bash
 git add deno.json admin/fresh_islands.ts admin/islands/AdminIslandSmoke.tsx admin/main.ts admin/main.test.ts admin/routes/pipelines.tsx admin/static/fresh_nav.js
@@ -249,7 +249,7 @@ git commit -m "Add admin Fresh island bootstrap gate"
 - Create: `admin/static/islands/AdminIslandSmoke.js`
 - Modify: `admin/main.test.ts`
 
-- [ ] **Step 1: hydration marker test を追加する**
+- [x] **Step 1: hydration marker test を追加する**
 
 `admin/main.test.ts` の bootstrap gate test に次の assertions を追加する。
 
@@ -258,7 +258,7 @@ assertEquals(html.includes('/admin/static/islands/AdminIslandSmoke.js'), true);
 assertEquals(html.includes('data-admin-island-smoke'), true);
 ```
 
-- [ ] **Step 2: static smoke island chunk を作る**
+- [x] **Step 2: static smoke island chunk を作る**
 
 `admin/static/islands/AdminIslandSmoke.js` を作成する。
 
@@ -279,7 +279,7 @@ AdminIslandSmoke.mount = function mountAdminIslandSmoke(root) {
 };
 ```
 
-- [ ] **Step 3: `fresh_nav.js` に local island mount bridge を入れる**
+- [x] **Step 3: `fresh_nav.js` に local island mount bridge を入れる**
 
 `boot()` の island branch を次の形にする。
 
@@ -298,7 +298,7 @@ export function boot(islands = {}, props = []) {
 }
 ```
 
-- [ ] **Step 4: tests を通す**
+- [x] **Step 4: tests を通す**
 
 Run:
 
@@ -308,7 +308,7 @@ deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --un
 
 Expected: PASS。
 
-- [ ] **Step 5: browser QA で smoke click を確認する**
+- [x] **Step 5: browser QA で smoke click を確認する**
 
 Playwright assertion:
 
@@ -319,7 +319,7 @@ await expect(page.locator('[data-admin-island-smoke="true"]')).toContainText('Is
 
 Expected: PASS。`pageErrors` と `consoleMessages` は空。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add admin/static/fresh_nav.js admin/static/islands/AdminIslandSmoke.js admin/main.test.ts
@@ -335,7 +335,7 @@ git commit -m "Hydrate admin island bootstrap smoke test"
 - Modify: `src/admin/pipelines-static.test.ts`
 - Modify: `admin/static/pipelines.js`
 
-- [ ] **Step 1: tests を新 import に切り替えて RED を作る**
+- [x] **Step 1: tests を新 import に切り替えて RED を作る**
 
 `src/admin/pipelines-static.test.ts` の旧 import:
 
@@ -363,7 +363,7 @@ import {
 } from '../../admin/islands/pipeline/node_defaults.ts';
 ```
 
-- [ ] **Step 2: RED を確認する**
+- [x] **Step 2: RED を確認する**
 
 Run:
 
@@ -373,7 +373,7 @@ deno test --allow-read src/admin/pipelines-static.test.ts
 
 Expected: FAIL。`admin/islands/pipeline/yaml_preview.ts` が存在しない。
 
-- [ ] **Step 3: YAML helper を移す**
+- [x] **Step 3: YAML helper を移す**
 
 `admin/islands/pipeline/yaml_preview.ts` を作成し、旧 `pipelines.js` の `toYamlValue()`、`entriesToYaml()`、`buildYamlPreview()`、`buildPublishConfirmationMessage()` を移す。
 
@@ -394,7 +394,7 @@ export function buildPublishConfirmationMessage(yaml: string): string {
 
 移植時は既存 test が期待する empty arrays、nested object、array formatting を崩さない。
 
-- [ ] **Step 4: node default helper を移す**
+- [x] **Step 4: node default helper を移す**
 
 `admin/islands/pipeline/node_defaults.ts` を作成し、旧 `pipelines.js` から以下を移す。
 
@@ -414,7 +414,7 @@ export function isMovablePipelineNode(node: unknown): boolean {
 
 `addMatchCaseDraftConfig()`、`removeMatchCaseDraftConfig()`、`reconcileMatchCaseEdges()` も同じ file に移す。
 
-- [ ] **Step 5: `pipelines.js` を互換 import にする**
+- [x] **Step 5: `pipelines.js` を互換 import にする**
 
 一時的に旧 `admin/static/pipelines.js` は helper を re-export する。
 
@@ -432,7 +432,7 @@ export {
 
 この relative path が browser で使われる前に旧 `pipelines.js` は削除されるため、ここでは test migration の一時 bridge として扱う。
 
-- [ ] **Step 6: tests を通す**
+- [x] **Step 6: tests を通す**
 
 Run:
 
@@ -442,7 +442,7 @@ deno test --allow-read src/admin/pipelines-static.test.ts
 
 Expected: PASS。
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add admin/islands/pipeline/yaml_preview.ts admin/islands/pipeline/node_defaults.ts admin/static/pipelines.js src/admin/pipelines-static.test.ts
@@ -459,7 +459,7 @@ git commit -m "Extract pipeline workbench pure helpers"
 - Create: `admin/islands/pipeline/workbench_reducer.ts`
 - Create: `admin/islands/pipeline/workbench_reducer.test.ts`
 
-- [ ] **Step 1: reducer tests を書く**
+- [x] **Step 1: reducer tests を書く**
 
 `admin/islands/pipeline/workbench_reducer.test.ts` を作成する。
 
@@ -493,7 +493,7 @@ Deno.test('workbench reducer records node move as undoable action', () => {
 });
 ```
 
-- [ ] **Step 2: RED を確認する**
+- [x] **Step 2: RED を確認する**
 
 Run:
 
@@ -503,7 +503,7 @@ deno test --allow-read admin/islands/pipeline/workbench_reducer.test.ts
 
 Expected: FAIL。`workbench_reducer.ts` がない。
 
-- [ ] **Step 3: types を定義する**
+- [x] **Step 3: types を定義する**
 
 `admin/islands/pipeline/types.ts` を作成する。
 
@@ -557,7 +557,7 @@ export type ActiveModal =
   | { type: 'publish'; yaml: string };
 ```
 
-- [ ] **Step 4: defaults と API client を作る**
+- [x] **Step 4: defaults と API client を作る**
 
 `admin/islands/pipeline/defaults.ts`:
 
@@ -623,7 +623,7 @@ export async function publishPipelines(pipelines: unknown): Promise<any> {
 }
 ```
 
-- [ ] **Step 5: reducer を実装する**
+- [x] **Step 5: reducer を実装する**
 
 `admin/islands/pipeline/workbench_reducer.ts` を作成する。
 
@@ -714,7 +714,7 @@ export function reduceWorkbench(state: WorkbenchState, action: WorkbenchAction):
 }
 ```
 
-- [ ] **Step 6: reducer tests を通す**
+- [x] **Step 6: reducer tests を通す**
 
 Run:
 
@@ -724,7 +724,7 @@ deno test --allow-read admin/islands/pipeline/workbench_reducer.test.ts
 
 Expected: PASS。
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add admin/islands/pipeline/types.ts admin/islands/pipeline/defaults.ts admin/islands/pipeline/api_client.ts admin/islands/pipeline/workbench_reducer.ts admin/islands/pipeline/workbench_reducer.test.ts
@@ -742,7 +742,7 @@ git commit -m "Add pipeline workbench island state core"
 - Modify: `admin/routes/pipelines.tsx`
 - Modify: `admin/main.test.ts`
 
-- [ ] **Step 1: route test を island shell 期待に変更する**
+- [x] **Step 1: route test を island shell 期待に変更する**
 
 `admin/main.test.ts` の page route test に追加する。
 
@@ -751,7 +751,7 @@ assertEquals(html.includes('PipelineWorkbench'), true);
 assertEquals(html.includes('/admin/static/pipelines.js'), false);
 ```
 
-- [ ] **Step 2: `Toolbar.tsx` を作る**
+- [x] **Step 2: `Toolbar.tsx` を作る**
 
 ```tsx
 /** @jsxImportSource preact */
@@ -794,7 +794,7 @@ export function Toolbar(props: {
 }
 ```
 
-- [ ] **Step 3: `Palette.tsx` を作る**
+- [x] **Step 3: `Palette.tsx` を作る**
 
 ```tsx
 /** @jsxImportSource preact */
@@ -832,7 +832,7 @@ export function Palette(props: {
 }
 ```
 
-- [ ] **Step 4: `PipelineWorkbench.tsx` skeleton を作る**
+- [x] **Step 4: `PipelineWorkbench.tsx` skeleton を作る**
 
 ```tsx
 /** @jsxImportSource preact */
@@ -884,7 +884,7 @@ export default function PipelineWorkbench() {
 }
 ```
 
-- [ ] **Step 5: island registry に `PipelineWorkbench` を追加する**
+- [x] **Step 5: island registry に `PipelineWorkbench` を追加する**
 
 `admin/fresh_islands.ts` に import と manifest entry を追加する。
 
@@ -898,7 +898,7 @@ import * as PipelineWorkbenchModule from './islands/PipelineWorkbench.tsx';
 }
 ```
 
-- [ ] **Step 6: route を shell 化する**
+- [x] **Step 6: route を shell 化する**
 
 `admin/routes/pipelines.tsx` は `<PipelineWorkbench />` だけを workbench body に置き、旧 toolbar/canvas/modal markup と script tag を外す。
 
@@ -911,7 +911,7 @@ import * as PipelineWorkbenchModule from './islands/PipelineWorkbench.tsx';
 </Layout>;
 ```
 
-- [ ] **Step 7: tests を通す**
+- [x] **Step 7: tests を通す**
 
 Run:
 
@@ -921,7 +921,7 @@ deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --un
 
 Expected: PASS。
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add admin/islands/PipelineWorkbench.tsx admin/islands/pipeline/Toolbar.tsx admin/islands/pipeline/Palette.tsx admin/fresh_islands.ts admin/routes/pipelines.tsx admin/main.test.ts
@@ -938,7 +938,7 @@ git commit -m "Mount pipeline workbench island shell"
 - Modify: `admin/islands/pipeline/workbench_reducer.test.ts`
 - Modify: `admin/static/styles.css`
 
-- [ ] **Step 1: reducer tests for node add/delete/edge replace を追加する**
+- [x] **Step 1: reducer tests for node add/delete/edge replace を追加する**
 
 `admin/islands/pipeline/workbench_reducer.test.ts` に追加する。
 
@@ -954,7 +954,7 @@ Deno.test('workbench reducer adds a policy node after start', () => {
 });
 ```
 
-- [ ] **Step 2: reducer action を実装する**
+- [x] **Step 2: reducer action を実装する**
 
 `WorkbenchAction` に追加する。
 
@@ -966,7 +966,7 @@ Deno.test('workbench reducer adds a policy node after start', () => {
 
 `policyNodeAdded` は current graph の start node から新 node へ edge を作り、history に積む。
 
-- [ ] **Step 3: `Canvas.tsx` を作る**
+- [x] **Step 3: `Canvas.tsx` を作る**
 
 ```tsx
 /** @jsxImportSource preact */
@@ -1018,7 +1018,7 @@ function edgePath(graph: PipelineGraph, edge: PipelineEdge): string {
 }
 ```
 
-- [ ] **Step 4: Workbench に Canvas を接続する**
+- [x] **Step 4: Workbench に Canvas を接続する**
 
 `PipelineWorkbench.tsx` に `Canvas` を import し、placeholder canvas を置換する。
 
@@ -1031,11 +1031,11 @@ function edgePath(graph: PipelineGraph, edge: PipelineEdge): string {
 />;
 ```
 
-- [ ] **Step 5: styles を移植する**
+- [x] **Step 5: styles を移植する**
 
 `admin/static/styles.css` の既存 `.pipeline-canvas`、`.pipeline-svg`、`.pipeline-node`、`.pipeline-edge` rule を island markup でも使えるように class 名を維持する。nested selector は追加しない。
 
-- [ ] **Step 6: tests を通す**
+- [x] **Step 6: tests を通す**
 
 Run:
 
@@ -1046,7 +1046,7 @@ deno check admin/islands/PipelineWorkbench.tsx admin/islands/pipeline/Canvas.tsx
 
 Expected: PASS。
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add admin/islands/PipelineWorkbench.tsx admin/islands/pipeline/Canvas.tsx admin/islands/pipeline/workbench_reducer.ts admin/islands/pipeline/workbench_reducer.test.ts admin/static/styles.css
@@ -1064,7 +1064,7 @@ git commit -m "Render pipeline graph in workbench island"
 - Modify: `admin/islands/pipeline/workbench_reducer.ts`
 - Modify: `admin/static/styles.css`
 
-- [ ] **Step 1: modal action tests を追加する**
+- [x] **Step 1: modal action tests を追加する**
 
 `admin/islands/pipeline/workbench_reducer.test.ts` に追加する。
 
@@ -1083,7 +1083,7 @@ Deno.test('workbench reducer opens settings for policy node and playground for s
 });
 ```
 
-- [ ] **Step 2: modal state を reducer に追加する**
+- [x] **Step 2: modal state を reducer に追加する**
 
 `WorkbenchState` に追加する。
 
@@ -1096,7 +1096,7 @@ ui: {
 
 `nodeDoubleClicked`、`modalClosed`、`settingsJsonChanged`、`settingsApplied` actions を追加する。
 
-- [ ] **Step 3: `NodeSettingsModal.tsx` を作る**
+- [x] **Step 3: `NodeSettingsModal.tsx` を作る**
 
 ```tsx
 /** @jsxImportSource preact */
@@ -1151,7 +1151,7 @@ export function NodeSettingsModal(props: {
 }
 ```
 
-- [ ] **Step 4: `PlaygroundModal.tsx` と `PublishModal.tsx` を作る**
+- [x] **Step 4: `PlaygroundModal.tsx` と `PublishModal.tsx` を作る**
 
 `PlaygroundModal.tsx` は message textarea、Run、result panel を持つ。`PublishModal.tsx` は YAML preview、Cancel、Publish を持つ。
 
@@ -1180,7 +1180,7 @@ export function PublishModal(props: {
 }
 ```
 
-- [ ] **Step 5: Workbench に modals を接続する**
+- [x] **Step 5: Workbench に modals を接続する**
 
 `PipelineWorkbench.tsx` は `state.ui.activeModal` に応じて modal component を出す。
 
@@ -1214,7 +1214,7 @@ export function PublishModal(props: {
 }
 ```
 
-- [ ] **Step 6: tests と check を通す**
+- [x] **Step 6: tests と check を通す**
 
 Run:
 
@@ -1225,7 +1225,7 @@ deno check admin/islands/PipelineWorkbench.tsx admin/islands/pipeline/NodeSettin
 
 Expected: PASS。
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add admin/islands/PipelineWorkbench.tsx admin/islands/pipeline/NodeSettingsModal.tsx admin/islands/pipeline/PlaygroundModal.tsx admin/islands/pipeline/PublishModal.tsx admin/islands/pipeline/workbench_reducer.ts admin/islands/pipeline/workbench_reducer.test.ts admin/static/styles.css
@@ -1242,7 +1242,7 @@ git commit -m "Add pipeline workbench island modals"
 - Modify: `admin/islands/pipeline/workbench_reducer.test.ts`
 - Modify: `src/admin/pipelines-static.test.ts`
 
-- [ ] **Step 1: draft selection tests を reducer に追加する**
+- [x] **Step 1: draft selection tests を reducer に追加する**
 
 ```ts
 Deno.test('workbench reducer loads saved draft as undoable replace', () => {
@@ -1258,7 +1258,7 @@ Deno.test('workbench reducer loads saved draft as undoable replace', () => {
 });
 ```
 
-- [ ] **Step 2: async effects を Workbench に追加する**
+- [x] **Step 2: async effects を Workbench に追加する**
 
 `PipelineWorkbench.tsx` に初期 load effect を追加する。
 
@@ -1287,7 +1287,7 @@ useEffect(() => {
 }, []);
 ```
 
-- [ ] **Step 3: Save / Load handlers を追加する**
+- [x] **Step 3: Save / Load handlers を追加する**
 
 `PipelineWorkbench.tsx` の toolbar callbacks を実装する。
 
@@ -1309,7 +1309,7 @@ async function handleSave() {
 }
 ```
 
-- [ ] **Step 4: Publish handler を追加する**
+- [x] **Step 4: Publish handler を追加する**
 
 `PublishModal` の confirm で `publishPipelines(graphToPipelines(state.graphs))` を呼び、response pipelines で state を同期する。
 
@@ -1321,7 +1321,7 @@ async function handlePublishConfirm() {
 }
 ```
 
-- [ ] **Step 5: Playground handler を追加する**
+- [x] **Step 5: Playground handler を追加する**
 
 `PlaygroundModal` の Run で current direction pipeline を送る。
 
@@ -1334,7 +1334,7 @@ async function handlePlaygroundRun(message: string, connectionInfo: unknown) {
 }
 ```
 
-- [ ] **Step 6: tests を通す**
+- [x] **Step 6: tests を通す**
 
 Run:
 
@@ -1345,7 +1345,7 @@ deno check admin/islands/PipelineWorkbench.tsx admin/islands/pipeline/api_client
 
 Expected: PASS。
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add admin/islands/PipelineWorkbench.tsx admin/islands/pipeline/api_client.ts admin/islands/pipeline/workbench_reducer.ts admin/islands/pipeline/workbench_reducer.test.ts src/admin/pipelines-static.test.ts
@@ -1362,7 +1362,7 @@ git commit -m "Wire pipeline workbench island persistence"
 - Modify: `src/admin/pipelines-static.test.ts`
 - Modify: `docs/current-architecture.md`
 
-- [ ] **Step 1: stale reference test を固定する**
+- [x] **Step 1: stale reference test を固定する**
 
 `admin/main.test.ts` の pipelines page test に追加する。
 
@@ -1371,7 +1371,7 @@ assertEquals(html.includes('/admin/static/pipelines.js'), false);
 assertEquals(html.includes('initPipelinesPage'), false);
 ```
 
-- [ ] **Step 2: `fresh_nav.js` mapping から pipelines entry を消す**
+- [x] **Step 2: `fresh_nav.js` mapping から pipelines entry を消す**
 
 `PAGE_INITIALIZERS` から以下を削除する。
 
@@ -1379,13 +1379,13 @@ assertEquals(html.includes('initPipelinesPage'), false);
 '/admin/static/pipelines.js': 'initPipelinesPage',
 ```
 
-- [ ] **Step 3: `admin/static/pipelines.js` を削除する**
+- [x] **Step 3: `admin/static/pipelines.js` を削除する**
 
 ```bash
 git rm admin/static/pipelines.js
 ```
 
-- [ ] **Step 4: tests の import をすべて新 module にする**
+- [x] **Step 4: tests の import をすべて新 module にする**
 
 `src/admin/pipelines-static.test.ts` に `../../admin/static/pipelines.js` import が残っていないことを確認する。
 
@@ -1397,7 +1397,7 @@ rg -n "admin/static/pipelines\\.js|initPipelinesPage|/admin/static/pipelines\\.j
 
 Expected: `admin/static/pipelines.js` への active reference は 0 件。
 
-- [ ] **Step 5: docs を更新する**
+- [x] **Step 5: docs を更新する**
 
 `docs/current-architecture.md` の Admin UI section を更新する。
 
@@ -1408,7 +1408,7 @@ Expected: `admin/static/pipelines.js` への active reference は 0 件。
 
 `admin/static/pipelines.js` の記述は削除する。
 
-- [ ] **Step 6: targeted tests を通す**
+- [x] **Step 6: targeted tests を通す**
 
 Run:
 
@@ -1419,7 +1419,7 @@ deno check admin/main.ts admin/routes/pipelines.tsx admin/islands/PipelineWorkbe
 
 Expected: PASS。
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add admin/static/fresh_nav.js admin/main.test.ts src/admin/pipelines-static.test.ts docs/current-architecture.md
@@ -1434,7 +1434,7 @@ git commit -m "Replace legacy pipeline workbench script"
 - Modify: `admin/static/styles.css`
 - Modify: affected island components only if QA finds concrete layout defects.
 
-- [ ] **Step 1: start local admin server**
+- [x] **Step 1: start local admin server**
 
 Create `/tmp/pfortner-fresh-admin.yaml` with:
 
@@ -1458,7 +1458,7 @@ Run:
 deno run --unstable-net --allow-env --allow-net --allow-read --allow-write=/tmp/pfortner-fresh-admin.yaml,/tmp/pfortner-fresh-admin.yaml.workbench.json scripts/serve.ts /tmp/pfortner-fresh-admin.yaml
 ```
 
-- [ ] **Step 2: Playwright QA を実行する**
+- [x] **Step 2: Playwright QA を実行する**
 
 QA script は `/tmp/admin-workbench-island-qa.ts` に置く。確認 flow:
 
@@ -1478,11 +1478,11 @@ await page.click('text=Publish');
 
 Expected: console error と page error が 0 件。desktop 1440x1000 と mobile 390x844 で screenshot を保存する。
 
-- [ ] **Step 3: QA findings を修正する**
+- [x] **Step 3: QA findings を修正する**
 
 修正は layout overlap、button text overflow、modal viewport overflow、partial navigation 後の duplicate mount に限定する。新機能は追加しない。
 
-- [ ] **Step 4: final verification を通す**
+- [x] **Step 4: final verification を通す**
 
 Run:
 
@@ -1504,7 +1504,7 @@ Expected:
 - `src/` tests: PASS。
 - final `rg`: no output。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add admin/static/styles.css admin/islands admin/main.test.ts docs/current-architecture.md
@@ -1517,7 +1517,7 @@ git commit -m "Polish pipeline workbench island QA"
 
 - No planned edits unless verification finds a defect.
 
-- [ ] **Step 1: inspect final diff**
+- [x] **Step 1: inspect final diff**
 
 Run:
 
@@ -1528,7 +1528,7 @@ git log --oneline -8
 
 Expected: worktree clean, latest commits are the task commits above.
 
-- [ ] **Step 2: summarize residual risk**
+- [x] **Step 2: summarize residual risk**
 
 Record in final response:
 
@@ -1544,3 +1544,18 @@ Record in final response:
 - Do not change runtime pipeline config semantics; graph still serializes to `pipelines.client` / `pipelines.server`.
 - Do not add a graph editor dependency.
 - Keep commits atomic. If a task requires follow-up fixes before tests pass, include those fixes in the same task commit.
+
+## Completion Notes
+
+- Completed through Task 11 with atomic commits from `7002b57` through `7cd11a4`.
+- Fresh island bootstrap gate passed before deleting the legacy editor bundle.
+- Final state uses `PipelineWorkbench` island and no longer ships `admin/static/pipelines.js`.
+- Browser QA passed on desktop and mobile. Screenshots: `/tmp/pfortner-workbench-task10-desktop.png`, `/tmp/pfortner-workbench-task10-mobile.png`.
+- Verification passed:
+  - `deno fmt --check --config deno.json`
+  - `deno lint`
+  - `deno check admin/main.ts admin/routes/pipelines.tsx admin/islands/PipelineWorkbench.tsx`
+  - `deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --unstable-kv admin/main.test.ts admin/page_routes.test.ts admin/api_routes.test.ts src/admin/pipelines-static.test.ts`
+  - `deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --unstable-kv src/`
+  - `rg -n 'admin/static/pipelines\\.js|initPipelinesPage|import \\{ boot \\} from ""' admin src deno.json docs/current-architecture.md`
+- Residual risk: manual browser QA covered the primary desktop and mobile flows, not every possible graph shape or deeply nested branch editing case.
