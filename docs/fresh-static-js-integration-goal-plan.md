@@ -39,7 +39,7 @@
 - [ ] Page-local behavior is either migrated into islands/client entry modules or documented as intentionally URL-addressed static behavior with a removal plan and tests.
 - [ ] `f-client-nav` and Fresh `Partial` navigation still update sidebar/content, rehydrate required islands, and avoid stale page-local handlers after navigation.
 - [ ] SSR for `/admin/`, `/admin/connections`, `/admin/pipelines`, `/admin/metrics`, `/admin/blocklist`, `/admin/config`, `/admin/logs`, and `/admin/login` still renders without requiring client JavaScript for the initial HTML shell.
-- [ ] Browser QA proves `/admin/pipelines` can load, switch Client/Server state, add nodes, move nodes, pan/zoom, drag the minimap viewport, open settings, save/load DAG, publish, and run playground.
+- [x] Browser QA proves `/admin/pipelines` can load, switch Client/Server state, add nodes, move nodes, pan/zoom, drag the minimap viewport, open settings, save/load DAG, publish, and run playground.
 - [ ] Deno verification passes with the current repo commands before the final commit.
 
 ## Phase 0: Plan And Baseline Audit
@@ -289,7 +289,7 @@
     - `src/admin/pipelines-static.test.ts` now imports helper behavior from `admin/islands/pipeline/*`.
     - Added a regression test that the old helper implementation files are no longer URL-addressed static files.
 
-- [ ] **Step 6: Browser QA**
+- [x] **Step 6: Browser QA**
 
   Start the admin dev server and verify `/admin/pipelines` with Playwright:
 
@@ -299,7 +299,15 @@
   - settings and playground modals work;
   - Save, Load, Publish UI flows still call the expected APIs.
 
-- [ ] **Step 7: Commit Fresh island workbench integration**
+  Evidence gathered on 2026-06-10:
+
+  - Browser plugin was not available in this session, so regular Playwright was used.
+  - Temporary admin server ran at `http://127.0.0.1:31987/admin/pipelines` with auth token login.
+  - Desktop viewport `1440x1000` verified page identity, nonblank workbench, no console errors, Client/Server switching, palette add, node drag, wheel pan, Ctrl-wheel zoom, minimap viewport drag, settings JSON mode, Save, Load, Publish, and Playground evaluation.
+  - Mobile viewport `390x844` verified the page loads, the workbench mounts, and the canvas remains reachable through the responsive horizontal layout.
+  - Screenshot evidence was saved outside the repo under `/tmp/pfortner-pipelines-*.png`.
+
+- [x] **Step 7: Commit Fresh island workbench integration**
 
   Run full verification first, then commit:
 
@@ -307,6 +315,14 @@
   git add admin/islands/PipelineWorkbench.tsx admin/islands/pipeline admin/static/islands/PipelineWorkbench.js admin/static/fresh_nav.test.js admin/static/styles.css admin/fresh_islands.ts
   git commit -m "Move workbench interactions into Fresh island"
   ```
+
+  Completed across smaller atomic commits:
+
+  - `a9e0c77` Add PipelineWorkbench browser bundle build
+  - `264e059` Forward Fresh island props to mount adapters
+  - `42ab166` Decode Fresh props in workbench browser adapter
+  - `a244a0b` Replace workbench static controller with generated adapter
+  - `fa5559d` Remove stale static pipeline helpers
 
 ## Phase 3: Rehome Page-Local Behavior
 
