@@ -17,6 +17,8 @@ import { Palette } from './pipeline/Palette.tsx';
 import { PlaygroundModal } from './pipeline/PlaygroundModal.tsx';
 import { PublishModal } from './pipeline/PublishModal.tsx';
 import { Toolbar } from './pipeline/Toolbar.tsx';
+import { DEFAULT_CANVAS_SIZE } from './pipeline/minimap.ts';
+import { fitViewportToGraph, zoomViewportByStep } from './pipeline/use_canvas_interactions.ts';
 import {
   createInitialWorkbenchState,
   reduceWorkbench,
@@ -88,6 +90,13 @@ function nextPalettePosition(graph: PipelineGraph) {
 }
 
 const WORKBENCH_ACTION_SERVICES = createBrowserWorkbenchActionServices();
+
+function currentCanvasSize() {
+  if (typeof document === 'undefined') return DEFAULT_CANVAS_SIZE;
+  const rect = document.getElementById('pipeline-svg')?.getBoundingClientRect();
+  if (!rect || rect.width <= 0 || rect.height <= 0) return DEFAULT_CANVAS_SIZE;
+  return { width: rect.width, height: rect.height };
+}
 
 export default function PipelineWorkbench() {
   const [state, dispatch] = useReducer(reduceWorkbench, createInitialState());
@@ -164,6 +173,19 @@ export default function PipelineWorkbench() {
     });
   }
 
+  function handleFitCanvas(): void {
+    handleViewportChange(
+      fitViewportToGraph(
+        state.graphs[state.direction],
+        currentCanvasSize(),
+      ),
+    );
+  }
+
+  function handleZoomStep(step: number): void {
+    handleViewportChange(zoomViewportByStep(activeViewport, step));
+  }
+
   function handleNodeSelect(nodeId: string, additive: boolean): void {
     dispatch({
       type: 'nodeSelected',
@@ -235,6 +257,9 @@ export default function PipelineWorkbench() {
         onPublish={() => dispatch({ type: 'publishModalOpened' })}
         onUndo={() => dispatch({ type: 'undo' })}
         onRedo={() => dispatch({ type: 'redo' })}
+        onFit={handleFitCanvas}
+        onZoomOut={() => handleZoomStep(-0.1)}
+        onZoomIn={() => handleZoomStep(0.1)}
         canUndo={state.history[state.direction].past.length > 0}
         canRedo={state.history[state.direction].future.length > 0}
       />

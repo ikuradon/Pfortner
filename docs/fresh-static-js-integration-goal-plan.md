@@ -242,6 +242,7 @@
   - [x] Wired Fresh `Canvas` wheel pan/zoom, node pointer drag, and minimap pointer drag callbacks to reducer dispatch through `PipelineWorkbench.tsx`.
   - [x] Move connection drag from output port to input port into the hook.
   - [x] Move selection and marquee behavior into reducer-backed Fresh island state.
+  - [x] Move toolbar Fit/Zoom controls into Fresh island viewport helpers and reducer dispatch.
 
 - [ ] **Step 4: Preserve settings/playground/save/load/publish parity**
 

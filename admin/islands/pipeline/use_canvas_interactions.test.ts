@@ -1,5 +1,6 @@
 import { assertAlmostEquals, assertEquals } from '@std/assert';
 import {
+  fitViewportToGraph,
   graphPointFromClientPoint,
   inputPortNodeIdFromTarget,
   marqueeRectFromClientPoints,
@@ -7,6 +8,7 @@ import {
   nodePositionFromDrag,
   panViewportWithWheel,
   zoomViewportAtPoint,
+  zoomViewportByStep,
 } from './use_canvas_interactions.ts';
 import type { PipelineGraph, Viewport } from './types.ts';
 
@@ -61,6 +63,37 @@ Deno.test('canvas interactions zoom around the cursor and clamp the zoom', () =>
     (260 - rect.top - zoomed.pan.y) / zoomed.zoom,
     (260 - rect.top - viewport.pan.y) / viewport.zoom,
   );
+});
+
+Deno.test('canvas interactions zoom toolbar changes zoom without moving pan', () => {
+  assertEquals(zoomViewportByStep(viewport, 0.1), {
+    zoom: 1.35,
+    pan: { x: 56, y: 80 },
+  });
+  assertEquals(zoomViewportByStep({ zoom: 1.78, pan: { x: 5, y: 6 } }, 0.1), {
+    zoom: 1.8,
+    pan: { x: 5, y: 6 },
+  });
+  assertEquals(zoomViewportByStep({ zoom: 0.38, pan: { x: 5, y: 6 } }, -0.1), {
+    zoom: 0.35,
+    pan: { x: 5, y: 6 },
+  });
+});
+
+Deno.test('canvas interactions fit viewport around graph bounds', () => {
+  const graph: PipelineGraph = {
+    direction: 'client',
+    nodes: [
+      { id: 'client-start', type: 'start', policy: 'start', x: 0, y: 0 },
+      { id: 'client-node-1', type: 'policy', policy: 'accept', x: 300, y: 128 },
+    ],
+    edges: [],
+  };
+
+  assertEquals(fitViewportToGraph(graph, { width: 800, height: 480 }), {
+    zoom: 1.4,
+    pan: { x: 64, y: 100 },
+  });
 });
 
 Deno.test('canvas interactions convert client points and node drags through viewport state', () => {

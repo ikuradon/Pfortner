@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'preact/hooks';
-import { type MinimapModel, panForMinimapViewportPoint, type Size } from './minimap.ts';
+import { graphBounds, type MinimapModel, panForMinimapViewportPoint, type Size } from './minimap.ts';
 import { nodeHeight, nodeWidth } from './minimap.ts';
 import type { PipelineGraph, PipelineNode, Point, Rect, Viewport } from './types.ts';
 
@@ -93,6 +93,47 @@ export function zoomViewportAtPoint(
     pan: {
       x: x - ((x - viewport.pan.x) / oldZoom) * zoom,
       y: y - ((y - viewport.pan.y) / oldZoom) * zoom,
+    },
+  };
+}
+
+function clampZoom(value: number, min = 0.35, max = 1.8): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+export function zoomViewportByStep(
+  viewport: Viewport,
+  step: number,
+): Viewport {
+  return {
+    zoom: clampZoom(viewport.zoom + step),
+    pan: { x: viewport.pan.x, y: viewport.pan.y },
+  };
+}
+
+export function fitViewportToGraph(
+  graph: PipelineGraph,
+  canvasSize: Size,
+): Viewport {
+  const bounds = graphBounds(graph);
+  const nextZoom = Math.min(
+    1.4,
+    Math.max(
+      0.35,
+      Math.min(
+        (canvasSize.width - 80) / bounds.width,
+        (canvasSize.height - 80) / bounds.height,
+      ),
+    ),
+  );
+  const zoom = Number.isFinite(nextZoom) ? nextZoom : 1;
+  return {
+    zoom,
+    pan: {
+      x: 40 - bounds.x * zoom +
+        Math.max(0, (canvasSize.width - bounds.width * zoom) / 2 - 40),
+      y: 40 - bounds.y * zoom +
+        Math.max(0, (canvasSize.height - bounds.height * zoom) / 2 - 40),
     },
   };
 }
