@@ -3,7 +3,6 @@ import { useEffect, useReducer } from 'preact/hooks';
 import { graphToPipelines, pipelinesToGraph } from './pipeline/graph.js';
 import { fingerprintPipelines, getWorkbenchChangeState } from './pipeline/workbench_state.js';
 import { Canvas } from './pipeline/Canvas.tsx';
-import { fetchAdminConfig, fetchAdminPlugins } from './pipeline/api_client.ts';
 import {
   createBrowserWorkbenchActionServices,
   loadWorkbenchDraft,
@@ -40,10 +39,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error && error.message.length > 0 ? error.message : String(error);
-}
-
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue);
   if (value !== null && typeof value === 'object') {
@@ -62,10 +57,6 @@ function draftFingerprintFromParts(
   viewports: unknown,
 ): string {
   return JSON.stringify(stableValue({ graphs, viewports }));
-}
-
-function pipelinesFromConfig(config: unknown): Record<string, unknown> {
-  return isRecord(config) ? pipelinesFromValue(config.pipelines) : EMPTY_PIPELINES;
 }
 
 function pipelinesFromValue(value: unknown): Record<string, unknown> {
@@ -147,29 +138,27 @@ export default function PipelineWorkbench(props: PipelineWorkbenchProps = {}) {
     let active = true;
 
     (async () => {
-      const [config, plugins, draft] = await Promise.all([
-        fetchAdminConfig(),
-        fetchAdminPlugins().catch(() => ({ plugins: DEFAULT_PLUGINS })),
-        WORKBENCH_ACTION_SERVICES.fetchPipelineDraft().catch(() => null),
-      ]);
+      const serverDraft = await WORKBENCH_ACTION_SERVICES.fetchPipelineDraft()
+        .catch(() => null);
       if (!active) return;
+      const localDraft = WORKBENCH_ACTION_SERVICES.readLocalDraft();
+      if (serverDraft === null && localDraft === null) return;
       const selectedDraft = selectWorkbenchDraft([
-        draft,
-        WORKBENCH_ACTION_SERVICES.readLocalDraft(),
+        serverDraft,
+        localDraft,
       ]);
+      if ('error' in selectedDraft) return;
       dispatch({
-        type: 'initialDataLoaded',
-        pipelines: pipelinesFromConfig(config),
-        plugins: plugins.plugins,
-        draft: 'draft' in selectedDraft ? selectedDraft.draft : null,
+        type: 'graphsLoaded',
+        graphs: selectedDraft.draft.graphs,
+        viewports: selectedDraft.draft.viewports,
+        message: 'Loaded saved DAG',
+        savedDraftFingerprint: draftFingerprintFromParts(
+          selectedDraft.draft.graphs,
+          selectedDraft.draft.viewports,
+        ),
       });
-    })().catch((error) => {
-      if (!active) return;
-      dispatch({
-        type: 'loadFailed',
-        message: `Workbench load failed: ${errorMessage(error)}`,
-      });
-    });
+    })();
 
     return () => {
       active = false;

@@ -30,3 +30,10 @@ Deno.test('admin islands do not import JavaScript implementations from static', 
 
   assertEquals(offenders, []);
 });
+
+Deno.test('PipelineWorkbench does not fetch active config or plugins after SSR render', async () => {
+  const source = await Deno.readTextFile(new URL('../PipelineWorkbench.tsx', import.meta.url));
+
+  assertEquals(source.includes('fetchAdminConfig'), false);
+  assertEquals(source.includes('fetchAdminPlugins'), false);
+});
