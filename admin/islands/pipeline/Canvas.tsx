@@ -1,14 +1,28 @@
 /** @jsxImportSource preact */
-import type { PipelineEdge, PipelineGraph, PipelineNode } from './types.ts';
+import {
+  buildMinimapModel,
+  DEFAULT_CANVAS_SIZE,
+  minimapNodeRect,
+  nodeHeight,
+  nodeWidth,
+  type Size,
+} from './minimap.ts';
+import type { PipelineEdge, PipelineGraph, PipelineNode, Viewport } from './types.ts';
 
-const NODE_WIDTH = 180;
-const NODE_HEIGHT = 72;
+const DEFAULT_VIEWPORT: Viewport = { zoom: 1, pan: { x: 56, y: 80 } };
 
 export function Canvas(props: {
   graph: PipelineGraph;
   selectedNodeIds: string[];
+  viewport?: Viewport;
+  canvasSize?: Size;
   onNodeDoubleClick(nodeId: string): void;
 }) {
+  const viewport = props.viewport ?? DEFAULT_VIEWPORT;
+  const canvasSize = props.canvasSize ?? DEFAULT_CANVAS_SIZE;
+  const minimap = buildMinimapModel(props.graph, viewport, canvasSize);
+  const selectedNodeIds = new Set(props.selectedNodeIds);
+
   return (
     <div
       class='pipeline-canvas'
@@ -22,95 +36,146 @@ export function Canvas(props: {
         id='pipeline-svg'
         aria-label='Pipeline graph'
       >
-        <g class='pipeline-edge-layer'>
-          {props.graph.edges.map((edge) => {
-            const path = edgePath(props.graph, edge);
-            if (!path) return null;
-            return (
-              <path
-                key={edge.id}
-                class='pipeline-edge'
-                data-edge-id={edge.id}
-                data-edge-from={edge.from}
-                data-edge-from-port={edge.fromPort ?? ''}
-                data-edge-to={edge.to}
-                data-edge-to-port={edge.toPort ?? ''}
-                d={path}
-              />
-            );
-          })}
-        </g>
-        <g class='pipeline-node-layer'>
-          {props.graph.nodes.map((node) => {
-            const width = nodeWidth(node);
-            const height = nodeHeight(node);
-            const classes = [
-              'pipeline-node',
-              isStartNode(node) ? 'pipeline-node-start' : '',
-              props.selectedNodeIds.includes(node.id) ? 'selected' : '',
-            ].filter(Boolean).join(' ');
+        <g
+          class='pipeline-viewport'
+          transform={`translate(${viewport.pan.x}, ${viewport.pan.y}) scale(${viewport.zoom})`}
+        >
+          <g class='pipeline-edge-layer'>
+            {props.graph.edges.map((edge) => {
+              const path = edgePath(props.graph, edge);
+              if (!path) return null;
+              return (
+                <path
+                  key={edge.id}
+                  class='pipeline-edge'
+                  data-edge-id={edge.id}
+                  data-edge-from={edge.from}
+                  data-edge-from-port={edge.fromPort ?? ''}
+                  data-edge-to={edge.to}
+                  data-edge-to-port={edge.toPort ?? ''}
+                  d={path}
+                />
+              );
+            })}
+          </g>
+          <g class='pipeline-node-layer'>
+            {props.graph.nodes.map((node) => {
+              const width = nodeWidth(node);
+              const height = nodeHeight(node);
+              const classes = [
+                'pipeline-node',
+                isStartNode(node) ? 'pipeline-node-start' : '',
+                selectedNodeIds.has(node.id) ? 'selected' : '',
+              ].filter(Boolean).join(' ');
 
-            return (
-              <g
-                key={node.id}
-                class={classes}
-                transform={`translate(${node.x ?? 0}, ${node.y ?? 0})`}
-                data-node-id={node.id}
-                data-node-policy={node.policy ?? ''}
-                data-node-type={node.type ?? ''}
-                data-node-config={formatNodeConfig(node.config)}
-                onDblClick={() => props.onNodeDoubleClick(node.id)}
-              >
-                <rect
-                  class='pipeline-node-card'
-                  width={width}
-                  height={height}
-                  rx='8'
-                />
-                <text class='pipeline-node-title' x='16' y='28'>
-                  {node.policy ?? node.id}
-                </text>
-                <text class='pipeline-node-subtitle' x='16' y='50'>
-                  {nodeSubtitle(node)}
-                </text>
-                {!isStartNode(node)
-                  ? (
-                    <circle
-                      class='pipeline-port pipeline-port-input'
-                      cx='0'
-                      cy={height / 2}
-                      r='6'
-                      role='button'
-                      tabIndex={0}
-                      aria-label={`Input port for ${node.policy ?? node.id}`}
-                      data-node-id={node.id}
-                      data-port-kind='input'
-                      data-port-name='in'
-                    />
-                  )
-                  : null}
-                <circle
-                  class='pipeline-port pipeline-port-output'
-                  cx={width}
-                  cy={height / 2}
-                  r='6'
-                  role='button'
-                  tabIndex={0}
-                  aria-label={`Output port for ${node.policy ?? node.id}`}
+              return (
+                <g
+                  key={node.id}
+                  class={classes}
+                  transform={`translate(${node.x ?? 0}, ${node.y ?? 0})`}
                   data-node-id={node.id}
-                  data-port-kind='output'
-                  data-port-name='next'
-                />
-              </g>
-            );
-          })}
+                  data-node-policy={node.policy ?? ''}
+                  data-node-type={node.type ?? ''}
+                  data-node-config={formatNodeConfig(node.config)}
+                  onDblClick={() => props.onNodeDoubleClick(node.id)}
+                >
+                  <rect
+                    class='pipeline-node-card'
+                    width={width}
+                    height={height}
+                    rx='8'
+                  />
+                  <text class='pipeline-node-title' x='16' y='28'>
+                    {node.policy ?? node.id}
+                  </text>
+                  <text class='pipeline-node-subtitle' x='16' y='50'>
+                    {nodeSubtitle(node)}
+                  </text>
+                  {!isStartNode(node)
+                    ? (
+                      <circle
+                        class='pipeline-port pipeline-port-input'
+                        cx='0'
+                        cy={height / 2}
+                        r='6'
+                        role='button'
+                        tabIndex={0}
+                        aria-label={`Input port for ${node.policy ?? node.id}`}
+                        data-node-id={node.id}
+                        data-port-kind='input'
+                        data-port-name='in'
+                      />
+                    )
+                    : null}
+                  <circle
+                    class='pipeline-port pipeline-port-output'
+                    cx={width}
+                    cy={height / 2}
+                    r='6'
+                    role='button'
+                    tabIndex={0}
+                    aria-label={`Output port for ${node.policy ?? node.id}`}
+                    data-node-id={node.id}
+                    data-port-kind='output'
+                    data-port-name='next'
+                  />
+                </g>
+              );
+            })}
+          </g>
         </g>
       </svg>
       <svg
         class='canvas-minimap'
         id='minimap-svg'
         aria-label='Pipeline minimap'
+        viewBox={`0 0 ${minimap.width} ${minimap.height}`}
       >
+        <rect
+          class='minimap-bg'
+          x='0'
+          y='0'
+          width={minimap.width}
+          height={minimap.height}
+          rx='8'
+        />
+        {props.graph.edges.map((edge) => {
+          const from = props.graph.nodes.find((node) => node.id === edge.from);
+          const to = props.graph.nodes.find((node) => node.id === edge.to);
+          if (!from || !to) return null;
+          return (
+            <line
+              key={edge.id}
+              class='minimap-edge'
+              x1={minimap.offsetX + ((from.x ?? 0) + nodeWidth(from)) * minimap.scale}
+              y1={minimap.offsetY + ((from.y ?? 0) + nodeHeight(from) / 2) * minimap.scale}
+              x2={minimap.offsetX + (to.x ?? 0) * minimap.scale}
+              y2={minimap.offsetY + ((to.y ?? 0) + nodeHeight(to) / 2) * minimap.scale}
+            />
+          );
+        })}
+        {props.graph.nodes.map((node) => {
+          const rect = minimapNodeRect(minimap, node);
+          return (
+            <rect
+              key={node.id}
+              class={selectedNodeIds.has(node.id) ? 'minimap-node selected' : 'minimap-node'}
+              x={rect.x}
+              y={rect.y}
+              width={rect.width}
+              height={rect.height}
+              rx='3'
+            />
+          );
+        })}
+        <rect
+          class='minimap-viewport'
+          x={minimap.viewportRect.x}
+          y={minimap.viewportRect.y}
+          width={Math.max(4, minimap.viewportRect.width)}
+          height={Math.max(4, minimap.viewportRect.height)}
+          rx='3'
+        />
       </svg>
     </div>
   );
@@ -132,14 +197,6 @@ function edgePath(graph: PipelineGraph, edge: PipelineEdge): string {
 
 function isStartNode(node: PipelineNode): boolean {
   return node.type === 'start' || node.policy === 'start';
-}
-
-function nodeWidth(node: PipelineNode): number {
-  return node.width ?? NODE_WIDTH;
-}
-
-function nodeHeight(node: PipelineNode): number {
-  return node.height ?? NODE_HEIGHT;
 }
 
 function nodeSubtitle(node: PipelineNode): string {

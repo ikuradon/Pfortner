@@ -121,6 +121,7 @@ export default function PipelineWorkbench() {
   const title = state.direction === 'client' ? 'Client Pipeline' : 'Server Pipeline';
   const workbenchClass = state.ui.paletteCollapsed ? 'pipeline-workbench palette-collapsed' : 'pipeline-workbench';
   const activeModal = state.ui.activeModal;
+  const activeViewport = state.viewports[state.direction];
   const serializedPipelines = graphToPipelines(state.graphs);
   const currentDraftFingerprint = draftFingerprintFromParts(
     state.graphs,
@@ -377,11 +378,12 @@ export default function PipelineWorkbench() {
         <section class='canvas-shell canvas-shell-expanded'>
           <div class='canvas-toolbar'>
             <span id='canvas-title'>{title}</span>
-            <span class='text-muted' id='canvas-zoom-label'>100%</span>
+            <span class='text-muted' id='canvas-zoom-label'>{Math.round(activeViewport.zoom * 100)}%</span>
           </div>
           <Canvas
             graph={state.graphs[state.direction]}
             selectedNodeIds={state.selectedNodeIds}
+            viewport={activeViewport}
             onNodeDoubleClick={(nodeId) => dispatch({ type: 'nodeDoubleClicked', nodeId })}
           />
         </section>
