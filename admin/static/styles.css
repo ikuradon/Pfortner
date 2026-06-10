@@ -1077,7 +1077,10 @@ body {
 }
 
 .pipeline-workbench.palette-collapsed .policy-palette-item {
+  grid-template-columns: 28px;
+  gap: 0;
   justify-content: center;
+  justify-items: center;
   min-height: 34px;
   padding: 6px;
 }

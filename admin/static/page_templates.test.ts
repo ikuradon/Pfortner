@@ -32,6 +32,9 @@ Deno.test('pipelines template exposes canvas-first modal workbench ids', () => {
       'btn-redo-pipeline',
       'btn-save-dag',
       'btn-publish-pipeline',
+      'canvas-first-grid',
+      'palette-panel',
+      'policy-palette',
       'node-settings-modal',
       'playground-modal',
     ]
