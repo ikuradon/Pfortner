@@ -28,7 +28,7 @@ import {
   selectWorkbenchDraft,
   validateWorkbenchGraphsForPublish,
 } from './pipeline/workbench_reducer.ts';
-import type { PipelineGraph } from './pipeline/types.ts';
+import type { PipelineGraph, Point, Viewport } from './pipeline/types.ts';
 
 const EMPTY_PIPELINES = { client: [], server: [] };
 const NODE_GAP = 240;
@@ -311,6 +311,23 @@ export default function PipelineWorkbench() {
     }
   }
 
+  function handleViewportChange(viewport: Viewport): void {
+    dispatch({
+      type: 'viewportChanged',
+      zoom: viewport.zoom,
+      pan: viewport.pan,
+    });
+  }
+
+  function handleNodeMove(nodeId: string, position: Point): void {
+    dispatch({
+      type: 'nodeMoved',
+      nodeId,
+      x: position.x,
+      y: position.y,
+    });
+  }
+
   return (
     <div class={workbenchClass} id='pipeline-workbench'>
       <div class='pipeline-mode-bar' aria-label='Pipeline direction'>
@@ -384,6 +401,8 @@ export default function PipelineWorkbench() {
             graph={state.graphs[state.direction]}
             selectedNodeIds={state.selectedNodeIds}
             viewport={activeViewport}
+            onViewportChange={handleViewportChange}
+            onNodeMove={handleNodeMove}
             onNodeDoubleClick={(nodeId) => dispatch({ type: 'nodeDoubleClicked', nodeId })}
           />
         </section>

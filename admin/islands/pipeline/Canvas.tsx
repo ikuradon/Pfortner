@@ -1,4 +1,5 @@
 /** @jsxImportSource preact */
+import { useRef } from 'preact/hooks';
 import {
   buildMinimapModel,
   DEFAULT_CANVAS_SIZE,
@@ -7,6 +8,7 @@ import {
   nodeWidth,
   type Size,
 } from './minimap.ts';
+import { useCanvasInteractions } from './use_canvas_interactions.ts';
 import type { PipelineEdge, PipelineGraph, PipelineNode, Viewport } from './types.ts';
 
 const DEFAULT_VIEWPORT: Viewport = { zoom: 1, pan: { x: 56, y: 80 } };
@@ -16,12 +18,25 @@ export function Canvas(props: {
   selectedNodeIds: string[];
   viewport?: Viewport;
   canvasSize?: Size;
+  onViewportChange?(viewport: Viewport): void;
+  onNodeMove?(nodeId: string, position: { x: number; y: number }): void;
   onNodeDoubleClick(nodeId: string): void;
 }) {
   const viewport = props.viewport ?? DEFAULT_VIEWPORT;
   const canvasSize = props.canvasSize ?? DEFAULT_CANVAS_SIZE;
   const minimap = buildMinimapModel(props.graph, viewport, canvasSize);
   const selectedNodeIds = new Set(props.selectedNodeIds);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const minimapRef = useRef<SVGSVGElement>(null);
+  const interactions = useCanvasInteractions({
+    graph: props.graph,
+    viewport,
+    minimap,
+    svgRef,
+    minimapRef,
+    onViewportChange: props.onViewportChange,
+    onNodeMove: props.onNodeMove,
+  });
 
   return (
     <div
@@ -32,9 +47,11 @@ export function Canvas(props: {
     >
       <div class='selection-marquee' id='selection-marquee'></div>
       <svg
+        ref={svgRef}
         class='pipeline-svg'
         id='pipeline-svg'
         aria-label='Pipeline graph'
+        onWheel={(event) => interactions.onWheel(event)}
       >
         <g
           class='pipeline-viewport'
@@ -77,6 +94,7 @@ export function Canvas(props: {
                   data-node-policy={node.policy ?? ''}
                   data-node-type={node.type ?? ''}
                   data-node-config={formatNodeConfig(node.config)}
+                  onPointerDown={(event) => interactions.onNodePointerDown(event, node)}
                   onDblClick={() => props.onNodeDoubleClick(node.id)}
                 >
                   <rect
@@ -126,6 +144,7 @@ export function Canvas(props: {
         </g>
       </svg>
       <svg
+        ref={minimapRef}
         class='canvas-minimap'
         id='minimap-svg'
         aria-label='Pipeline minimap'
@@ -138,6 +157,7 @@ export function Canvas(props: {
           width={minimap.width}
           height={minimap.height}
           rx='8'
+          onPointerDown={(event) => interactions.onMinimapPointerDown(event, false)}
         />
         {props.graph.edges.map((edge) => {
           const from = props.graph.nodes.find((node) => node.id === edge.from);
@@ -175,6 +195,7 @@ export function Canvas(props: {
           width={Math.max(4, minimap.viewportRect.width)}
           height={Math.max(4, minimap.viewportRect.height)}
           rx='3'
+          onPointerDown={(event) => interactions.onMinimapPointerDown(event, true)}
         />
       </svg>
     </div>

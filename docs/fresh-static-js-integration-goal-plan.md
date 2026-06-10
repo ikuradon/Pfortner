@@ -213,7 +213,7 @@
 
   Expected while red: tests fail because `Canvas.tsx` is not yet interactive.
 
-- [ ] **Step 2: Port viewport state into rendered Canvas**
+- [x] **Step 2: Port viewport state into rendered Canvas**
 
   `PipelineWorkbench.tsx` must pass the active viewport and `onViewportChange` to `Canvas`.
 
@@ -235,6 +235,13 @@
   - selection updates.
 
   The hook must only dispatch reducer actions and must not mutate DOM state as the source of truth.
+
+  Progress:
+
+  - [x] Added `admin/islands/pipeline/use_canvas_interactions.ts` with pure viewport pan/zoom, graph point, node drag, and minimap point helpers.
+  - [x] Wired Fresh `Canvas` wheel pan/zoom, node pointer drag, and minimap pointer drag callbacks to reducer dispatch through `PipelineWorkbench.tsx`.
+  - [ ] Move connection drag from output port to input port into the hook.
+  - [ ] Move selection and marquee behavior into reducer-backed Fresh island state.
 
 - [ ] **Step 4: Preserve settings/playground/save/load/publish parity**
 
