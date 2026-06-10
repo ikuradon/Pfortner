@@ -160,6 +160,26 @@ Deno.test('admin pipelines page renders legacy workbench canvas controls', async
   assertEquals(html.includes("id='btn-run-pipeline'"), false);
 });
 
+Deno.test('admin pipelines page SSR renders active config graph', async () => {
+  const state = makeState();
+  state.config = {
+    ...state.config,
+    pipelines: {
+      client: [{ policy: 'accept' }, { policy: 'write-guard' }],
+      server: [{ policy: 'rate-limit' }],
+    },
+  };
+  state.pluginNames = ['accept', 'write-guard', 'rate-limit'];
+  const handler = createAdminApp(state);
+  const res = await handler(makeRequest('/admin/pipelines', 'test-token'));
+
+  assertEquals(res.status, 200);
+  const html = await res.text();
+  assertEquals(html.includes('data-node-policy="accept"'), true);
+  assertEquals(html.includes('data-node-policy="write-guard"'), true);
+  assertEquals(html.includes('data-policy="rate-limit"'), true);
+});
+
 Deno.test('admin pipelines page renders direction selector above action toolbar', async () => {
   const handler = createAdminApp(makeState());
   const res = await handler(makeRequest('/admin/pipelines', 'test-token'));

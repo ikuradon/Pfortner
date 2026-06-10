@@ -31,6 +31,11 @@ import type { PipelineGraph, Point, Rect, Viewport } from './pipeline/types.ts';
 const EMPTY_PIPELINES = { client: [], server: [] };
 const NODE_GAP = 240;
 
+interface PipelineWorkbenchProps {
+  initialPipelines?: unknown;
+  initialPlugins?: string[];
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -59,8 +64,18 @@ function draftFingerprintFromParts(
   return JSON.stringify(stableValue({ graphs, viewports }));
 }
 
-function pipelinesFromConfig(config: unknown): unknown {
-  return isRecord(config) && isRecord(config.pipelines) ? config.pipelines : EMPTY_PIPELINES;
+function pipelinesFromConfig(config: unknown): Record<string, unknown> {
+  return isRecord(config) ? pipelinesFromValue(config.pipelines) : EMPTY_PIPELINES;
+}
+
+function pipelinesFromValue(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : EMPTY_PIPELINES;
+}
+
+function pluginsFromValue(value: unknown): string[] {
+  if (!Array.isArray(value)) return [...DEFAULT_PLUGINS];
+  const plugins = value.filter((item): item is string => typeof item === 'string');
+  return plugins.length > 0 ? plugins : [...DEFAULT_PLUGINS];
 }
 
 function formatPlaygroundResult(result: unknown): string {
@@ -68,11 +83,13 @@ function formatPlaygroundResult(result: unknown): string {
   return JSON.stringify(result, null, 2);
 }
 
-function createInitialState() {
+function createInitialState(props: PipelineWorkbenchProps) {
+  const initialPipelines = pipelinesFromValue(props.initialPipelines);
+  const graphs = pipelinesToGraph(initialPipelines);
   return createInitialWorkbenchState({
-    graphs: pipelinesToGraph(EMPTY_PIPELINES),
-    plugins: DEFAULT_PLUGINS,
-    publishedFingerprint: fingerprintPipelines(EMPTY_PIPELINES),
+    graphs,
+    plugins: pluginsFromValue(props.initialPlugins),
+    publishedFingerprint: fingerprintPipelines(graphToPipelines(graphs)),
   });
 }
 
@@ -100,8 +117,11 @@ function currentCanvasSize() {
   return { width: rect.width, height: rect.height };
 }
 
-export default function PipelineWorkbench() {
-  const [state, dispatch] = useReducer(reduceWorkbench, createInitialState());
+export default function PipelineWorkbench(props: PipelineWorkbenchProps = {}) {
+  const [state, dispatch] = useReducer(
+    reduceWorkbench,
+    createInitialState(props),
+  );
   const title = state.direction === 'client' ? 'Client Pipeline' : 'Server Pipeline';
   const workbenchClass = state.ui.paletteCollapsed ? 'pipeline-workbench palette-collapsed' : 'pipeline-workbench';
   const activeModal = state.ui.activeModal;

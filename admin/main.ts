@@ -215,7 +215,14 @@ export function createAdminApp(
         }),
       ),
     connections: (ctx) => ctx.render(h(ConnectionsPage, { currentPath: currentPath(ctx.req) })),
-    pipelines: (ctx) => ctx.render(h(PipelinesPage, { currentPath: currentPath(ctx.req) })),
+    pipelines: (ctx) =>
+      ctx.render(
+        h(PipelinesPage, {
+          currentPath: currentPath(ctx.req),
+          pipelines: state.config.pipelines,
+          plugins: state.pluginNames,
+        }),
+      ),
     metrics: (ctx) => ctx.render(h(MetricsPage, { currentPath: currentPath(ctx.req) })),
     blocklist: (ctx) => ctx.render(h(BlocklistPage, { currentPath: currentPath(ctx.req) })),
     config: (ctx) => ctx.render(h(ConfigPage, { currentPath: currentPath(ctx.req) })),
