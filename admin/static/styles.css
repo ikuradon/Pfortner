@@ -1124,6 +1124,11 @@ body {
   overflow: hidden;
 }
 
+.pipeline-workbench.palette-collapsed .palette-header {
+  justify-content: center;
+  padding: 10px 7px;
+}
+
 .pipeline-workbench.palette-collapsed .workbench-panel-header span,
 .pipeline-workbench.palette-collapsed .policy-palette-name,
 .pipeline-workbench.palette-collapsed .policy-palette-add {
@@ -1641,6 +1646,11 @@ body {
 
   .canvas-first-grid .palette-panel {
     overflow: hidden;
+  }
+
+  .canvas-first-grid .palette-header {
+    justify-content: center;
+    padding: 10px 7px;
   }
 
   .canvas-first-grid .workbench-panel-header span,
