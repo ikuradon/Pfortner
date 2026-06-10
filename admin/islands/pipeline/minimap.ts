@@ -23,8 +23,14 @@ export interface MinimapModel {
   viewportRect: Rect;
 }
 
+export interface OutputPort {
+  id: string;
+  label: string;
+}
+
 const NODE_WIDTH = 180;
-const NODE_HEIGHT = 72;
+const NODE_BASE_HEIGHT = 72;
+const NODE_PORT_GAP = 18;
 const MINIMAP_WIDTH = 160;
 const MINIMAP_HEIGHT = 96;
 const MINIMAP_PADDING = 8;
@@ -39,8 +45,54 @@ export function nodeWidth(node: PipelineNode): number {
   return node.width ?? NODE_WIDTH;
 }
 
+export function outputPortsForNode(node: PipelineNode | null | undefined): OutputPort[] {
+  if (!node) return [];
+  if (node.type === 'start' || node.policy === 'start') return [{ id: 'next', label: 'next' }];
+  if (node.policy === 'when') {
+    return [
+      { id: 'then', label: 'then' },
+      { id: 'else', label: 'else' },
+      { id: 'next', label: 'next' },
+    ];
+  }
+  if (node.policy === 'match') {
+    const config = node.config as { cases?: unknown } | null | undefined;
+    const cases = Array.isArray(config?.cases) ? config.cases : [];
+    return cases.map((_, index) => ({
+      id: `case:${index}`,
+      label: `case ${index + 1}`,
+    })).concat([
+      { id: 'default', label: 'default' },
+      { id: 'next', label: 'next' },
+    ]);
+  }
+  return [{ id: 'next', label: 'next' }];
+}
+
 export function nodeHeight(node: PipelineNode): number {
-  return node.height ?? NODE_HEIGHT;
+  return node.height ?? Math.max(
+    NODE_BASE_HEIGHT,
+    42 + outputPortsForNode(node).length * NODE_PORT_GAP,
+  );
+}
+
+export function inputPortPosition(node: PipelineNode): Point {
+  return {
+    x: node.x ?? 0,
+    y: (node.y ?? 0) + nodeHeight(node) / 2,
+  };
+}
+
+export function outputPortPosition(
+  node: PipelineNode,
+  portId: string | null | undefined,
+): Point {
+  const ports = outputPortsForNode(node);
+  const index = Math.max(0, ports.findIndex((port) => port.id === portId));
+  return {
+    x: (node.x ?? 0) + nodeWidth(node),
+    y: (node.y ?? 0) + 28 + index * NODE_PORT_GAP,
+  };
 }
 
 export function graphBounds(graph: PipelineGraph): Rect {

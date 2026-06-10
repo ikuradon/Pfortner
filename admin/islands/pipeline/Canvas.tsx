@@ -3,9 +3,12 @@ import { useRef } from 'preact/hooks';
 import {
   buildMinimapModel,
   DEFAULT_CANVAS_SIZE,
+  inputPortPosition,
   minimapNodeRect,
   nodeHeight,
   nodeWidth,
+  outputPortPosition,
+  outputPortsForNode,
   type Size,
 } from './minimap.ts';
 import { useCanvasInteractions } from './use_canvas_interactions.ts';
@@ -180,31 +183,53 @@ export function Canvas(props: {
                     ? (
                       <circle
                         class='pipeline-port pipeline-port-input'
-                        cx='0'
-                        cy={height / 2}
+                        cx={inputPortPosition({ ...node, x: 0, y: 0 }).x}
+                        cy={inputPortPosition({ ...node, x: 0, y: 0 }).y}
                         r='6'
                         role='button'
                         tabIndex={0}
                         aria-label={`Input port for ${node.policy ?? node.id}`}
                         data-node-id={node.id}
+                        data-port-id='in'
+                        data-port-role='input'
                         data-port-kind='input'
                         data-port-name='in'
                       />
                     )
                     : null}
-                  <circle
-                    class='pipeline-port pipeline-port-output'
-                    cx={width}
-                    cy={height / 2}
-                    r='6'
-                    role='button'
-                    tabIndex={0}
-                    aria-label={`Output port for ${node.policy ?? node.id}`}
-                    data-node-id={node.id}
-                    data-port-kind='output'
-                    data-port-name='next'
-                    onPointerDown={(event) => interactions.onOutputPointerDown(event, node.id, 'next')}
-                  />
+                  {outputPortsForNode(node).map((port) => {
+                    const position = outputPortPosition(
+                      { ...node, x: 0, y: 0 },
+                      port.id,
+                    );
+                    return (
+                      <g key={port.id}>
+                        <circle
+                          class='pipeline-port pipeline-port-output'
+                          cx={position.x}
+                          cy={position.y}
+                          r='6'
+                          role='button'
+                          tabIndex={0}
+                          aria-label={`Output port ${port.label} for ${node.policy ?? node.id}`}
+                          data-node-id={node.id}
+                          data-port-id={port.id}
+                          data-port-role='output'
+                          data-port-kind='output'
+                          data-port-name={port.id}
+                          onPointerDown={(event) => interactions.onOutputPointerDown(event, node.id, port.id)}
+                        />
+                        <text
+                          class='pipeline-port-label'
+                          x={width - 14}
+                          y={position.y + 4}
+                          text-anchor='end'
+                        >
+                          {port.label}
+                        </text>
+                      </g>
+                    );
+                  })}
                 </g>
               );
             })}
@@ -231,14 +256,16 @@ export function Canvas(props: {
           const from = props.graph.nodes.find((node) => node.id === edge.from);
           const to = props.graph.nodes.find((node) => node.id === edge.to);
           if (!from || !to) return null;
+          const fromPort = outputPortPosition(from, edge.fromPort ?? 'next');
+          const toPort = inputPortPosition(to);
           return (
             <line
               key={edge.id}
               class='minimap-edge'
-              x1={minimap.offsetX + ((from.x ?? 0) + nodeWidth(from)) * minimap.scale}
-              y1={minimap.offsetY + ((from.y ?? 0) + nodeHeight(from) / 2) * minimap.scale}
-              x2={minimap.offsetX + (to.x ?? 0) * minimap.scale}
-              y2={minimap.offsetY + ((to.y ?? 0) + nodeHeight(to) / 2) * minimap.scale}
+              x1={minimap.offsetX + fromPort.x * minimap.scale}
+              y1={minimap.offsetY + fromPort.y * minimap.scale}
+              x2={minimap.offsetX + toPort.x * minimap.scale}
+              y2={minimap.offsetY + toPort.y * minimap.scale}
             />
           );
         })}
@@ -275,10 +302,12 @@ function edgePath(graph: PipelineGraph, edge: PipelineEdge): string {
   const to = graph.nodes.find((node) => node.id === edge.to);
   if (!from || !to) return '';
 
-  const x1 = (from.x ?? 0) + nodeWidth(from);
-  const y1 = (from.y ?? 0) + nodeHeight(from) / 2;
-  const x2 = to.x ?? 0;
-  const y2 = (to.y ?? 0) + nodeHeight(to) / 2;
+  const source = outputPortPosition(from, edge.fromPort ?? 'next');
+  const target = inputPortPosition(to);
+  const x1 = source.x;
+  const y1 = source.y;
+  const x2 = target.x;
+  const y2 = target.y;
   const tension = Math.max(80, Math.abs(x2 - x1) * 0.45);
 
   return `M ${x1} ${y1} C ${x1 + tension} ${y1}, ${x2 - tension} ${y2}, ${x2} ${y2}`;

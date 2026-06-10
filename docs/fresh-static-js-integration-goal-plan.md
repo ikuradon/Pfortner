@@ -243,6 +243,7 @@
   - [x] Move selection and marquee behavior into reducer-backed Fresh island state.
   - [x] Move toolbar Fit/Zoom controls into Fresh island viewport helpers and reducer dispatch.
   - [x] Move node Run/Settings action controls into Fresh island `Canvas` rendering.
+  - [x] Move `when` / `match` branch output ports and branch edge geometry into Fresh island `Canvas` rendering.
   - [x] Move settings modal Delete Node action into Fresh island reducer dispatch.
   - [x] Move Workbench keyboard shortcuts for Escape, Undo/Redo, and selected-node deletion into a Fresh island hook.
 

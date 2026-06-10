@@ -57,3 +57,54 @@ Deno.test('Canvas renders node action controls for run and settings routes', () 
   assertStringIncludes(html, 'data-node-action="settings"');
   assertStringIncludes(html, 'Node settings');
 });
+
+Deno.test('Canvas renders branch output ports for when and match nodes', () => {
+  const html = render(
+    <Canvas
+      graph={{
+        direction: 'client',
+        nodes: [
+          { id: 'client-start', type: 'start', policy: 'start', x: 0, y: 0 },
+          {
+            id: 'client-node-1',
+            type: 'policy',
+            policy: 'when',
+            x: 240,
+            y: 0,
+            config: { condition: {}, then: [], else: [] },
+          },
+          {
+            id: 'client-node-2',
+            type: 'policy',
+            policy: 'match',
+            x: 240,
+            y: 140,
+            config: { cases: [{ condition: {}, pipeline: [] }], default: [] },
+          },
+        ],
+        edges: [
+          {
+            id: 'client-edge-1',
+            from: 'client-start',
+            fromPort: 'next',
+            to: 'client-node-1',
+            toPort: 'in',
+          },
+        ],
+      }}
+      selectedNodeIds={[]}
+      viewport={{ zoom: 1, pan: { x: 56, y: 80 } }}
+      canvasSize={{ width: 800, height: 480 }}
+      onNodeDoubleClick={() => undefined}
+    />,
+  );
+
+  assertStringIncludes(html, 'data-node-id="client-node-1" data-port-id="then"');
+  assertStringIncludes(html, 'data-node-id="client-node-1" data-port-id="else"');
+  assertStringIncludes(html, 'data-node-id="client-node-2" data-port-id="case:0"');
+  assertStringIncludes(html, 'data-node-id="client-node-2" data-port-id="default"');
+  assertStringIncludes(html, 'data-node-id="client-node-1" data-port-id="in" data-port-role="input"');
+  assertStringIncludes(html, 'data-port-name="then"');
+  assertStringIncludes(html, 'data-port-name="case:0"');
+  assertStringIncludes(html, 'height="96"');
+});
