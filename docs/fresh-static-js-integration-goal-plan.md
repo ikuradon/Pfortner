@@ -24,7 +24,8 @@
 - `admin/static/islands/PipelineWorkbench.js` is the largest remaining static script and owns the browser workbench interaction.
 - `admin/islands/PipelineWorkbench.tsx` already exists as the Fresh island composition root, but `Canvas.tsx` is mostly static render and does not yet own parity interactions such as drag, pan, minimap viewport drag, edge rewiring, and pointer selection.
 - `admin/islands/pipeline/workbench_reducer.ts` owns important graph state transitions, but still imports pure helpers from `admin/static`.
-- `admin/static/pipeline_graph.js`, `admin/static/pipeline_workbench_state.js`, and `admin/static/pipeline_config_editor.js` are pure modules imported by both island code and static tests.
+- `admin/islands/pipeline/graph.js`, `admin/islands/pipeline/workbench_state.js`, and `admin/islands/pipeline/config_editor.js` are the Fresh-side pure helper modules.
+- `admin/static/pipeline_graph.js`, `admin/static/pipeline_workbench_state.js`, and `admin/static/pipeline_config_editor.js` remain temporary browser compatibility copies for the static Workbench bridge.
 - `admin/static/fresh_nav.js` is a custom partial navigation runtime that re-imports page-local static modules and mounts hand-written static island chunks.
 - `admin/static/{dashboard,connections,metrics,blocklist,config,logs}.js` are page-local behavior modules attached to SSR markup.
 - `admin/fresh_islands.ts` uses `@fresh/core/internal` to register handwritten island chunks, including `/admin/static/islands/PipelineWorkbench.js`.
@@ -55,11 +56,11 @@
 - Read: `admin/islands/PipelineWorkbench.tsx`
 - Read: `admin/islands/pipeline/*`
 
-- [ ] **Step 1: Record the migration target**
+- [x] **Step 1: Record the migration target**
 
   Add this document and keep it as the active goal checklist.
 
-- [ ] **Step 2: Verify the baseline is clean**
+- [x] **Step 2: Verify the baseline is clean**
 
   Run:
 
@@ -69,7 +70,7 @@
 
   Expected: no unrelated dirty files before implementation. If dirty files exist, inspect them and do not revert user changes.
 
-- [ ] **Step 3: Commit the plan**
+- [x] **Step 3: Commit the plan**
 
   Run:
 
@@ -82,9 +83,9 @@
 
 **Files:**
 
-- Create: `admin/islands/pipeline/graph.ts`
-- Create: `admin/islands/pipeline/workbench_state.ts`
-- Create: `admin/islands/pipeline/config_editor.ts`
+- Create: `admin/islands/pipeline/graph.js`
+- Create: `admin/islands/pipeline/workbench_state.js`
+- Create: `admin/islands/pipeline/config_editor.js`
 - Modify: `admin/static/pipeline_graph.js`
 - Modify: `admin/static/pipeline_workbench_state.js`
 - Modify: `admin/static/pipeline_config_editor.js`
@@ -93,7 +94,7 @@
 - Modify: `admin/islands/pipeline/workbench_reducer.test.ts`
 - Modify: `src/admin/pipelines-static.test.ts`
 
-- [ ] **Step 1: Write import-boundary tests**
+- [x] **Step 1: Write import-boundary tests**
 
   Add assertions that island/reducer imports point at `admin/islands/pipeline/*`, not `admin/static/*`.
 
@@ -105,24 +106,20 @@
 
   Expected while red: matches in `PipelineWorkbench.tsx`, `workbench_reducer.ts`, and `workbench_reducer.test.ts`.
 
-- [ ] **Step 2: Move `pipeline_graph` implementation**
+- [x] **Step 2: Move `pipeline_graph` implementation**
 
-  Move the implementation body into `admin/islands/pipeline/graph.ts`. Preserve these named exports:
+  Move the implementation body into `admin/islands/pipeline/graph.js`. Preserve these named exports:
 
   - `graphToPipelines`
   - `pipelinesToGraph`
   - `validatePipelineGraph`
   - `matchExecutionSteps`
 
-  Replace `admin/static/pipeline_graph.js` with a shim:
+  Keep `admin/static/pipeline_graph.js` as a temporary browser compatibility copy while `admin/static/islands/PipelineWorkbench.js` still imports it. Do not make the static file re-export `../islands/pipeline/graph.js`, because that relative URL would resolve to `/admin/islands/pipeline/graph.js` in the browser and the admin static file server does not serve that path.
 
-  ```js
-  export * from '../islands/pipeline/graph.ts';
-  ```
+- [x] **Step 3: Move `pipeline_workbench_state` implementation**
 
-- [ ] **Step 3: Move `pipeline_workbench_state` implementation**
-
-  Move the implementation body into `admin/islands/pipeline/workbench_state.ts`. Preserve these named exports:
+  Move the implementation body into `admin/islands/pipeline/workbench_state.js`. Preserve these named exports:
 
   - `WORKBENCH_DRAFT_VERSION`
   - `LOCAL_DRAFT_KEY`
@@ -141,15 +138,11 @@
   - `hasUnpublishedChanges`
   - `getWorkbenchChangeState`
 
-  Replace `admin/static/pipeline_workbench_state.js` with a shim:
+  Keep `admin/static/pipeline_workbench_state.js` as a temporary browser compatibility copy while `admin/static/islands/PipelineWorkbench.js` still imports it. Remove or shrink it only after Phase 2 removes the static Workbench bridge.
 
-  ```js
-  export * from '../islands/pipeline/workbench_state.ts';
-  ```
+- [x] **Step 4: Move `pipeline_config_editor` implementation**
 
-- [ ] **Step 4: Move `pipeline_config_editor` implementation**
-
-  Move the implementation body into `admin/islands/pipeline/config_editor.ts`. Preserve these named exports:
+  Move the implementation body into `admin/islands/pipeline/config_editor.js`. Preserve these named exports:
 
   - `shouldRenderSettingsAction`
   - `shouldRenderRunAction`
@@ -158,39 +151,36 @@
   - `configToEditorRows`
   - `updateConfigFromEditorRows`
 
-  Replace `admin/static/pipeline_config_editor.js` with a shim:
+  Keep `admin/static/pipeline_config_editor.js` as a temporary browser compatibility copy while `admin/static/islands/PipelineWorkbench.js` still imports it. Remove or shrink it only after Phase 2 removes the static Workbench bridge.
 
-  ```js
-  export * from '../islands/pipeline/config_editor.ts';
-  ```
-
-- [ ] **Step 5: Update code imports**
+- [x] **Step 5: Update code imports**
 
   Update island code and tests:
 
-  - `admin/islands/PipelineWorkbench.tsx` imports from `./pipeline/graph.ts` and `./pipeline/workbench_state.ts`.
-  - `admin/islands/pipeline/workbench_reducer.ts` imports from `./graph.ts` and `./workbench_state.ts`.
-  - `admin/islands/pipeline/workbench_reducer.test.ts` imports from `./graph.ts` and `./workbench_state.ts`.
+  - `admin/islands/PipelineWorkbench.tsx` imports from `./pipeline/graph.js` and `./pipeline/workbench_state.js`.
+  - `admin/islands/pipeline/workbench_reducer.ts` imports from `./graph.js` and `./workbench_state.js`.
+  - `admin/islands/pipeline/workbench_reducer.test.ts` imports from `./graph.js` and `./workbench_state.js`.
   - `src/admin/pipelines-static.test.ts` keeps static shim imports to prove transitional URL compatibility.
+  - `admin/islands/pipeline/import_boundary.test.ts` recursively checks `admin/islands` and fails if island code imports `../static/` or `../../static/`.
 
-- [ ] **Step 6: Verify helper extraction**
+- [x] **Step 6: Verify helper extraction**
 
   Run:
 
   ```bash
   deno fmt --check --config deno.json
-  deno check admin/islands/PipelineWorkbench.tsx admin/islands/pipeline/workbench_reducer.ts src/admin/pipelines-static.test.ts
+  deno check admin/islands/PipelineWorkbench.tsx admin/islands/pipeline/workbench_reducer.ts admin/islands/pipeline/import_boundary.test.ts src/admin/pipelines-static.test.ts
   deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --unstable-kv src/admin/pipelines-static.test.ts admin/islands/pipeline/workbench_reducer.test.ts admin/static/fresh_nav.test.js
   ```
 
   Expected: all pass. `admin/static/fresh_nav.test.js` must still pass because the old static bridge still imports the static shim.
 
-- [ ] **Step 7: Commit helper extraction**
+- [x] **Step 7: Commit helper extraction**
 
   Run:
 
   ```bash
-  git add admin/islands/PipelineWorkbench.tsx admin/islands/pipeline/graph.ts admin/islands/pipeline/workbench_state.ts admin/islands/pipeline/config_editor.ts admin/islands/pipeline/workbench_reducer.ts admin/islands/pipeline/workbench_reducer.test.ts admin/static/pipeline_graph.js admin/static/pipeline_workbench_state.js admin/static/pipeline_config_editor.js src/admin/pipelines-static.test.ts
+  git add docs/fresh-static-js-integration-goal-plan.md admin/islands/PipelineWorkbench.tsx admin/islands/pipeline/graph.js admin/islands/pipeline/workbench_state.js admin/islands/pipeline/config_editor.js admin/islands/pipeline/import_boundary.test.ts admin/islands/pipeline/workbench_reducer.ts admin/islands/pipeline/workbench_reducer.test.ts
   git commit -m "Move pipeline helpers out of static"
   ```
 

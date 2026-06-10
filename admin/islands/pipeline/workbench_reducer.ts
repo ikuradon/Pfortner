@@ -5,13 +5,8 @@ import {
   normalizeWorkbenchDraft,
   recordDirectionHistorySnapshot,
   recordHistorySnapshot,
-} from '../../static/pipeline_workbench_state.js';
-import {
-  graphToPipelines,
-  matchExecutionSteps,
-  pipelinesToGraph,
-  validatePipelineGraph,
-} from '../../static/pipeline_graph.js';
+} from './workbench_state.js';
+import { graphToPipelines, matchExecutionSteps, pipelinesToGraph, validatePipelineGraph } from './graph.js';
 import { defaultConfigForPolicy } from './node_defaults.ts';
 import { buildYamlPreview } from './yaml_preview.ts';
 import type {

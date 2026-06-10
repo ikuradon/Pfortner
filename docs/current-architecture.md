@@ -77,7 +77,9 @@ Authenticated `/admin/*` page route は Fresh-rendered page を返す。`/admin/
 - `admin/static/fresh_nav.js`: programmatic Fresh App で空の client entry が出ることを避ける admin-local partial navigation runtime。Fresh の partial marker を使い、page-local module の `init*Page()` と admin island static chunk mount を navigation 後に呼び直す。
 - `admin/islands/PipelineWorkbench.tsx`: Pipeline Workbench の Fresh island composition root。
 - `admin/islands/pipeline/*`: graph canvas、toolbar、palette、modals、API client、reducer。
+- `admin/islands/pipeline/{graph.js,workbench_state.js,config_editor.js}`: Pipeline Workbench の pure helper 実体。Fresh island/reducer code は `admin/static` の helper 実装を import しない。
 - `admin/static/islands/PipelineWorkbench.js`: 現行 admin island bridge 用の static chunk。Fresh hydration を完全導入するまで、ブラウザ側 workbench interaction をここで mount する。
+- `admin/static/pipeline_{graph,workbench_state,config_editor}.js`: static Workbench bridge 用の一時互換 helper copy。`admin/static/islands/PipelineWorkbench.js` を削除または縮小した後に削除・縮小する。
 - `admin/static/{dashboard,connections,metrics,blocklist,config,logs}.js`: SSR page markup に対する page-local behavior module。
 
 古い custom SPA shell (`AdminAppShell`, `admin/static/app.js`, `admin/static/router.js`, `admin/static/page_templates.js`) は active architecture から削除済みである。page-local behavior module は互換層として残し、複雑な interactive UI は段階的に Fresh islands へ移す。

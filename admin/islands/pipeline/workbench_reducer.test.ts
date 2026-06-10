@@ -1,10 +1,6 @@
 import { assertEquals, assertMatch, assertStrictEquals } from '@std/assert';
-import { graphToPipelines, pipelinesToGraph, validatePipelineGraph } from '../../static/pipeline_graph.js';
-import {
-  buildPipelineDraft,
-  fingerprintPipelines,
-  normalizeWorkbenchDraft,
-} from '../../static/pipeline_workbench_state.js';
+import { graphToPipelines, pipelinesToGraph, validatePipelineGraph } from './graph.js';
+import { buildPipelineDraft, fingerprintPipelines, normalizeWorkbenchDraft } from './workbench_state.js';
 import { evaluatePipeline } from './api_client.ts';
 import {
   createInitialWorkbenchState,

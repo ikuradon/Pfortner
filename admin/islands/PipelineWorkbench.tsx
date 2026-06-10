@@ -1,12 +1,12 @@
 /** @jsxImportSource preact */
 import { useEffect, useReducer } from 'preact/hooks';
-import { graphToPipelines, pipelinesToGraph } from '../static/pipeline_graph.js';
+import { graphToPipelines, pipelinesToGraph } from './pipeline/graph.js';
 import {
   buildPipelineDraft,
   fingerprintPipelines,
   getWorkbenchChangeState,
   LOCAL_DRAFT_KEY,
-} from '../static/pipeline_workbench_state.js';
+} from './pipeline/workbench_state.js';
 import { Canvas } from './pipeline/Canvas.tsx';
 import {
   evaluatePipeline,
