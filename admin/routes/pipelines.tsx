@@ -30,6 +30,22 @@ export function PipelinesPage({ currentPath }: PipelinesPageProps) {
             </button>
             <button
               type='button'
+              id='btn-undo-pipeline'
+              class='btn btn-ghost'
+              disabled
+            >
+              ↶ Undo
+            </button>
+            <button
+              type='button'
+              id='btn-redo-pipeline'
+              class='btn btn-ghost'
+              disabled
+            >
+              ↷ Redo
+            </button>
+            <button
+              type='button'
               id='btn-refresh-pipelines'
               class='btn btn-ghost'
             >
@@ -54,15 +70,15 @@ export function PipelinesPage({ currentPath }: PipelinesPageProps) {
             >
               +
             </button>
-            <button type='button' id='btn-run-toolbar' class='btn btn-ghost'>
-              ▷ Run
+            <button type='button' id='btn-save-dag' class='btn btn-ghost'>
+              Save DAG
             </button>
             <button
               type='button'
-              id='btn-apply-pipeline'
+              id='btn-publish-pipeline'
               class='btn btn-primary'
             >
-              ✓ Save & Apply
+              Publish
             </button>
           </div>
           <span class='text-muted' id='workbench-status-summary'>Ready</span>
@@ -70,9 +86,19 @@ export function PipelinesPage({ currentPath }: PipelinesPageProps) {
 
         <div id='pipeline-status' class='workbench-status'></div>
 
-        <div class='workbench-grid'>
-          <aside class='workbench-panel palette-panel'>
-            <div class='workbench-panel-header'>Policy Palette</div>
+        <div class='workbench-grid canvas-first-grid' id='canvas-first-grid'>
+          <aside class='workbench-panel palette-panel' id='palette-panel'>
+            <div class='workbench-panel-header palette-header'>
+              <span>Policy Palette</span>
+              <button
+                type='button'
+                class='btn btn-ghost btn-icon'
+                id='btn-toggle-palette'
+                title='Collapse palette'
+              >
+                ‹
+              </button>
+            </div>
             <div
               class='workbench-panel-body policy-palette'
               id='policy-palette'
@@ -81,7 +107,7 @@ export function PipelinesPage({ currentPath }: PipelinesPageProps) {
             </div>
           </aside>
 
-          <section class='canvas-shell'>
+          <section class='canvas-shell canvas-shell-expanded'>
             <div class='canvas-toolbar'>
               <span id='canvas-title'>Client Pipeline</span>
               <span class='text-muted' id='canvas-zoom-label'>100%</span>
@@ -100,82 +126,10 @@ export function PipelinesPage({ currentPath }: PipelinesPageProps) {
               </div>
             </div>
           </section>
-
-          <aside class='workbench-panel inspector-panel'>
-            <div class='workbench-panel-header'>Inspector</div>
-            <div
-              class='workbench-panel-body node-inspector'
-              id='node-inspector'
-            >
-              <div class='pipeline-empty'>
-                Select a node to edit its config.
-              </div>
-            </div>
-          </aside>
         </div>
 
-        <section class='test-run-drawer collapsed' id='test-run-drawer'>
-          <button type='button' class='drawer-toggle' id='btn-toggle-test-run'>
-            <span>Test Run</span>
-            <span class='text-muted' id='test-run-summary'>No run yet</span>
-          </button>
-          <div class='drawer-content'>
-            <div class='test-run-inputs'>
-              <div>
-                <div class='section-title'>Presets</div>
-                <div class='preset-buttons' id='preset-buttons'></div>
-              </div>
-              <label class='section-title' for='message-input'>
-                Message JSON
-              </label>
-              <textarea
-                id='message-input'
-                class='message-textarea'
-                spellcheck={false}
-                placeholder='["EVENT", {...}]'
-              >
-              </textarea>
-              <div class='context-grid'>
-                <label class='context-label' for='ctx-authenticated'>
-                  Authenticated
-                </label>
-                <input type='checkbox' id='ctx-authenticated' />
-                <label class='context-label' for='ctx-pubkey'>Pubkey</label>
-                <input
-                  type='text'
-                  id='ctx-pubkey'
-                  class='context-input'
-                  placeholder='(hex pubkey)'
-                />
-                <label class='context-label' for='ctx-ip'>Client IP</label>
-                <input
-                  type='text'
-                  id='ctx-ip'
-                  class='context-input'
-                  placeholder='127.0.0.1'
-                  value='127.0.0.1'
-                />
-              </div>
-              <button type='button' id='btn-run' class='btn btn-primary'>
-                ▷ Run
-              </button>
-            </div>
-
-            <div class='test-run-results'>
-              <div class='workbench-panel-header'>Execution Result</div>
-              <div class='playground-panel-body' id='result-panel'>
-                <div class='playground-empty' id='result-empty'>
-                  Enter a message and run it against the selected pipeline.
-                </div>
-              </div>
-            </div>
-
-            <div class='yaml-drawer-panel'>
-              <div class='workbench-panel-header'>YAML Preview</div>
-              <pre class='yaml-preview' id='yaml-preview'>Loading...</pre>
-            </div>
-          </div>
-        </section>
+        <div class='modal-backdrop hidden' id='node-settings-modal'></div>
+        <div class='modal-backdrop hidden' id='playground-modal'></div>
       </div>
 
       <script src='/admin/static/utils.js'></script>

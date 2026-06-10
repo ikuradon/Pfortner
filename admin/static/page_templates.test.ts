@@ -22,17 +22,18 @@ Deno.test('admin SPA page templates expose all routed pages', () => {
   assertEquals(typeof routes['/admin/logs'].render, 'function');
 });
 
-Deno.test('pipelines template contains integrated workbench shell ids', () => {
+Deno.test('pipelines template exposes canvas-first modal workbench ids', () => {
   const source = String(createPageRoutes()['/admin/pipelines'].render);
 
   for (
     const id of [
-      'pipeline-workbench',
-      'pipeline-canvas',
-      'policy-palette',
-      'node-inspector',
-      'test-run-drawer',
-      'result-panel',
+      'btn-toggle-palette',
+      'btn-undo-pipeline',
+      'btn-redo-pipeline',
+      'btn-save-dag',
+      'btn-publish-pipeline',
+      'node-settings-modal',
+      'playground-modal',
     ]
   ) {
     assertEquals(
@@ -40,4 +41,6 @@ Deno.test('pipelines template contains integrated workbench shell ids', () => {
       true,
     );
   }
+  assertEquals(source.includes('node-inspector'), false);
+  assertEquals(source.includes('test-run-drawer'), false);
 });
