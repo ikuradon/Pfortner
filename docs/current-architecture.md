@@ -74,11 +74,12 @@ Authenticated `/admin/*` page route は Fresh-rendered page を返す。`/admin/
 - `admin/page_routes.ts`: `/admin/`, `/admin/connections`, `/admin/pipelines`, `/admin/metrics`, `/admin/blocklist`, `/admin/config`, `/admin/logs` を page renderer map に登録する。
 - `admin/routes/*.tsx`: page DOM の source of truth。
 - `admin/static/dom.js`: shared DOM helper。
-- `admin/static/fresh_nav.js`: programmatic Fresh App で空の client entry が出ることを避ける admin-local partial navigation runtime。Fresh の partial marker を使い、admin island static chunk mount を navigation 後に呼び直す。layout-level behavior として theme toggle を mount し、Dashboard page の polling/rendering、Connections page の fetch/filter/disconnect behavior、Metrics page の chart/raw viewer behavior、Logs page の info/fallback/SSE behavior、Config page の read/reload behavior、Blocklist page の add/delete/list behavior も client entry 側で初期化する。
-- `admin/islands/PipelineWorkbench.tsx`: Pipeline Workbench の Fresh island composition root。
-- `admin/islands/pipeline/*`: graph canvas、toolbar、palette、modals、API client、reducer。
+- `admin/static/fresh_nav.js`: programmatic Fresh App で空の client entry が出ることを避ける admin-local partial navigation runtime。Fresh の partial marker を使い、admin island static chunk mount を navigation 後に呼び直す。layout-level behavior として theme toggle を mount し、Dashboard page の polling/rendering、Connections page の fetch/filter/disconnect behavior、Metrics page の chart/raw viewer behavior、Logs page の info/fallback/SSE behavior、Config page の read/reload behavior、Blocklist page の add/delete/list behavior も client entry 側で初期化する。標準 Fresh build へ移すまでは、この file が `f-client-nav` / `Partial` と hand-written island chunk loading の互換 bridge である。
+- `admin/fresh_islands.ts`: `@fresh/core/internal` `ProdBuildCache` を使い、programmatic `/admin` app の client entry と island chunk URL を Fresh SSR に登録する。これは chunk URL の manifest であり、browser bundle は生成しない。
+- `admin/islands/PipelineWorkbench.tsx`: Pipeline Workbench の Fresh island composition root。SSR initial graph props、direction state、toolbar/palette/canvas/modal composition、save/load/publish/playground action dispatch を担う。
+- `admin/islands/pipeline/*`: graph canvas、toolbar、palette、modals、API client、reducer、viewport/minimap/canvas interaction hook、keyboard hook。
 - `admin/islands/pipeline/{graph.js,workbench_state.js,config_editor.js}`: Pipeline Workbench の pure helper 実体。Fresh island/reducer code は `admin/static` の helper 実装を import しない。
-- `admin/static/islands/PipelineWorkbench.js`: 現行 admin island bridge 用の static chunk。Fresh hydration を完全導入するまで、ブラウザ側 workbench interaction をここで mount する。
+- `admin/static/islands/PipelineWorkbench.js`: 現行 admin island bridge 用の static chunk。Fresh/Vite などの client bundle step を導入するまでは、ブラウザ側 workbench interaction をここで mount する。次の削減対象は、この file を手書き controller から `admin/islands/PipelineWorkbench.tsx` を mount/hydrate するだけの生成・互換 adapter に縮小すること。
 - `admin/static/pipeline_{graph,workbench_state,config_editor}.js`: static Workbench bridge 用の一時互換 helper copy。`admin/static/islands/PipelineWorkbench.js` を削除または縮小した後に削除・縮小する。
 
 古い custom SPA shell (`AdminAppShell`, `admin/static/app.js`, `admin/static/router.js`, `admin/static/page_templates.js`) は active architecture から削除済みである。複雑な interactive UI は段階的に Fresh islands へ移す。

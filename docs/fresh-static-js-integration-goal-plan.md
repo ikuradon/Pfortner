@@ -21,14 +21,13 @@
 
 ## Current State Snapshot
 
-- `admin/static/islands/PipelineWorkbench.js` is the largest remaining static script and owns the browser workbench interaction.
-- `admin/islands/PipelineWorkbench.tsx` already exists as the Fresh island composition root, but `Canvas.tsx` is mostly static render and does not yet own parity interactions such as drag, pan, minimap viewport drag, edge rewiring, and pointer selection.
-- `admin/islands/pipeline/workbench_reducer.ts` owns important graph state transitions, but still imports pure helpers from `admin/static`.
-- `admin/islands/pipeline/graph.js`, `admin/islands/pipeline/workbench_state.js`, and `admin/islands/pipeline/config_editor.js` are the Fresh-side pure helper modules.
-- `admin/static/pipeline_graph.js`, `admin/static/pipeline_workbench_state.js`, and `admin/static/pipeline_config_editor.js` remain temporary browser compatibility copies for the static Workbench bridge.
-- `admin/static/fresh_nav.js` is a custom partial navigation runtime that re-imports page-local static modules and mounts hand-written static island chunks.
-- `admin/static/{dashboard,connections,metrics,blocklist,config,logs}.js` are page-local behavior modules attached to SSR markup.
-- `admin/fresh_islands.ts` uses `@fresh/core/internal` to register handwritten island chunks, including `/admin/static/islands/PipelineWorkbench.js`.
+- `admin/islands/PipelineWorkbench.tsx` is the Fresh island composition root, and `admin/islands/pipeline/*` now owns reducer-backed canvas render, viewport state, node drag, selection, minimap drag, edge rewiring, keyboard shortcuts, settings/playground/save/load/publish actions, and SSR initial graph props.
+- `admin/islands/pipeline/{graph.js,workbench_state.js,config_editor.js}` are the Fresh-side pure helper modules. Fresh island/reducer/component code must not import implementation from `admin/static`.
+- `admin/static/islands/PipelineWorkbench.js` remains the largest static script and still owns browser runtime behavior in production because the programmatic Fresh app currently registers a hand-written island chunk URL instead of a generated Fresh/Vite client bundle.
+- `admin/static/pipeline_graph.js`, `admin/static/pipeline_workbench_state.js`, and `admin/static/pipeline_config_editor.js` remain temporary browser compatibility copies only while `admin/static/islands/PipelineWorkbench.js` imports them.
+- `admin/static/fresh_nav.js` is the admin-local client entry for the programmatic Fresh app. It handles `f-client-nav` / `Partial` replacement, layout behavior, page-local behavior that was moved out of deleted URL scripts, and hand-written admin island chunk mounting.
+- `admin/static/{client,dashboard,connections,metrics,blocklist,config,logs,utils}.js` are removed. Their behavior is currently initialized from `admin/static/fresh_nav.js`.
+- `admin/fresh_islands.ts` uses `@fresh/core/internal` to install a hand-written `ProdBuildCache` that points Fresh SSR at `/admin/static/fresh_nav.js` and the admin island chunk URLs, including `/admin/static/islands/PipelineWorkbench.js`.
 
 ## Final Completion Gates
 
@@ -263,6 +262,21 @@
 
   Remove `mountPipelineWorkbench` behavior from `admin/static/islands/PipelineWorkbench.js`. If Fresh programmatic build still requires a chunk path during transition, make the file a minimal compatibility module with no graph/controller behavior and document the removal gate in `admin/fresh_islands.ts`.
 
+  Evidence gathered on 2026-06-10:
+
+  - `/admin/pipelines` SSR currently emits `import { boot } from "/admin/static/fresh_nav.js"; import PipelineWorkbench from "/admin/static/islands/PipelineWorkbench.js"; boot({PipelineWorkbench}, "...")`.
+  - `@fresh/core/internal` `ProdBuildCache` records `clientEntry`, `islands`, `staticFiles`, and `entryAssets`, but does not generate the island chunk. The repo therefore must either keep a static chunk file or introduce a real client bundle step.
+  - `@fresh/core/runtime` exposes shared helpers such as `Partial`, not a public browser `boot()` hydrator that can replace `fresh_nav.js` directly in this programmatic app.
+  - Running Fresh/Vite directly without a standard `_fresh` build layout is not a drop-in replacement for the current public server startup. Vite/esbuild packages are available in the local npm cache, but introducing them should be an explicit build-pipeline change, not an incidental cleanup.
+  - `admin/static/fresh_nav.test.js` still has many static controller behavior tests. These need to move to `admin/islands/pipeline/*` component/reducer/action tests before the static bridge can become a tiny mount adapter.
+
+  Required next implementation split:
+
+  - [ ] Add a generated or buildable `PipelineWorkbench` browser mount adapter source outside `admin/static`, with the output path still registered as `/admin/static/islands/PipelineWorkbench.js` during transition.
+  - [ ] The adapter may call Preact hydration/mounting, but it must not contain Workbench graph/controller behavior; that behavior must remain in `admin/islands/PipelineWorkbench.tsx` and `admin/islands/pipeline/*`.
+  - [ ] Move remaining `PipelineWorkbench static chunk ...` tests from `admin/static/fresh_nav.test.js` to Fresh island component/reducer/action tests, keeping only a smoke test that the compatibility chunk exports a mountable adapter and partial navigation calls it.
+  - [ ] Remove `admin/static/pipeline_{graph,workbench_state,config_editor}.js` after the generated adapter no longer imports static helper copies.
+
 - [ ] **Step 6: Browser QA**
 
   Start the admin dev server and verify `/admin/pipelines` with Playwright:
@@ -354,9 +368,11 @@
 - Modify: `deno.json` only if a standard Fresh/Vite client build is introduced
 - Create: `vite.config.ts` only if the programmatic `/admin` app can be moved to a standard Fresh build path without breaking the server integration
 
-- [ ] **Step 1: Decide Fresh runtime strategy from evidence**
+- [x] **Step 1: Decide Fresh runtime strategy from evidence**
 
   Inspect whether the programmatic `/admin` app can use standard Fresh/Vite island chunk generation in this repo without changing public server startup. Do not introduce Vite merely to remove a small bridge if it makes deployment or scripts less reliable.
+
+  Decision from 2026-06-10 evidence: keep the current programmatic Fresh runtime bridge for now. Standard Fresh build removal is not a safe drop-in because this repo assembles `/admin` as a sub-app with a hand-written `ProdBuildCache`, and Fresh SSR only receives chunk URLs from that cache. The next safe reduction is to replace the hand-written `PipelineWorkbench` controller chunk with a generated/buildable Preact mount adapter, then keep only `f-client-nav` / `Partial` replacement and minimal island adapter loading in `fresh_nav.js`.
 
 - [ ] **Step 2: Remove `@fresh/core/internal` dependency if feasible**
 
