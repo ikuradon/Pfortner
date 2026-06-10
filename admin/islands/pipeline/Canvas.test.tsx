@@ -39,3 +39,21 @@ Deno.test('Canvas renders viewport transform and minimap viewport from reducer s
   assertStringIncludes(html, 'class="minimap-viewport"');
   assertStringIncludes(html, 'class="minimap-node selected"');
 });
+
+Deno.test('Canvas renders node action controls for run and settings routes', () => {
+  const html = render(
+    <Canvas
+      graph={graph}
+      selectedNodeIds={[]}
+      viewport={{ zoom: 1, pan: { x: 56, y: 80 } }}
+      canvasSize={{ width: 800, height: 480 }}
+      onNodeDoubleClick={() => undefined}
+    />,
+  );
+
+  assertStringIncludes(html, 'class="pipeline-node-action"');
+  assertStringIncludes(html, 'data-node-action="run"');
+  assertStringIncludes(html, 'Run playground');
+  assertStringIncludes(html, 'data-node-action="settings"');
+  assertStringIncludes(html, 'Node settings');
+});

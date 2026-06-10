@@ -9,6 +9,7 @@ import {
   type Size,
 } from './minimap.ts';
 import { useCanvasInteractions } from './use_canvas_interactions.ts';
+import { shouldRenderRunAction, shouldRenderSettingsAction } from './config_editor.js';
 import type { PipelineEdge, PipelineGraph, PipelineNode, Rect, Viewport } from './types.ts';
 
 const DEFAULT_VIEWPORT: Viewport = { zoom: 1, pan: { x: 56, y: 80 } };
@@ -104,6 +105,7 @@ export function Canvas(props: {
             {props.graph.nodes.map((node) => {
               const width = nodeWidth(node);
               const height = nodeHeight(node);
+              const action = nodeAction(node);
               const classes = [
                 'pipeline-node',
                 isStartNode(node) ? 'pipeline-node-start' : '',
@@ -134,6 +136,46 @@ export function Canvas(props: {
                   <text class='pipeline-node-subtitle' x='16' y='50'>
                     {nodeSubtitle(node)}
                   </text>
+                  {action
+                    ? (
+                      <g
+                        class='pipeline-node-action'
+                        transform={`translate(${width - 27}, 19)`}
+                        data-node-id={node.id}
+                        data-node-action={action.type}
+                        role='button'
+                        tabIndex={0}
+                        aria-label={action.title}
+                        onPointerDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          props.onNodeDoubleClick(node.id);
+                        }}
+                      >
+                        <title>{action.title}</title>
+                        <rect
+                          class='pipeline-node-action-bg'
+                          x='-12'
+                          y='-12'
+                          width='24'
+                          height='24'
+                          rx='6'
+                        />
+                        <text
+                          class='pipeline-node-action-label'
+                          x='0'
+                          y='5'
+                          text-anchor='middle'
+                        >
+                          {action.label}
+                        </text>
+                      </g>
+                    )
+                    : null}
                   {!isStartNode(node)
                     ? (
                       <circle
@@ -244,6 +286,20 @@ function edgePath(graph: PipelineGraph, edge: PipelineEdge): string {
 
 function isStartNode(node: PipelineNode): boolean {
   return node.type === 'start' || node.policy === 'start';
+}
+
+function nodeAction(node: PipelineNode): {
+  type: 'run' | 'settings';
+  label: string;
+  title: string;
+} | null {
+  if (shouldRenderRunAction(node)) {
+    return { type: 'run', label: 'R', title: 'Run playground' };
+  }
+  if (shouldRenderSettingsAction(node)) {
+    return { type: 'settings', label: 'S', title: 'Node settings' };
+  }
+  return null;
 }
 
 function nodeSubtitle(node: PipelineNode): string {
