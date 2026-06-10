@@ -3,12 +3,16 @@ import {
   initialDirectionHistoryState,
   recordDirectionHistorySnapshot,
 } from '../../static/pipeline_workbench_state.js';
+import { validatePipelineGraph } from '../../static/pipeline_graph.js';
+import { defaultConfigForPolicy } from './node_defaults.ts';
 import type {
   DirectionSelections,
   DirectionViewports,
   PipelineDirection,
+  PipelineEdge,
   PipelineGraph,
   PipelineGraphs,
+  PipelineNode,
   Point,
   WorkbenchStatus,
 } from './types.ts';
@@ -31,8 +35,14 @@ export type WorkbenchAction =
   | { type: 'directionChanged'; direction: PipelineDirection }
   | { type: 'viewportChanged'; zoom: number; pan: Point }
   | { type: 'nodeMoved'; nodeId: string; x: number; y: number }
+  | { type: 'policyNodeAdded'; policy: string; position: Point }
+  | { type: 'nodeDeleted'; nodeId: string }
+  | { type: 'edgeReplaced'; from: string; fromPort: string; to: string }
   | { type: 'undo' }
   | { type: 'redo' };
+
+const NODE_WIDTH = 180;
+const NODE_HEIGHT = 72;
 
 const DEFAULT_VIEWPORT: DirectionViewports = {
   client: { zoom: 1, pan: { x: 56, y: 80 } },
@@ -53,6 +63,93 @@ function updateGraph(
   return {
     ...graphs,
     [direction]: graph,
+  };
+}
+
+function updateSelection(
+  state: WorkbenchState,
+  selectedNodeIds: string[],
+): Pick<WorkbenchState, 'selectedNodeIds' | 'selectedNodeIdsByDirection'> {
+  return {
+    selectedNodeIds,
+    selectedNodeIdsByDirection: {
+      ...state.selectedNodeIdsByDirection,
+      [state.direction]: selectedNodeIds,
+    },
+  };
+}
+
+function graphDirection(
+  graph: PipelineGraph,
+  fallback: PipelineDirection,
+): string {
+  return typeof graph.direction === 'string' && graph.direction.length > 0 ? graph.direction : fallback;
+}
+
+function isStartNode(node: PipelineNode | null | undefined): boolean {
+  return node?.type === 'start' || node?.policy === 'start';
+}
+
+function findNode(
+  graph: PipelineGraph,
+  nodeId: string,
+): PipelineNode | undefined {
+  return graph.nodes.find((node) => node.id === nodeId);
+}
+
+function firstEdgeFromPort(
+  graph: PipelineGraph,
+  from: string,
+  fromPort: string,
+): PipelineEdge | undefined {
+  return graph.edges.find((edge) => edge.from === from && edge.fromPort === fromPort);
+}
+
+function incomingEdge(
+  graph: PipelineGraph,
+  nodeId: string,
+): PipelineEdge | undefined {
+  return graph.edges.find((edge) => edge.to === nodeId);
+}
+
+function nextGraphSerial(graph: PipelineGraph, prefix: string): number {
+  let max = 0;
+  for (const item of [...(graph.nodes ?? []), ...(graph.edges ?? [])]) {
+    const id = String(item.id ?? '');
+    if (!id.startsWith(prefix)) continue;
+    const n = Number(id.slice(prefix.length));
+    if (Number.isFinite(n)) max = Math.max(max, n);
+  }
+  return max + 1;
+}
+
+function nextEdge(
+  graph: PipelineGraph,
+  direction: string,
+  from: string,
+  fromPort: string,
+  to: string,
+): PipelineEdge {
+  return {
+    id: `${direction}-edge-${nextGraphSerial(graph, `${direction}-edge-`)}`,
+    from,
+    fromPort,
+    to,
+    toPort: 'in',
+  };
+}
+
+function recordCurrentGraph(
+  state: WorkbenchState,
+  graph: PipelineGraph,
+): Pick<WorkbenchState, 'graphs' | 'history'> {
+  return {
+    graphs: updateGraph(state.graphs, state.direction, graph),
+    history: recordDirectionHistorySnapshot(
+      state.history,
+      state.direction,
+      graph,
+    ),
   };
 }
 
@@ -134,6 +231,120 @@ export function reduceWorkbench(
         state.direction,
         graph,
       ),
+    };
+  }
+
+  if (action.type === 'policyNodeAdded') {
+    const graph = cloneValue(state.graphs[state.direction]);
+    const direction = graphDirection(graph, state.direction);
+    const start = graph.nodes.find(isStartNode);
+    if (!start) return state;
+
+    const node: PipelineNode = {
+      id: `${direction}-node-${nextGraphSerial(graph, `${direction}-node-`)}`,
+      type: 'policy',
+      policy: action.policy,
+      config: defaultConfigForPolicy(action.policy),
+      x: action.position.x,
+      y: action.position.y,
+      width: NODE_WIDTH,
+      height: NODE_HEIGHT,
+      path: [],
+    };
+    const previousEdge = firstEdgeFromPort(graph, start.id, 'next');
+
+    graph.nodes.push(node);
+    graph.edges = graph.edges.filter((edge) => !(edge.from === start.id && edge.fromPort === 'next'));
+    graph.edges.push(nextEdge(graph, direction, start.id, 'next', node.id));
+    if (previousEdge?.to && previousEdge.to !== node.id) {
+      graph.edges.push(
+        nextEdge(graph, direction, node.id, 'next', previousEdge.to),
+      );
+    }
+
+    return {
+      ...state,
+      ...recordCurrentGraph(state, graph),
+      ...updateSelection(state, [node.id]),
+    };
+  }
+
+  if (action.type === 'nodeDeleted') {
+    const graph = cloneValue(state.graphs[state.direction]);
+    const direction = graphDirection(graph, state.direction);
+    const node = findNode(graph, action.nodeId);
+    if (!node || isStartNode(node)) return state;
+    const incoming = incomingEdge(graph, action.nodeId);
+    const outgoing = firstEdgeFromPort(graph, action.nodeId, 'next');
+    const reconnect = incoming && outgoing && outgoing.to !== action.nodeId
+      ? nextEdge(
+        graph,
+        direction,
+        incoming.from,
+        incoming.fromPort ?? 'next',
+        outgoing.to,
+      )
+      : null;
+
+    graph.nodes = graph.nodes.filter((item) => item.id !== action.nodeId);
+    graph.edges = graph.edges.filter((edge) => edge.from !== action.nodeId && edge.to !== action.nodeId);
+    if (reconnect) graph.edges.push(reconnect);
+
+    if (!validatePipelineGraph(graph).valid) return state;
+
+    return {
+      ...state,
+      ...recordCurrentGraph(state, graph),
+      ...updateSelection(state, []),
+    };
+  }
+
+  if (action.type === 'edgeReplaced') {
+    if (action.from === action.to) return state;
+
+    const graph = cloneValue(state.graphs[state.direction]);
+    const direction = graphDirection(graph, state.direction);
+    const from = findNode(graph, action.from);
+    const to = findNode(graph, action.to);
+    if (!from || !to || isStartNode(to)) return state;
+
+    const existing = firstEdgeFromPort(graph, action.from, action.fromPort);
+    if (existing?.to === action.to && existing.toPort === 'in') return state;
+    const targetIncoming = incomingEdge(graph, action.to);
+    const targetNext = firstEdgeFromPort(graph, action.to, 'next');
+    const shouldInsertBeforeExistingTarget = Boolean(
+      existing?.to &&
+        existing.to !== action.to &&
+        !targetIncoming &&
+        !targetNext,
+    );
+
+    graph.edges = graph.edges.filter((edge) =>
+      !(edge.from === action.from && edge.fromPort === action.fromPort) &&
+      edge.to !== action.to
+    );
+    graph.edges.push(nextEdge(
+      graph,
+      direction,
+      action.from,
+      action.fromPort,
+      action.to,
+    ));
+    if (shouldInsertBeforeExistingTarget && existing?.to) {
+      graph.edges.push(nextEdge(
+        graph,
+        direction,
+        action.to,
+        'next',
+        existing.to,
+      ));
+    }
+
+    if (!validatePipelineGraph(graph).valid) return state;
+
+    return {
+      ...state,
+      ...recordCurrentGraph(state, graph),
     };
   }
 

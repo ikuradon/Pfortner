@@ -2,6 +2,7 @@
 import { useReducer, useState } from 'preact/hooks';
 import { pipelinesToGraph } from '../static/pipeline_graph.js';
 import { fingerprintPipelines } from '../static/pipeline_workbench_state.js';
+import { Canvas } from './pipeline/Canvas.tsx';
 import { DEFAULT_PLUGINS } from './pipeline/defaults.ts';
 import { Palette } from './pipeline/Palette.tsx';
 import { Toolbar } from './pipeline/Toolbar.tsx';
@@ -22,6 +23,14 @@ function noop(): void {
 }
 
 function ignorePolicy(_policy: string): void {
+  return undefined;
+}
+
+function ignoreNodePointer(_nodeId: string, _event: PointerEvent): void {
+  return undefined;
+}
+
+function ignoreNode(_nodeId: string): void {
   return undefined;
 }
 
@@ -67,13 +76,12 @@ export default function PipelineWorkbench() {
             <span id='canvas-title'>{title}</span>
             <span class='text-muted' id='canvas-zoom-label'>100%</span>
           </div>
-          <div
-            class='pipeline-canvas'
-            id='pipeline-canvas'
-            role='region'
-            aria-label='Pipeline canvas'
-          >
-          </div>
+          <Canvas
+            graph={state.graphs[state.direction]}
+            selectedNodeIds={state.selectedNodeIds}
+            onNodePointerDown={ignoreNodePointer}
+            onNodeDoubleClick={ignoreNode}
+          />
         </section>
       </div>
     </div>

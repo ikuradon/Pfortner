@@ -1,5 +1,5 @@
-import { assertEquals, assertStrictEquals } from 'jsr:@std/assert@1.0.18';
-import { pipelinesToGraph } from '../../static/pipeline_graph.js';
+import { assertEquals, assertStrictEquals } from '@std/assert';
+import { graphToPipelines, pipelinesToGraph, validatePipelineGraph } from '../../static/pipeline_graph.js';
 import { createInitialWorkbenchState, reduceWorkbench } from './workbench_reducer.ts';
 
 type PipelineNodeForTest = {
@@ -7,6 +7,11 @@ type PipelineNodeForTest = {
   policy?: string;
   x?: number;
   y?: number;
+};
+
+type PipelineEntryForTest = {
+  policy: string;
+  config?: unknown;
 };
 
 function policyNode(
@@ -23,6 +28,25 @@ function nodeById(
   nodeId: string,
 ): PipelineNodeForTest {
   return state.graphs[direction].nodes.find((item) => item.id === nodeId)!;
+}
+
+function addStandalonePolicyNode(
+  graphs: ReturnType<typeof pipelinesToGraph>,
+  direction: 'client' | 'server',
+  policy: string,
+  id: string,
+) {
+  graphs[direction].nodes.push({
+    id,
+    type: 'policy',
+    policy,
+    config: {},
+    x: 480,
+    y: 112,
+    width: 180,
+    height: 72,
+    path: [],
+  });
 }
 
 Deno.test('workbench reducer switches direction and preserves viewport', () => {
@@ -199,6 +223,208 @@ Deno.test('workbench reducer scopes server move history away from client graph',
 
   assertEquals(nodeById(state, 'client', clientNode.id).x, clientX);
   assertEquals(nodeById(state, 'client', clientNode.id).y, clientY);
+  assertStrictEquals(state.history.client, clientHistory);
+  assertEquals(state.history.client.past.length, 0);
+  assertEquals(state.history.server.past.length, 1);
+});
+
+Deno.test('workbench reducer adds a policy node after start in current direction', () => {
+  const graphs = pipelinesToGraph({ client: [], server: [] });
+  const state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept'],
+    publishedFingerprint: 'fp',
+  });
+
+  const next = reduceWorkbench(state, {
+    type: 'policyNodeAdded',
+    policy: 'accept',
+    position: { x: 160, y: 80 },
+  });
+
+  const added = policyNode(next, 'client', 'accept');
+  assertEquals(added.id, 'client-node-1');
+  assertEquals(added.x, 160);
+  assertEquals(added.y, 80);
+  assertEquals(
+    next.graphs.client.edges.some((edge) =>
+      edge.id === 'client-edge-1' &&
+      edge.from === 'client-start' &&
+      edge.fromPort === 'next' &&
+      edge.to === added.id &&
+      edge.toPort === 'in'
+    ),
+    true,
+  );
+});
+
+Deno.test('workbench reducer deletes node with connected edges and clears selection', () => {
+  const graphs = pipelinesToGraph({
+    client: [
+      { policy: 'accept' },
+      { policy: 'write-guard', config: { require_auth: true } },
+    ],
+    server: [],
+  });
+  const state = {
+    ...createInitialWorkbenchState({
+      graphs,
+      plugins: ['accept', 'write-guard'],
+      publishedFingerprint: 'fp',
+    }),
+    selectedNodeIds: ['client-node-1'],
+    selectedNodeIdsByDirection: {
+      client: ['client-node-1'],
+      server: [],
+    },
+  };
+
+  const next = reduceWorkbench(state, {
+    type: 'nodeDeleted',
+    nodeId: 'client-node-1',
+  });
+
+  assertEquals(
+    next.graphs.client.nodes.some((node) => node.id === 'client-node-1'),
+    false,
+  );
+  assertEquals(
+    next.graphs.client.edges.some((edge) => edge.from === 'client-node-1' || edge.to === 'client-node-1'),
+    false,
+  );
+  assertEquals(validatePipelineGraph(next.graphs.client).valid, true);
+  const serialized = graphToPipelines(next.graphs).client as PipelineEntryForTest[];
+  assertEquals(serialized, [
+    {
+      policy: 'write-guard',
+      config: { require_auth: true },
+    },
+  ]);
+  assertEquals(next.selectedNodeIds, []);
+  assertEquals(next.selectedNodeIdsByDirection.client, []);
+});
+
+Deno.test('workbench reducer rejects branch node deletion that would orphan descendants', () => {
+  const graphs = pipelinesToGraph({
+    client: [
+      {
+        policy: 'when',
+        config: {
+          condition: { authenticated: true },
+          then: [{ policy: 'accept' }],
+          else: [],
+        },
+      },
+      { policy: 'write-guard' },
+    ],
+    server: [],
+  });
+  const state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept', 'when', 'write-guard'],
+    publishedFingerprint: 'fp',
+  });
+
+  const rejected = reduceWorkbench(state, {
+    type: 'nodeDeleted',
+    nodeId: 'client-node-1',
+  });
+
+  assertEquals(validatePipelineGraph(state.graphs.client).valid, true);
+  assertStrictEquals(rejected, state);
+});
+
+Deno.test('workbench reducer replaces edge from the same port by inserting a standalone node', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'accept' }, { policy: 'write-guard' }],
+    server: [],
+  });
+  addStandalonePolicyNode(graphs, 'client', 'rate-limit', 'client-node-3');
+  const state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept', 'write-guard', 'rate-limit'],
+    publishedFingerprint: 'fp',
+  });
+
+  const replaced = reduceWorkbench(state, {
+    type: 'edgeReplaced',
+    from: 'client-node-1',
+    fromPort: 'next',
+    to: 'client-node-3',
+  });
+
+  assertEquals(
+    replaced.graphs.client.edges.some((edge) =>
+      edge.from === 'client-node-1' &&
+      edge.fromPort === 'next' &&
+      edge.to === 'client-node-2'
+    ),
+    false,
+  );
+  const replacementEdges = replaced.graphs.client.edges.filter((edge) =>
+    edge.from === 'client-node-1' && edge.fromPort === 'next'
+  );
+  assertEquals(replacementEdges.length, 1);
+  assertEquals(replacementEdges[0].to, 'client-node-3');
+  assertEquals(replacementEdges[0].toPort, 'in');
+  assertEquals(
+    replaced.graphs.client.edges.some((edge) =>
+      edge.from === 'client-node-3' &&
+      edge.fromPort === 'next' &&
+      edge.to === 'client-node-2' &&
+      edge.toPort === 'in'
+    ),
+    true,
+  );
+  assertEquals(validatePipelineGraph(replaced.graphs.client).valid, true);
+  const serialized = graphToPipelines(replaced.graphs).client as PipelineEntryForTest[];
+  assertEquals(serialized.map((entry) => entry.policy), [
+    'accept',
+    'rate-limit',
+    'write-guard',
+  ]);
+});
+
+Deno.test('workbench reducer rejects edge replacement that would orphan a node', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'accept' }, { policy: 'write-guard' }],
+    server: [],
+  });
+  const state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept', 'write-guard'],
+    publishedFingerprint: 'fp',
+  });
+
+  const rejected = reduceWorkbench(state, {
+    type: 'edgeReplaced',
+    from: 'client-start',
+    fromPort: 'next',
+    to: 'client-node-2',
+  });
+
+  assertStrictEquals(rejected, state);
+});
+
+Deno.test('workbench reducer records policy node add history only for current direction', () => {
+  const graphs = pipelinesToGraph({ client: [], server: [] });
+  let state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept'],
+    publishedFingerprint: 'fp',
+  });
+  const clientHistory = state.history.client;
+
+  state = reduceWorkbench(state, {
+    type: 'directionChanged',
+    direction: 'server',
+  });
+  state = reduceWorkbench(state, {
+    type: 'policyNodeAdded',
+    policy: 'accept',
+    position: { x: 160, y: 80 },
+  });
+
   assertStrictEquals(state.history.client, clientHistory);
   assertEquals(state.history.client.past.length, 0);
   assertEquals(state.history.server.past.length, 1);
