@@ -129,6 +129,19 @@ Deno.test('pipeline editor allows the start node to move', () => {
   );
 });
 
+Deno.test('pipeline editor exposes node actions for start and policy nodes', () => {
+  const startNode = { type: 'start', policy: 'start' };
+  const policyNode = { type: 'policy', policy: 'accept' };
+
+  assertEquals(pipelineEditor.shouldRenderSettingsAction?.(startNode), false);
+  assertEquals(pipelineEditor.shouldRenderRunAction?.(startNode), true);
+  assertEquals(pipelineEditor.shouldOpenPlaygroundForNode?.(startNode), true);
+
+  assertEquals(pipelineEditor.shouldRenderSettingsAction?.(policyNode), true);
+  assertEquals(pipelineEditor.shouldRenderRunAction?.(policyNode), false);
+  assertEquals(pipelineEditor.shouldOpenPlaygroundForNode?.(policyNode), false);
+});
+
 Deno.test('pipeline graph converts linear client and server pipelines round trip', () => {
   const pipelines = {
     client: [

@@ -1,4 +1,18 @@
 import { graphToPipelines, matchExecutionSteps, pipelinesToGraph, validatePipelineGraph } from './pipeline_graph.js';
+import {
+  configToEditorRows,
+  parseConfigJson,
+  shouldOpenPlaygroundForNode,
+  shouldRenderRunAction,
+  shouldRenderSettingsAction,
+  updateConfigFromEditorRows,
+} from './pipeline_config_editor.js';
+
+export {
+  shouldOpenPlaygroundForNode,
+  shouldRenderRunAction,
+  shouldRenderSettingsAction,
+} from './pipeline_config_editor.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const NODE_WIDTH = 180;
@@ -31,6 +45,12 @@ let dragState = null;
 let wireState = null;
 let marqueeState = null;
 let controlsAbortController = null;
+const playgroundState = {
+  message: '',
+  authenticated: false,
+  pubkey: '',
+  clientIp: '127.0.0.1',
+};
 
 const PRESETS = {
   'event-1': () =>
@@ -890,6 +910,46 @@ function renderNode(group, node) {
     y: 44,
   }, [document.createTextNode(configText || node.id)]));
 
+  const action = shouldRenderRunAction(node)
+    ? { type: 'run', label: '▶', title: 'Run playground' }
+    : shouldRenderSettingsAction(node)
+    ? { type: 'settings', label: '⚙', title: 'Node settings' }
+    : null;
+  if (action) {
+    const actionGroup = svgEl('g', {
+      class: 'pipeline-node-action',
+      transform: `translate(${NODE_WIDTH - 27}, 19)`,
+      dataset: { nodeId: node.id, nodeAction: action.type },
+      tabindex: '0',
+    });
+    actionGroup.appendChild(svgEl('title', {}, [document.createTextNode(action.title)]));
+    actionGroup.appendChild(svgEl('rect', {
+      class: 'pipeline-node-action-bg',
+      x: -12,
+      y: -12,
+      width: 24,
+      height: 24,
+      rx: 6,
+    }));
+    actionGroup.appendChild(svgEl('text', {
+      class: 'pipeline-node-action-label',
+      x: 0,
+      y: 5,
+      'text-anchor': 'middle',
+    }, [document.createTextNode(action.label)]));
+    actionGroup.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    actionGroup.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (action.type === 'run') openPlaygroundModal(node);
+      else openNodeSettingsModal(node);
+    });
+    nodeGroup.appendChild(actionGroup);
+  }
+
   if (shouldRenderInputPort(node)) {
     const input = portPosition({ ...node, x: 0, y: 0 }, 'in', 'input');
     nodeGroup.appendChild(svgEl('circle', {
@@ -928,6 +988,12 @@ function renderNode(group, node) {
   nodeGroup.addEventListener('click', (event) => {
     event.stopPropagation();
     selectNode(node.id, event.shiftKey || event.metaKey);
+  });
+  nodeGroup.addEventListener('dblclick', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (shouldOpenPlaygroundForNode(node)) openPlaygroundModal(node);
+    else openNodeSettingsModal(node);
   });
 
   group.appendChild(nodeGroup);
@@ -1063,120 +1129,368 @@ function renderMinimap() {
 }
 
 function renderInspector() {
-  const inspector = document.getElementById('node-inspector');
-  if (!inspector) return;
-  clearChildren(inspector);
-  const graph = currentGraph();
-  const selected = [...selectedNodeIds].map((id) => findNode(graph, id)).filter(
-    Boolean,
-  );
+  // 旧固定 inspector は canvas-first shell で撤去済み。互換用に no-op として残す。
+}
 
-  if (selected.length === 0) {
-    inspector.appendChild(
-      htmlEl('div', {
-        className: 'pipeline-empty',
-        text: 'Select a node to edit its config.',
+function isModalOpen(id) {
+  const modal = document.getElementById(id);
+  return Boolean(modal && !modal.classList.contains('hidden'));
+}
+
+function closeModalById(id) {
+  const modal = document.getElementById(id);
+  if (!modal) return;
+  modal.classList.add('hidden');
+  clearChildren(modal);
+}
+
+function closeNodeSettingsModal() {
+  closeModalById('node-settings-modal');
+}
+
+function closePlaygroundModal() {
+  updatePlaygroundStateFromDom();
+  closeModalById('playground-modal');
+}
+
+function closeOpenModals() {
+  closeNodeSettingsModal();
+  closePlaygroundModal();
+}
+
+function defaultValueForRowType(type) {
+  if (type === 'boolean') return false;
+  if (type === 'number') return 0;
+  if (type === 'array') return '[]';
+  if (type === 'object') return '{}';
+  if (type === 'null') return null;
+  return '';
+}
+
+function configRowsFromNode(node) {
+  return configToEditorRows(node.config ?? {});
+}
+
+function updateRowsFromNode(node, updateLocalState) {
+  updateLocalState(
+    configRowsFromNode(node),
+    JSON.stringify(node.config ?? {}, null, 2),
+  );
+}
+
+function renderValueControl(row, onChange) {
+  if (row.type === 'boolean') {
+    return htmlEl('label', { className: 'config-boolean-control' }, [
+      htmlEl('input', {
+        type: 'checkbox',
+        checked: Boolean(row.value),
+        events: {
+          change: (event) => onChange(event.currentTarget.checked),
+        },
       }),
-    );
-    return;
+      htmlEl('span', { text: row.value ? 'true' : 'false' }),
+    ]);
   }
 
-  if (selected.length > 1) {
-    inspector.appendChild(
-      htmlEl('div', {
-        className: 'inspector-title',
-        text: selected.length + ' nodes selected',
-      }),
-    );
-    inspector.appendChild(htmlEl('button', {
-      type: 'button',
-      className: 'btn btn-danger inspector-action',
-      text: 'Delete Selected',
-      events: { click: deleteSelectedNodes },
-    }));
-    return;
+  if (row.type === 'array' || row.type === 'object') {
+    const textarea = htmlEl('textarea', {
+      className: 'config-editor-textarea config-row-value',
+      spellcheck: false,
+      events: {
+        input: (event) => onChange(event.currentTarget.value),
+      },
+    });
+    textarea.value = String(row.value ?? defaultValueForRowType(row.type));
+    return textarea;
   }
 
-  const node = selected[0];
-  inspector.appendChild(
-    htmlEl('div', { className: 'inspector-title', text: node.policy }),
-  );
-  inspector.appendChild(
-    htmlEl('div', { className: 'inspector-muted', text: node.id }),
-  );
-
-  if (isStartNode(node)) {
-    inspector.appendChild(
-      htmlEl('div', {
-        className: 'pipeline-empty compact',
-        text: 'Start node',
-      }),
-    );
-    return;
-  }
-
-  const label = htmlEl('label', {
-    className: 'section-title',
-    htmlFor: 'node-config-editor',
-    text: 'Config JSON',
-  });
-  const textarea = htmlEl('textarea', {
-    id: 'node-config-editor',
-    className: 'config-editor-textarea',
-    spellcheck: false,
-  });
-  textarea.value = JSON.stringify(node.config ?? {}, null, 2);
-
-  const apply = htmlEl('button', {
-    type: 'button',
-    className: 'btn btn-primary inspector-action',
-    text: 'Apply',
+  const input = htmlEl('input', {
+    className: 'form-input config-row-value',
+    disabled: row.type === 'null',
+    value: row.type === 'null' ? 'null' : String(row.value ?? ''),
     events: {
-      click: () => {
-        try {
-          node.config = textarea.value.trim() ? JSON.parse(textarea.value) : {};
-          executionNodeIds.clear();
-          render();
-          setStatus('Updated ' + node.policy);
-        } catch (e) {
-          setStatus('Config parse error: ' + e.message, true);
-        }
+      input: (event) => {
+        if (row.type === 'number') onChange(event.currentTarget.value);
+        else onChange(event.currentTarget.value);
       },
     },
   });
-  inspector.appendChild(label);
-  inspector.appendChild(textarea);
-  inspector.appendChild(apply);
+  return input;
+}
 
-  if (node.policy === 'match') {
-    const cases = Array.isArray(node.config?.cases) ? node.config.cases : [];
-    const branchBox = htmlEl('div', { className: 'inspector-branches' });
-    branchBox.appendChild(
-      htmlEl('div', { className: 'section-title', text: 'Cases' }),
-    );
-    cases.forEach((_, index) => {
-      branchBox.appendChild(htmlEl('button', {
-        type: 'button',
-        className: 'pipeline-entry-btn',
-        text: 'Remove case ' + (index + 1),
-        events: { click: () => removeMatchCase(node, index) },
-      }));
-    });
-    branchBox.appendChild(htmlEl('button', {
-      type: 'button',
-      className: 'btn btn-ghost inspector-action',
-      text: '+ Case',
-      events: { click: () => addMatchCase(node) },
+function renderConfigRows(rows, renderContent) {
+  const wrapper = htmlEl('div', { className: 'config-editor-rows' });
+  const typeOptions = ['string', 'number', 'boolean', 'array', 'object', 'null'];
+
+  if (rows.length === 0) {
+    wrapper.appendChild(htmlEl('div', {
+      className: 'pipeline-empty compact',
+      text: 'No config fields.',
     }));
-    inspector.appendChild(branchBox);
   }
 
-  inspector.appendChild(htmlEl('button', {
+  rows.forEach((row, index) => {
+    const keyInput = htmlEl('input', {
+      className: 'form-input config-key-input',
+      placeholder: 'key',
+      value: row.key ?? '',
+      events: {
+        input: (event) => {
+          rows[index].key = event.currentTarget.value;
+        },
+      },
+    });
+    const typeSelect = htmlEl(
+      'select',
+      {
+        className: 'form-input config-type-select',
+        events: {
+          change: (event) => {
+            rows[index].type = event.currentTarget.value;
+            rows[index].value = defaultValueForRowType(rows[index].type);
+            renderContent();
+          },
+        },
+      },
+      typeOptions.map((type) =>
+        htmlEl('option', {
+          value: type,
+          selected: row.type === type,
+          text: type,
+        })
+      ),
+    );
+    const valueControl = renderValueControl(row, (value) => {
+      rows[index].value = value;
+    });
+    const remove = htmlEl('button', {
+      type: 'button',
+      className: 'btn btn-ghost config-row-remove',
+      text: 'Remove',
+      events: {
+        click: () => {
+          rows.splice(index, 1);
+          renderContent();
+        },
+      },
+    });
+    wrapper.appendChild(
+      htmlEl('div', { className: 'config-row' }, [
+        keyInput,
+        typeSelect,
+        valueControl,
+        remove,
+      ]),
+    );
+  });
+
+  wrapper.appendChild(htmlEl('button', {
     type: 'button',
-    className: 'btn btn-danger inspector-action',
-    text: 'Delete Node',
-    events: { click: deleteSelectedNodes },
+    className: 'btn btn-ghost',
+    text: '+ Field',
+    events: {
+      click: () => {
+        rows.push({ key: '', type: 'string', value: '' });
+        renderContent();
+      },
+    },
   }));
+  return wrapper;
+}
+
+function renderMatchCaseControls(node, updateLocalState, renderContent) {
+  if (node.policy !== 'match') return null;
+  const cases = Array.isArray(node.config?.cases) ? node.config.cases : [];
+  const controls = htmlEl('div', { className: 'config-branch-controls' }, [
+    htmlEl('div', { className: 'section-title', text: 'Cases' }),
+  ]);
+
+  cases.forEach((_, index) => {
+    controls.appendChild(htmlEl('button', {
+      type: 'button',
+      className: 'pipeline-entry-btn',
+      text: 'Remove case ' + (index + 1),
+      events: {
+        click: () => {
+          removeMatchCase(node, index);
+          updateRowsFromNode(node, updateLocalState);
+          renderContent();
+        },
+      },
+    }));
+  });
+
+  controls.appendChild(htmlEl('button', {
+    type: 'button',
+    className: 'btn btn-ghost',
+    text: '+ Case',
+    events: {
+      click: () => {
+        addMatchCase(node);
+        updateRowsFromNode(node, updateLocalState);
+        renderContent();
+      },
+    },
+  }));
+  return controls;
+}
+
+function openNodeSettingsModal(node) {
+  if (!shouldRenderSettingsAction(node)) return;
+  const root = document.getElementById('node-settings-modal');
+  if (!root) return;
+
+  closePlaygroundModal();
+  selectedNodeIds = new Set([node.id]);
+  render();
+
+  let mode = 'interactive';
+  let rows = configRowsFromNode(node);
+  let jsonValue = JSON.stringify(node.config ?? {}, null, 2);
+  let errorMessage = '';
+  const updateLocalState = (nextRows, nextJsonValue) => {
+    rows = nextRows;
+    jsonValue = nextJsonValue;
+  };
+
+  const applyConfigUpdate = () => {
+    const result = mode === 'json' ? parseConfigJson(jsonValue) : updateConfigFromEditorRows(rows);
+    if ('error' in result) {
+      errorMessage = result.error;
+      renderContent();
+      return;
+    }
+
+    node.config = cloneValue(result.config);
+    executionNodeIds.clear();
+    closeNodeSettingsModal();
+    render();
+    setStatus('Updated ' + node.policy);
+  };
+
+  function renderContent(preserveFocus = true) {
+    const activeElement = preserveFocus ? document.activeElement : null;
+    clearChildren(root);
+    root.classList.remove('hidden');
+
+    const tabs = htmlEl('div', { className: 'config-editor-tabs' }, [
+      htmlEl('button', {
+        type: 'button',
+        className: 'btn ' + (mode === 'interactive' ? 'btn-primary' : 'btn-ghost'),
+        text: 'Interactive',
+        events: {
+          click: () => {
+            mode = 'interactive';
+            errorMessage = '';
+            renderContent(false);
+          },
+        },
+      }),
+      htmlEl('button', {
+        type: 'button',
+        className: 'btn ' + (mode === 'json' ? 'btn-primary' : 'btn-ghost'),
+        text: 'JSON',
+        events: {
+          click: () => {
+            mode = 'json';
+            errorMessage = '';
+            jsonValue = JSON.stringify(node.config ?? {}, null, 2);
+            renderContent(false);
+          },
+        },
+      }),
+    ]);
+
+    const bodyChildren = [tabs];
+    if (errorMessage) {
+      bodyChildren.push(htmlEl('div', {
+        className: 'modal-error',
+        text: errorMessage,
+      }));
+    }
+
+    if (mode === 'json') {
+      const textarea = htmlEl('textarea', {
+        id: 'node-config-json-editor',
+        className: 'config-editor-textarea modal-json-editor',
+        spellcheck: false,
+        events: {
+          input: (event) => {
+            jsonValue = event.currentTarget.value;
+          },
+        },
+      });
+      textarea.value = jsonValue;
+      bodyChildren.push(textarea);
+    } else {
+      bodyChildren.push(renderConfigRows(rows, renderContent));
+      const matchControls = renderMatchCaseControls(node, updateLocalState, renderContent);
+      if (matchControls) bodyChildren.push(matchControls);
+    }
+
+    const modal = htmlEl('div', {
+      className: 'workbench-modal',
+      role: 'dialog',
+      'aria-modal': 'true',
+      'aria-labelledby': 'node-settings-title',
+      events: {
+        click: (event) => event.stopPropagation(),
+      },
+    }, [
+      htmlEl('div', { className: 'workbench-modal-header' }, [
+        htmlEl('div', {}, [
+          htmlEl('div', {
+            id: 'node-settings-title',
+            className: 'inspector-title',
+            text: node.policy,
+          }),
+          htmlEl('div', { className: 'inspector-muted', text: node.id }),
+        ]),
+        htmlEl('button', {
+          type: 'button',
+          className: 'btn btn-ghost',
+          text: 'Close',
+          events: { click: closeNodeSettingsModal },
+        }),
+      ]),
+      htmlEl('div', { className: 'workbench-modal-body' }, bodyChildren),
+      htmlEl('div', { className: 'workbench-modal-footer' }, [
+        htmlEl('button', {
+          type: 'button',
+          className: 'btn btn-danger',
+          text: 'Delete Node',
+          events: {
+            click: () => {
+              selectedNodeIds = new Set([node.id]);
+              closeNodeSettingsModal();
+              deleteSelectedNodes();
+            },
+          },
+        }),
+        htmlEl('div', { className: 'modal-footer-actions' }, [
+          htmlEl('button', {
+            type: 'button',
+            className: 'btn btn-ghost',
+            text: 'Cancel',
+            events: { click: closeNodeSettingsModal },
+          }),
+          htmlEl('button', {
+            type: 'button',
+            className: 'btn btn-primary',
+            text: 'Apply',
+            events: { click: applyConfigUpdate },
+          }),
+        ]),
+      ]),
+    ]);
+    root.appendChild(modal);
+    if (activeElement?.id) document.getElementById(activeElement.id)?.focus();
+  }
+
+  root.onclick = (event) => {
+    if (event.target === root) closeNodeSettingsModal();
+  };
+  renderContent(false);
 }
 
 function circleChar(action) {
@@ -1311,15 +1625,158 @@ function renderPresets() {
   }
 }
 
-function setDrawerOpen(open) {
-  document.getElementById('test-run-drawer')?.classList.toggle(
-    'collapsed',
-    !open,
-  );
+function updatePlaygroundStateFromDom() {
+  const textarea = document.getElementById('message-input');
+  const authenticated = document.getElementById('ctx-authenticated');
+  const pubkey = document.getElementById('ctx-pubkey');
+  const clientIp = document.getElementById('ctx-ip');
+  if (textarea) playgroundState.message = textarea.value;
+  if (authenticated) playgroundState.authenticated = authenticated.checked;
+  if (pubkey) playgroundState.pubkey = pubkey.value;
+  if (clientIp) playgroundState.clientIp = clientIp.value;
+}
+
+function openPlaygroundModal(node = null) {
+  if (node && !shouldOpenPlaygroundForNode(node)) return;
+  const root = document.getElementById('playground-modal');
+  if (!root) return;
+  if (isModalOpen('playground-modal')) return;
+
+  closeNodeSettingsModal();
+  clearChildren(root);
+  root.classList.remove('hidden');
+  root.onclick = (event) => {
+    if (event.target === root) closePlaygroundModal();
+  };
+
+  const message = htmlEl('textarea', {
+    id: 'message-input',
+    className: 'message-textarea',
+    spellcheck: false,
+    placeholder: '["EVENT", {...}]',
+    events: {
+      input: (event) => {
+        playgroundState.message = event.currentTarget.value;
+      },
+    },
+  });
+  message.value = playgroundState.message;
+
+  const modal = htmlEl('div', {
+    className: 'workbench-modal fullscreen',
+    role: 'dialog',
+    'aria-modal': 'true',
+    'aria-labelledby': 'playground-title',
+    events: {
+      click: (event) => event.stopPropagation(),
+    },
+  }, [
+    htmlEl('div', { className: 'workbench-modal-header' }, [
+      htmlEl('div', {}, [
+        htmlEl('div', {
+          id: 'playground-title',
+          className: 'inspector-title',
+          text: 'Pipeline Playground',
+        }),
+        htmlEl('div', {
+          className: 'inspector-muted',
+          id: 'test-run-summary',
+          text: currentDirection === 'client' ? 'Client pipeline' : 'Server pipeline',
+        }),
+      ]),
+      htmlEl('button', {
+        type: 'button',
+        className: 'btn btn-ghost',
+        text: 'Close',
+        events: { click: closePlaygroundModal },
+      }),
+    ]),
+    htmlEl('div', { className: 'workbench-modal-body playground-modal-body' }, [
+      htmlEl('div', { className: 'playground-modal-grid' }, [
+        htmlEl('div', { className: 'test-run-inputs' }, [
+          htmlEl('div', { className: 'section-title', text: 'Presets' }),
+          htmlEl('div', { className: 'preset-buttons', id: 'preset-buttons' }),
+          htmlEl('label', {
+            className: 'section-title',
+            htmlFor: 'message-input',
+            text: 'Message',
+          }),
+          message,
+          htmlEl('div', { className: 'section-title', text: 'Context' }),
+          htmlEl('div', { className: 'context-grid' }, [
+            htmlEl('label', {
+              className: 'context-label',
+              htmlFor: 'ctx-authenticated',
+              text: 'Authenticated',
+            }),
+            htmlEl('input', {
+              id: 'ctx-authenticated',
+              type: 'checkbox',
+              checked: playgroundState.authenticated,
+              events: {
+                change: (event) => {
+                  playgroundState.authenticated = event.currentTarget.checked;
+                },
+              },
+            }),
+            htmlEl('label', {
+              className: 'context-label',
+              htmlFor: 'ctx-pubkey',
+              text: 'Pubkey',
+            }),
+            htmlEl('input', {
+              id: 'ctx-pubkey',
+              className: 'context-input',
+              value: playgroundState.pubkey,
+              events: {
+                input: (event) => {
+                  playgroundState.pubkey = event.currentTarget.value;
+                },
+              },
+            }),
+            htmlEl('label', {
+              className: 'context-label',
+              htmlFor: 'ctx-ip',
+              text: 'Client IP',
+            }),
+            htmlEl('input', {
+              id: 'ctx-ip',
+              className: 'context-input',
+              value: playgroundState.clientIp,
+              events: {
+                input: (event) => {
+                  playgroundState.clientIp = event.currentTarget.value;
+                },
+              },
+            }),
+          ]),
+          htmlEl('button', {
+            id: 'btn-run',
+            type: 'button',
+            className: 'btn btn-primary',
+            text: '▷ Run',
+            events: { click: runEvaluation },
+          }),
+        ]),
+        htmlEl('div', { className: 'test-run-results' }, [
+          htmlEl('div', { className: 'section-title', text: 'Results' }),
+          htmlEl('div', { id: 'result-panel', className: 'playground-result-panel' }, [
+            htmlEl('div', {
+              className: 'playground-empty',
+              text: 'Run a message to inspect the evaluated path.',
+            }),
+          ]),
+        ]),
+      ]),
+    ]),
+  ]);
+  root.appendChild(modal);
+  renderPresets();
 }
 
 async function runEvaluation() {
-  setDrawerOpen(true);
+  if (!isModalOpen('playground-modal')) openPlaygroundModal();
+  updatePlaygroundStateFromDom();
   const btn = document.getElementById('btn-run');
   if (btn) {
     btn.disabled = true;
@@ -1540,23 +1997,6 @@ function bindControls() {
     () => setZoom(zoom - 0.1),
     { signal },
   );
-  document.getElementById('btn-run-toolbar')?.addEventListener(
-    'click',
-    runEvaluation,
-    { signal },
-  );
-  document.getElementById('btn-run')?.addEventListener('click', runEvaluation, {
-    signal,
-  });
-  document.getElementById('btn-toggle-test-run')?.addEventListener(
-    'click',
-    () => {
-      const drawer = document.getElementById('test-run-drawer');
-      drawer?.classList.toggle('collapsed');
-    },
-    { signal },
-  );
-
   const canvas = document.getElementById('pipeline-canvas');
   const svg = document.getElementById('pipeline-svg');
   canvas?.addEventListener('dragover', (event) => event.preventDefault(), {
@@ -1579,6 +2019,13 @@ function bindControls() {
   document.addEventListener('pointerup', handlePointerUp, { signal });
   document.addEventListener('keydown', (event) => {
     if (!document.getElementById('pipeline-workbench')) return;
+    if (isModalOpen('node-settings-modal') || isModalOpen('playground-modal')) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeOpenModals();
+      }
+      return;
+    }
     const target = event.target;
     if (
       target instanceof HTMLInputElement ||
