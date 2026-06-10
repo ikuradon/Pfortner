@@ -1,17 +1,17 @@
 export const WORKBENCH_DRAFT_VERSION = 1;
-export const LOCAL_DRAFT_KEY = "pfortner.pipelineWorkbenchDraft.v1";
-export const PALETTE_COLLAPSED_KEY = "pfortner.pipelinePaletteCollapsed.v1";
-export const LAST_DIRECTION_KEY = "pfortner.pipelineDirection.v1";
+export const LOCAL_DRAFT_KEY = 'pfortner.pipelineWorkbenchDraft.v1';
+export const PALETTE_COLLAPSED_KEY = 'pfortner.pipelinePaletteCollapsed.v1';
+export const LAST_DIRECTION_KEY = 'pfortner.pipelineDirection.v1';
 
 function cloneValue(value) {
   if (value === undefined) return undefined;
-  if (typeof structuredClone === "function") return structuredClone(value);
+  if (typeof structuredClone === 'function') return structuredClone(value);
   return JSON.parse(JSON.stringify(value));
 }
 
 function stableValue(value) {
   if (Array.isArray(value)) return value.map(stableValue);
-  if (value && typeof value === "object") {
+  if (value && typeof value === 'object') {
     return Object.fromEntries(
       Object.keys(value).sort().map((key) => [key, stableValue(value[key])]),
     );
@@ -46,7 +46,7 @@ export function recordHistorySnapshot(history, nextGraphs) {
 }
 
 export function applyHistoryChange(history, direction) {
-  if (direction === "undo") {
+  if (direction === 'undo') {
     if (history.past.length === 0) return history;
     const previous = history.past[history.past.length - 1];
     return {
@@ -55,7 +55,7 @@ export function applyHistoryChange(history, direction) {
       future: [cloneValue(history.present)].concat(history.future),
     };
   }
-  if (direction === "redo") {
+  if (direction === 'redo') {
     if (history.future.length === 0) return history;
     const next = history.future[0];
     return {
@@ -75,20 +75,32 @@ export function isRedoAvailable(history) {
   return Array.isArray(history?.future) && history.future.length > 0;
 }
 
-export function buildPipelineDraft(
-  { graphs, viewports, publishedFingerprint, now = Date.now() },
-) {
+/**
+ * @param {{ graphs: any, viewports: any, publishedFingerprint: string, now?: number | string | Date }} options
+ */
+export function buildPipelineDraft({ graphs, viewports, publishedFingerprint, now }) {
   return {
     version: WORKBENCH_DRAFT_VERSION,
     graphs: cloneValue(graphs),
     viewports: cloneValue(viewports),
-    updatedAt: new Date(now).toISOString(),
+    updatedAt: formatExplicitTimestamp(now),
     lastPublishedFingerprint: publishedFingerprint,
   };
 }
 
+function formatExplicitTimestamp(value) {
+  if (
+    typeof value !== 'number' && typeof value !== 'string' &&
+    !(value instanceof Date)
+  ) {
+    return '';
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+}
+
 function isRecord(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function normalizeGraph(graph, direction) {
@@ -120,27 +132,24 @@ function normalizeGraph(graph, direction) {
  * } }}
  */
 export function normalizeWorkbenchDraft(value) {
-  if (!isRecord(value)) return { error: "draft object required" };
+  if (!isRecord(value)) return { error: 'draft object required' };
   if (value.version !== WORKBENCH_DRAFT_VERSION) {
-    return { error: "unsupported draft version" };
+    return { error: 'unsupported draft version' };
   }
-  if (!isRecord(value.graphs)) return { error: "draft.graphs object required" };
-  const client = normalizeGraph(value.graphs.client, "client");
-  if ("error" in client) return client;
-  const server = normalizeGraph(value.graphs.server, "server");
-  if ("error" in server) return server;
+  if (!isRecord(value.graphs)) return { error: 'draft.graphs object required' };
+  const client = normalizeGraph(value.graphs.client, 'client');
+  if ('error' in client) return client;
+  const server = normalizeGraph(value.graphs.server, 'server');
+  if ('error' in server) return server;
   return {
     draft: {
       version: WORKBENCH_DRAFT_VERSION,
       graphs: { client: client.graph, server: server.graph },
       viewports: isRecord(value.viewports) ? cloneValue(value.viewports) : {},
-      updatedAt: typeof value.updatedAt === "string"
-        ? value.updatedAt
-        : new Date(0).toISOString(),
-      lastPublishedFingerprint:
-        typeof value.lastPublishedFingerprint === "string"
-          ? value.lastPublishedFingerprint
-          : "",
+      updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : new Date(0).toISOString(),
+      lastPublishedFingerprint: typeof value.lastPublishedFingerprint === 'string'
+        ? value.lastPublishedFingerprint
+        : '',
     },
   };
 }
