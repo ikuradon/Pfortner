@@ -3,9 +3,11 @@ import {
   initialDirectionHistoryState,
   recordDirectionHistorySnapshot,
 } from '../../static/pipeline_workbench_state.js';
-import { validatePipelineGraph } from '../../static/pipeline_graph.js';
+import { graphToPipelines, validatePipelineGraph } from '../../static/pipeline_graph.js';
 import { defaultConfigForPolicy } from './node_defaults.ts';
+import { buildYamlPreview } from './yaml_preview.ts';
 import type {
+  ActiveModal,
   DirectionSelections,
   DirectionViewports,
   PipelineDirection,
@@ -18,6 +20,12 @@ import type {
 } from './types.ts';
 
 type PipelineGraphsInput = PipelineGraphs | Record<string, PipelineGraph>;
+type SettingsMode = 'interactive' | 'json';
+
+interface WorkbenchUiState {
+  activeModal: ActiveModal;
+  paletteCollapsed: boolean;
+}
 
 export interface WorkbenchState {
   direction: PipelineDirection;
@@ -29,6 +37,7 @@ export interface WorkbenchState {
   plugins: string[];
   publishedFingerprint: string;
   status: WorkbenchStatus;
+  ui: WorkbenchUiState;
 }
 
 export type WorkbenchAction =
@@ -38,6 +47,14 @@ export type WorkbenchAction =
   | { type: 'policyNodeAdded'; policy: string; position: Point }
   | { type: 'nodeDeleted'; nodeId: string }
   | { type: 'edgeReplaced'; from: string; fromPort: string; to: string }
+  | { type: 'nodeDoubleClicked'; nodeId: string }
+  | { type: 'modalClosed' }
+  | { type: 'settingsModeChanged'; mode: SettingsMode }
+  | { type: 'settingsJsonChanged'; value: string }
+  | { type: 'settingsApplied' }
+  | { type: 'publishModalOpened' }
+  | { type: 'publishConfirmed' }
+  | { type: 'paletteToggled' }
   | { type: 'undo' }
   | { type: 'redo' };
 
@@ -53,6 +70,38 @@ function cloneValue<T>(value: T): T {
   if (value === undefined) return value;
   if (typeof structuredClone === 'function') return structuredClone(value);
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function formatSettingsJson(value: unknown): string {
+  return JSON.stringify(value ?? {}, null, 2) ?? '{}';
+}
+
+function parseSettingsJson(
+  json: string,
+): { ok: true; value: unknown } | { ok: false; error: string } {
+  try {
+    const value = JSON.parse(json);
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      return { ok: false, error: 'Config JSON must be an object.' };
+    }
+    return { ok: true, value };
+  } catch (error) {
+    const message = error instanceof Error && error.message.length > 0 ? error.message : 'Unable to parse settings.';
+    return { ok: false, error: `Invalid JSON: ${message}` };
+  }
+}
+
+function setActiveModal(
+  state: WorkbenchState,
+  activeModal: ActiveModal,
+): WorkbenchState {
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      activeModal,
+    },
+  };
 }
 
 function updateGraph(
@@ -187,6 +236,10 @@ export function createInitialWorkbenchState(input: {
     plugins: [...input.plugins],
     publishedFingerprint: input.publishedFingerprint,
     status: { message: 'Ready', kind: 'idle' },
+    ui: {
+      activeModal: { type: 'none' },
+      paletteCollapsed: false,
+    },
   };
 }
 
@@ -199,6 +252,10 @@ export function reduceWorkbench(
       ...state,
       direction: action.direction,
       selectedNodeIds: [...state.selectedNodeIdsByDirection[action.direction]],
+      ui: {
+        ...state.ui,
+        activeModal: { type: 'none' },
+      },
     };
   }
 
@@ -296,6 +353,10 @@ export function reduceWorkbench(
       ...state,
       ...recordCurrentGraph(state, graph),
       ...updateSelection(state, []),
+      ui: {
+        ...state.ui,
+        activeModal: { type: 'none' },
+      },
     };
   }
 
@@ -348,6 +409,102 @@ export function reduceWorkbench(
     };
   }
 
+  if (action.type === 'nodeDoubleClicked') {
+    const graph = state.graphs[state.direction];
+    const node = findNode(graph, action.nodeId);
+    if (!node) return state;
+
+    if (isStartNode(node)) {
+      return setActiveModal(state, {
+        type: 'playground',
+        nodeId: node.id,
+      });
+    }
+
+    return setActiveModal(state, {
+      type: 'settings',
+      nodeId: node.id,
+      mode: 'interactive',
+      json: formatSettingsJson(node.config),
+      error: '',
+    });
+  }
+
+  if (action.type === 'modalClosed') {
+    return setActiveModal(state, { type: 'none' });
+  }
+
+  if (action.type === 'settingsModeChanged') {
+    if (state.ui.activeModal.type !== 'settings') return state;
+    return setActiveModal(state, {
+      ...state.ui.activeModal,
+      mode: action.mode,
+    });
+  }
+
+  if (action.type === 'settingsJsonChanged') {
+    if (state.ui.activeModal.type !== 'settings') return state;
+    const parsed = parseSettingsJson(action.value);
+    return setActiveModal(state, {
+      ...state.ui.activeModal,
+      json: action.value,
+      error: parsed.ok ? '' : parsed.error,
+    });
+  }
+
+  if (action.type === 'settingsApplied') {
+    if (state.ui.activeModal.type !== 'settings') return state;
+    const modal = state.ui.activeModal;
+    const parsed = parseSettingsJson(modal.json);
+    if (!parsed.ok) {
+      return setActiveModal(state, {
+        ...modal,
+        error: parsed.error,
+      });
+    }
+
+    const graph = cloneValue(state.graphs[state.direction]);
+    const node = findNode(graph, modal.nodeId);
+    if (!node) {
+      return setActiveModal(state, {
+        ...modal,
+        error: 'Node not found in the current graph.',
+      });
+    }
+
+    node.config = parsed.value;
+
+    return {
+      ...state,
+      ...recordCurrentGraph(state, graph),
+      ui: {
+        ...state.ui,
+        activeModal: { type: 'none' },
+      },
+    };
+  }
+
+  if (action.type === 'publishModalOpened') {
+    return setActiveModal(state, {
+      type: 'publish',
+      yaml: buildYamlPreview(graphToPipelines(state.graphs)),
+    });
+  }
+
+  if (action.type === 'publishConfirmed') {
+    return setActiveModal(state, { type: 'none' });
+  }
+
+  if (action.type === 'paletteToggled') {
+    return {
+      ...state,
+      ui: {
+        ...state.ui,
+        paletteCollapsed: !state.ui.paletteCollapsed,
+      },
+    };
+  }
+
   if (action.type === 'undo' || action.type === 'redo') {
     const directionHistory = applyHistoryChange(
       state.history[state.direction],
@@ -374,6 +531,10 @@ export function reduceWorkbench(
       ),
       selectedNodeIdsByDirection,
       selectedNodeIds: [],
+      ui: {
+        ...state.ui,
+        activeModal: { type: 'none' },
+      },
     };
   }
 

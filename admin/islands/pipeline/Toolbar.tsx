@@ -82,7 +82,6 @@ export function Toolbar(props: {
         type='button'
         id='btn-publish-pipeline'
         class='btn btn-primary'
-        disabled
         onClick={props.onPublish}
       >
         Publish

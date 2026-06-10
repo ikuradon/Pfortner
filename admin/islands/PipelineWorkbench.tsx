@@ -1,10 +1,13 @@
 /** @jsxImportSource preact */
-import { useReducer, useState } from 'preact/hooks';
+import { useReducer } from 'preact/hooks';
 import { pipelinesToGraph } from '../static/pipeline_graph.js';
 import { fingerprintPipelines } from '../static/pipeline_workbench_state.js';
 import { Canvas } from './pipeline/Canvas.tsx';
 import { DEFAULT_PLUGINS } from './pipeline/defaults.ts';
+import { NodeSettingsModal } from './pipeline/NodeSettingsModal.tsx';
 import { Palette } from './pipeline/Palette.tsx';
+import { PlaygroundModal } from './pipeline/PlaygroundModal.tsx';
+import { PublishModal } from './pipeline/PublishModal.tsx';
 import { Toolbar } from './pipeline/Toolbar.tsx';
 import { createInitialWorkbenchState, reduceWorkbench } from './pipeline/workbench_reducer.ts';
 
@@ -30,15 +33,18 @@ function ignoreNodePointer(_nodeId: string, _event: PointerEvent): void {
   return undefined;
 }
 
-function ignoreNode(_nodeId: string): void {
+function ignoreMessage(_message: string): void {
   return undefined;
 }
 
 export default function PipelineWorkbench() {
   const [state, dispatch] = useReducer(reduceWorkbench, createInitialState());
-  const [paletteCollapsed, setPaletteCollapsed] = useState(false);
   const title = state.direction === 'client' ? 'Client Pipeline' : 'Server Pipeline';
-  const workbenchClass = paletteCollapsed ? 'pipeline-workbench palette-collapsed' : 'pipeline-workbench';
+  const workbenchClass = state.ui.paletteCollapsed ? 'pipeline-workbench palette-collapsed' : 'pipeline-workbench';
+  const activeModal = state.ui.activeModal;
+  const settingsNode = activeModal.type === 'settings'
+    ? state.graphs[state.direction].nodes.find((node) => node.id === activeModal.nodeId)
+    : undefined;
 
   return (
     <div class={workbenchClass} id='pipeline-workbench'>
@@ -48,7 +54,7 @@ export default function PipelineWorkbench() {
         onRun={noop}
         onLoad={noop}
         onSave={noop}
-        onPublish={noop}
+        onPublish={() => dispatch({ type: 'publishModalOpened' })}
         onUndo={() => dispatch({ type: 'undo' })}
         onRedo={() => dispatch({ type: 'redo' })}
       />
@@ -67,8 +73,8 @@ export default function PipelineWorkbench() {
       <div class='workbench-grid canvas-first-grid' id='canvas-first-grid'>
         <Palette
           plugins={state.plugins}
-          collapsed={paletteCollapsed}
-          onToggle={() => setPaletteCollapsed((collapsed) => !collapsed)}
+          collapsed={state.ui.paletteCollapsed}
+          onToggle={() => dispatch({ type: 'paletteToggled' })}
           onAdd={ignorePolicy}
         />
         <section class='canvas-shell canvas-shell-expanded'>
@@ -80,10 +86,42 @@ export default function PipelineWorkbench() {
             graph={state.graphs[state.direction]}
             selectedNodeIds={state.selectedNodeIds}
             onNodePointerDown={ignoreNodePointer}
-            onNodeDoubleClick={ignoreNode}
+            onNodeDoubleClick={(nodeId) => dispatch({ type: 'nodeDoubleClicked', nodeId })}
           />
         </section>
       </div>
+      {activeModal.type === 'settings' && settingsNode
+        ? (
+          <NodeSettingsModal
+            node={settingsNode}
+            mode={activeModal.mode}
+            json={activeModal.json}
+            error={activeModal.error}
+            onModeChange={(mode) => dispatch({ type: 'settingsModeChanged', mode })}
+            onJsonChange={(value) => dispatch({ type: 'settingsJsonChanged', value })}
+            onApply={() => dispatch({ type: 'settingsApplied' })}
+            onClose={() => dispatch({ type: 'modalClosed' })}
+          />
+        )
+        : null}
+      {activeModal.type === 'playground'
+        ? (
+          <PlaygroundModal
+            nodeId={activeModal.nodeId}
+            onRun={ignoreMessage}
+            onClose={() => dispatch({ type: 'modalClosed' })}
+          />
+        )
+        : null}
+      {activeModal.type === 'publish'
+        ? (
+          <PublishModal
+            yaml={activeModal.yaml}
+            onConfirm={() => dispatch({ type: 'publishConfirmed' })}
+            onClose={() => dispatch({ type: 'modalClosed' })}
+          />
+        )
+        : null}
     </div>
   );
 }

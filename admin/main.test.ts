@@ -113,6 +113,7 @@ Deno.test('admin app installs Fresh island build cache for admin islands', async
   assertEquals(html.includes('/admin/static/pipelines.js'), false);
   assertEquals(/id="btn-undo-pipeline"[^>]*disabled/.test(html), true);
   assertEquals(/id="btn-redo-pipeline"[^>]*disabled/.test(html), true);
+  assertEquals(/id="btn-publish-pipeline"[^>]*disabled/.test(html), false);
   assertEquals(html.includes('frsh:island'), true);
   assertEquals(html.includes('PipelineWorkbench'), true);
   assertEquals(html.includes('rel="icon"'), true);

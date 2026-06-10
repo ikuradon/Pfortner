@@ -1,10 +1,11 @@
-import { assertEquals, assertStrictEquals } from '@std/assert';
+import { assertEquals, assertMatch, assertStrictEquals } from '@std/assert';
 import { graphToPipelines, pipelinesToGraph, validatePipelineGraph } from '../../static/pipeline_graph.js';
 import { createInitialWorkbenchState, reduceWorkbench } from './workbench_reducer.ts';
 
 type PipelineNodeForTest = {
   id: string;
   policy?: string;
+  config?: unknown;
   x?: number;
   y?: number;
 };
@@ -47,6 +48,26 @@ function addStandalonePolicyNode(
     height: 72,
     path: [],
   });
+}
+
+function settingsModal(
+  state: ReturnType<typeof createInitialWorkbenchState>,
+) {
+  const modal = state.ui.activeModal;
+  if (modal.type !== 'settings') {
+    throw new Error(`Expected settings modal, got ${modal.type}`);
+  }
+  return modal;
+}
+
+function publishModal(
+  state: ReturnType<typeof createInitialWorkbenchState>,
+) {
+  const modal = state.ui.activeModal;
+  if (modal.type !== 'publish') {
+    throw new Error(`Expected publish modal, got ${modal.type}`);
+  }
+  return modal;
 }
 
 Deno.test('workbench reducer switches direction and preserves viewport', () => {
@@ -112,6 +133,31 @@ Deno.test('workbench reducer switches selected nodes with direction', () => {
   assertEquals(next.selectedNodeIdsByDirection.client, ['client-node-1']);
 });
 
+Deno.test('workbench reducer closes modal when direction changes', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'accept' }],
+    server: [],
+  });
+  let state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept'],
+    publishedFingerprint: 'fp',
+  });
+  const node = policyNode(state, 'client', 'accept');
+
+  state = reduceWorkbench(state, {
+    type: 'nodeDoubleClicked',
+    nodeId: node.id,
+  });
+  state = reduceWorkbench(state, {
+    type: 'directionChanged',
+    direction: 'server',
+  });
+
+  assertEquals(state.direction, 'server');
+  assertEquals(state.ui.activeModal, { type: 'none' });
+});
+
 Deno.test('workbench reducer keeps selection and identity on no-op history changes', () => {
   const graphs = pipelinesToGraph({ client: [], server: [] });
   const state = {
@@ -166,6 +212,228 @@ Deno.test('workbench reducer records node move as undoable action', () => {
   assertEquals(nodeById(previousState, 'client', node.id).y, previousY);
   assertEquals(nodeById(moved, 'client', node.id).x, 160);
   assertEquals(nodeById(moved, 'client', node.id).y, 96);
+});
+
+Deno.test('workbench reducer opens settings modal when policy node is double clicked', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'write-guard', config: { require_auth: true } }],
+    server: [],
+  });
+  let state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['write-guard'],
+    publishedFingerprint: 'fp',
+  });
+  const node = policyNode(state, 'client', 'write-guard');
+
+  state = reduceWorkbench(state, {
+    type: 'nodeDoubleClicked',
+    nodeId: node.id,
+  });
+
+  assertEquals(settingsModal(state), {
+    type: 'settings',
+    nodeId: node.id,
+    mode: 'interactive',
+    json: JSON.stringify({ require_auth: true }, null, 2),
+    error: '',
+  });
+});
+
+Deno.test('workbench reducer opens playground modal when start node is double clicked', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'accept' }],
+    server: [],
+  });
+  let state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept'],
+    publishedFingerprint: 'fp',
+  });
+  const start = policyNode(state, 'client', 'start');
+
+  state = reduceWorkbench(state, {
+    type: 'nodeDoubleClicked',
+    nodeId: start.id,
+  });
+
+  assertEquals(state.ui.activeModal, {
+    type: 'playground',
+    nodeId: start.id,
+  });
+});
+
+Deno.test('workbench reducer closes active modal', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'accept' }],
+    server: [],
+  });
+  let state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept'],
+    publishedFingerprint: 'fp',
+  });
+  const node = policyNode(state, 'client', 'accept');
+
+  state = reduceWorkbench(state, {
+    type: 'nodeDoubleClicked',
+    nodeId: node.id,
+  });
+  state = reduceWorkbench(state, { type: 'modalClosed' });
+
+  assertEquals(state.ui.activeModal, { type: 'none' });
+});
+
+Deno.test('workbench reducer updates settings JSON and reports parse errors', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'accept' }],
+    server: [],
+  });
+  let state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept'],
+    publishedFingerprint: 'fp',
+  });
+  const node = policyNode(state, 'client', 'accept');
+  const validJson = JSON.stringify({ enabled: true }, null, 2);
+
+  state = reduceWorkbench(state, {
+    type: 'nodeDoubleClicked',
+    nodeId: node.id,
+  });
+  state = reduceWorkbench(state, {
+    type: 'settingsModeChanged',
+    mode: 'json',
+  });
+  state = reduceWorkbench(state, {
+    type: 'settingsJsonChanged',
+    value: validJson,
+  });
+
+  assertEquals(settingsModal(state).mode, 'json');
+  assertEquals(settingsModal(state).json, validJson);
+  assertEquals(settingsModal(state).error, '');
+
+  state = reduceWorkbench(state, {
+    type: 'settingsJsonChanged',
+    value: '{',
+  });
+
+  assertEquals(settingsModal(state).json, '{');
+  assertMatch(settingsModal(state).error, /Invalid JSON/);
+});
+
+Deno.test('workbench reducer applies valid settings JSON to the graph and records history', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'write-guard', config: { require_auth: true } }],
+    server: [],
+  });
+  let state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['write-guard'],
+    publishedFingerprint: 'fp',
+  });
+  const node = policyNode(state, 'client', 'write-guard');
+
+  state = reduceWorkbench(state, {
+    type: 'nodeDoubleClicked',
+    nodeId: node.id,
+  });
+  state = reduceWorkbench(state, {
+    type: 'settingsJsonChanged',
+    value: JSON.stringify({ require_auth: false, note: 'ok' }, null, 2),
+  });
+  const previousHistoryLength = state.history.client.past.length;
+
+  state = reduceWorkbench(state, { type: 'settingsApplied' });
+
+  assertEquals(nodeById(state, 'client', node.id).config, {
+    require_auth: false,
+    note: 'ok',
+  });
+  assertEquals(state.history.client.past.length, previousHistoryLength + 1);
+  assertEquals(state.ui.activeModal, { type: 'none' });
+});
+
+Deno.test('workbench reducer keeps settings modal open for invalid JSON apply', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'write-guard', config: { require_auth: true } }],
+    server: [],
+  });
+  let state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['write-guard'],
+    publishedFingerprint: 'fp',
+  });
+  const node = policyNode(state, 'client', 'write-guard');
+  const previousHistoryLength = state.history.client.past.length;
+
+  state = reduceWorkbench(state, {
+    type: 'nodeDoubleClicked',
+    nodeId: node.id,
+  });
+  state = reduceWorkbench(state, {
+    type: 'settingsJsonChanged',
+    value: '{',
+  });
+  state = reduceWorkbench(state, { type: 'settingsApplied' });
+
+  assertEquals(nodeById(state, 'client', node.id).config, {
+    require_auth: true,
+  });
+  assertEquals(state.history.client.past.length, previousHistoryLength);
+  assertEquals(settingsModal(state).nodeId, node.id);
+  assertMatch(settingsModal(state).error, /Invalid JSON/);
+});
+
+Deno.test('workbench reducer rejects non-object settings JSON values', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'write-guard', config: { require_auth: true } }],
+    server: [],
+  });
+
+  for (const value of ['[]', 'null', '"x"', '1']) {
+    let state = createInitialWorkbenchState({
+      graphs,
+      plugins: ['write-guard'],
+      publishedFingerprint: 'fp',
+    });
+    const node = policyNode(state, 'client', 'write-guard');
+
+    state = reduceWorkbench(state, {
+      type: 'nodeDoubleClicked',
+      nodeId: node.id,
+    });
+    state = reduceWorkbench(state, {
+      type: 'settingsJsonChanged',
+      value,
+    });
+    state = reduceWorkbench(state, { type: 'settingsApplied' });
+
+    assertEquals(nodeById(state, 'client', node.id).config, {
+      require_auth: true,
+    });
+    assertEquals(settingsModal(state).nodeId, node.id);
+    assertMatch(settingsModal(state).error, /Config JSON must be an object/);
+  }
+});
+
+Deno.test('workbench reducer opens publish modal with YAML preview', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'write-guard', config: { require_auth: true } }],
+    server: [],
+  });
+  let state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['write-guard'],
+    publishedFingerprint: 'fp',
+  });
+
+  state = reduceWorkbench(state, { type: 'publishModalOpened' });
+
+  assertMatch(publishModal(state).yaml, /pipelines:/);
+  assertMatch(publishModal(state).yaml, /write-guard/);
+  assertMatch(publishModal(state).yaml, /require_auth: true/);
 });
 
 Deno.test('workbench reducer redoes an undone node move', () => {
@@ -293,7 +561,8 @@ Deno.test('workbench reducer deletes node with connected edges and clears select
     false,
   );
   assertEquals(validatePipelineGraph(next.graphs.client).valid, true);
-  const serialized = graphToPipelines(next.graphs).client as PipelineEntryForTest[];
+  const serialized = graphToPipelines(next.graphs)
+    .client as PipelineEntryForTest[];
   assertEquals(serialized, [
     {
       policy: 'write-guard',
@@ -302,6 +571,31 @@ Deno.test('workbench reducer deletes node with connected edges and clears select
   ]);
   assertEquals(next.selectedNodeIds, []);
   assertEquals(next.selectedNodeIdsByDirection.client, []);
+});
+
+Deno.test('workbench reducer closes modal when active node is deleted', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'accept' }, { policy: 'write-guard' }],
+    server: [],
+  });
+  let state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept', 'write-guard'],
+    publishedFingerprint: 'fp',
+  });
+  const node = policyNode(state, 'client', 'accept');
+
+  state = reduceWorkbench(state, {
+    type: 'nodeDoubleClicked',
+    nodeId: node.id,
+  });
+  state = reduceWorkbench(state, {
+    type: 'nodeDeleted',
+    nodeId: node.id,
+  });
+
+  assertEquals(state.graphs.client.nodes.some((item) => item.id === node.id), false);
+  assertEquals(state.ui.activeModal, { type: 'none' });
 });
 
 Deno.test('workbench reducer rejects branch node deletion that would orphan descendants', () => {
@@ -377,12 +671,48 @@ Deno.test('workbench reducer replaces edge from the same port by inserting a sta
     true,
   );
   assertEquals(validatePipelineGraph(replaced.graphs.client).valid, true);
-  const serialized = graphToPipelines(replaced.graphs).client as PipelineEntryForTest[];
+  const serialized = graphToPipelines(replaced.graphs)
+    .client as PipelineEntryForTest[];
   assertEquals(serialized.map((entry) => entry.policy), [
     'accept',
     'rate-limit',
     'write-guard',
   ]);
+});
+
+Deno.test('workbench reducer closes modal when undo or redo changes graph', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'accept' }],
+    server: [],
+  });
+  let state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept'],
+    publishedFingerprint: 'fp',
+  });
+  const node = policyNode(state, 'client', 'accept');
+
+  state = reduceWorkbench(state, {
+    type: 'nodeMoved',
+    nodeId: node.id,
+    x: 160,
+    y: 96,
+  });
+  state = reduceWorkbench(state, {
+    type: 'nodeDoubleClicked',
+    nodeId: node.id,
+  });
+  state = reduceWorkbench(state, { type: 'undo' });
+
+  assertEquals(state.ui.activeModal, { type: 'none' });
+
+  state = reduceWorkbench(state, {
+    type: 'nodeDoubleClicked',
+    nodeId: node.id,
+  });
+  state = reduceWorkbench(state, { type: 'redo' });
+
+  assertEquals(state.ui.activeModal, { type: 'none' });
 });
 
 Deno.test('workbench reducer rejects edge replacement that would orphan a node', () => {

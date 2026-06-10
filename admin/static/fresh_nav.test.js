@@ -1,4 +1,4 @@
-import { assertEquals, assertStrictEquals } from '@std/assert';
+import { assertEquals, assertMatch, assertStrictEquals } from '@std/assert';
 
 class FakeDocument {
   listeners = [];
@@ -42,10 +42,20 @@ class FakeDocument {
     return node.clone();
   }
 
+  createElement(tagName) {
+    return new FakeElement(tagName);
+  }
+
   insertBefore(node, reference) {
     const index = this.childNodes.indexOf(reference);
     this.childNodes.splice(index < 0 ? this.childNodes.length : index, 0, node);
     this.relink();
+  }
+
+  appendChild(node) {
+    this.childNodes.push(node);
+    this.relink();
+    return node;
   }
 
   removeChild(node) {
@@ -55,26 +65,14 @@ class FakeDocument {
   }
 
   querySelector(selector) {
-    if (selector === '[data-admin-island-smoke="true"]') {
-      return this.childNodes.find((node) =>
-        node.nodeType === 1 &&
-        node.getAttribute('data-admin-island-smoke') === 'true'
-      ) ?? null;
-    }
-    if (selector === '#pipeline-workbench') {
-      return this.childNodes.find((node) =>
-        node.nodeType === 1 &&
-        node.getAttribute('id') === 'pipeline-workbench'
-      ) ?? null;
-    }
-    return null;
+    return this.querySelectorAll(selector)[0] ?? null;
   }
 
   querySelectorAll(selector) {
     if (selector === 'script[type="module"], link[rel="modulepreload"]') {
       return this.moduleElements;
     }
-    return [];
+    return this.childNodes.flatMap((node) => node.querySelectorAll?.(selector) ?? []);
   }
 }
 
@@ -119,7 +117,9 @@ class FakeElement {
     this.attributes = new Map(Object.entries(attributes));
     this.href = attributes.href;
     this.target = attributes.target ?? '';
+    this.value = attributes.value ?? '';
     this.textContent = textContent;
+    this.disabled = Object.hasOwn(attributes, 'disabled');
     this.setChildNodes(childNodes);
   }
 
@@ -131,10 +131,17 @@ class FakeElement {
     this.attributes.set(name, String(value));
     if (name === 'href') this.href = String(value);
     if (name === 'target') this.target = String(value);
+    if (name === 'value') this.value = String(value);
+    if (name === 'disabled') this.disabled = true;
   }
 
   hasAttribute(name) {
     return this.attributes.has(name);
+  }
+
+  removeAttribute(name) {
+    this.attributes.delete(name);
+    if (name === 'disabled') this.disabled = false;
   }
 
   setChildNodes(childNodes) {
@@ -147,22 +154,36 @@ class FakeElement {
   }
 
   matchesSelector(selector) {
+    if (selector.includes(',')) {
+      return selector.split(',').some((part) => this.matchesSelector(part.trim()));
+    }
     if (selector.startsWith('#')) {
       return this.getAttribute('id') === selector.slice(1);
+    }
+    if (selector.startsWith('.')) {
+      return (this.getAttribute('class') ?? '').split(/\s+/).includes(selector.slice(1));
+    }
+    const attrMatch = /^\[([^=\]]+)(?:="([^"]*)")?\]$/.exec(selector);
+    if (attrMatch) {
+      const [, name, value] = attrMatch;
+      return value === undefined ? this.hasAttribute(name) : this.getAttribute(name) === value;
     }
     if (selector === '[data-admin-island-smoke="true"]') {
       return this.getAttribute('data-admin-island-smoke') === 'true';
     }
-    return false;
+    return this.tagName.toLowerCase() === selector.toLowerCase();
   }
 
   querySelector(selector) {
-    if (this.matchesSelector(selector)) return this;
+    return this.querySelectorAll(selector)[0] ?? null;
+  }
+
+  querySelectorAll(selector) {
+    const matches = this.matchesSelector(selector) ? [this] : [];
     for (const child of this.childNodes) {
-      const match = child.querySelector?.(selector);
-      if (match) return match;
+      matches.push(...(child.querySelectorAll?.(selector) ?? []));
     }
-    return null;
+    return matches;
   }
 
   closest(selector) {
@@ -179,9 +200,33 @@ class FakeElement {
     this.listeners.push({ type, listener });
   }
 
+  appendChild(node) {
+    this.childNodes.push(node);
+    this.setChildNodes(this.childNodes);
+    return node;
+  }
+
+  insertBefore(node, reference) {
+    const index = this.childNodes.indexOf(reference);
+    this.childNodes.splice(index < 0 ? this.childNodes.length : index, 0, node);
+    this.setChildNodes(this.childNodes);
+    return node;
+  }
+
+  removeChild(node) {
+    const index = this.childNodes.indexOf(node);
+    if (index >= 0) this.childNodes.splice(index, 1);
+    this.setChildNodes(this.childNodes);
+    return node;
+  }
+
   click() {
+    this.dispatchEvent({ type: 'click' });
+  }
+
+  dispatchEvent(event) {
     for (const { type, listener } of this.listeners) {
-      if (type === 'click') listener();
+      if (type === event.type) listener({ target: this, currentTarget: this, ...event });
     }
   }
 
@@ -249,6 +294,9 @@ function pipelineWorkbenchFixture() {
   const redoButton = new FakeElement('button', {
     id: 'btn-redo-pipeline',
   }, 'Redo');
+  const publishButton = new FakeElement('button', {
+    id: 'btn-publish-pipeline',
+  }, 'Publish');
   const paletteToggle = new FakeElement('button', {
     id: 'btn-toggle-palette',
     'aria-label': 'Collapse palette',
@@ -265,6 +313,26 @@ function pipelineWorkbenchFixture() {
   const canvasTitle = new FakeElement('span', {
     id: 'canvas-title',
   }, 'Client Pipeline');
+  const startNode = new FakeElement('g', {
+    'data-node-id': 'client-start',
+    'data-node-policy': 'start',
+    'data-node-type': 'start',
+    'data-node-config': '{}',
+  });
+  const policyNode = new FakeElement('g', {
+    'data-node-id': 'client-node-1',
+    'data-node-policy': 'write-guard',
+    'data-node-type': 'policy',
+    'data-node-config': '{"require_auth":true}',
+  });
+  const canvas = new FakeElement(
+    'svg',
+    {
+      id: 'pipeline-svg',
+    },
+    '',
+    [startNode, policyNode],
+  );
   const workbench = new FakeElement(
     'div',
     {
@@ -277,8 +345,10 @@ function pipelineWorkbenchFixture() {
       serverButton,
       undoButton,
       redoButton,
+      publishButton,
       palette,
       canvasTitle,
+      canvas,
     ],
   );
 
@@ -286,8 +356,11 @@ function pipelineWorkbenchFixture() {
     canvasTitle,
     clientButton,
     paletteToggle,
+    policyNode,
+    publishButton,
     redoButton,
     serverButton,
+    startNode,
     undoButton,
     workbench,
   };
@@ -727,6 +800,70 @@ Deno.test('PipelineWorkbench static chunk wires shell controls', async () => {
   );
   assertEquals(fixture.paletteToggle.getAttribute('aria-label'), 'Expand palette');
   assertEquals(fixture.paletteToggle.textContent, '›');
+});
+
+Deno.test('PipelineWorkbench static chunk opens playground modal from start node double click', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture();
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+
+  mod.default.mount(document);
+  fixture.startNode.dispatchEvent({ type: 'dblclick' });
+
+  assertEquals(document.querySelector('.modal-backdrop') !== null, true);
+  assertEquals(document.querySelector('.workbench-modal')?.getAttribute('role'), 'dialog');
+  assertEquals(document.querySelector('#playground-message-input') !== null, true);
+  assertEquals(document.querySelector('.playground-result-panel')?.textContent, 'No result yet.');
+});
+
+Deno.test('PipelineWorkbench static chunk validates settings modal JSON locally', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture();
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+
+  mod.default.mount(document);
+  fixture.policyNode.dispatchEvent({ type: 'dblclick' });
+
+  const textarea = document.querySelector('textarea');
+  const applyButton = document.querySelector('[data-modal-action="apply-settings"]');
+  assertEquals(document.querySelector('.modal-backdrop') !== null, true);
+  assertMatch(textarea?.value ?? '', /require_auth/);
+
+  textarea.value = '[]';
+  applyButton.click();
+
+  assertMatch(document.querySelector('.modal-error')?.textContent ?? '', /Config JSON must be an object/);
+  assertEquals(document.querySelector('.modal-backdrop') !== null, true);
+
+  textarea.value = '{"require_auth":false}';
+  applyButton.click();
+
+  assertEquals(document.querySelector('.modal-backdrop'), null);
+  assertEquals(fixture.policyNode.getAttribute('data-node-config'), '{"require_auth":false}');
+});
+
+Deno.test('PipelineWorkbench static chunk opens publish modal from toolbar button', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture();
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+
+  mod.default.mount(document);
+  fixture.publishButton.click();
+
+  assertEquals(document.querySelector('.modal-backdrop') !== null, true);
+  assertMatch(document.querySelector('.yaml-preview')?.textContent ?? '', /pipelines:/);
 });
 
 Deno.test('fresh nav does not keep legacy pipelines page initializer', async () => {

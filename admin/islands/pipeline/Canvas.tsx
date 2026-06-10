@@ -52,6 +52,9 @@ export function Canvas(props: {
                 class={classes}
                 transform={`translate(${node.x ?? 0}, ${node.y ?? 0})`}
                 data-node-id={node.id}
+                data-node-policy={node.policy ?? ''}
+                data-node-type={node.type ?? ''}
+                data-node-config={formatNodeConfig(node.config)}
                 onPointerDown={(event) => props.onNodePointerDown(node.id, event as PointerEvent)}
                 onDblClick={() => props.onNodeDoubleClick(node.id)}
               >
@@ -105,4 +108,9 @@ function nodeHeight(node: PipelineNode): number {
 function nodeSubtitle(node: PipelineNode): string {
   if (isStartNode(node)) return 'Pipeline start';
   return node.id;
+}
+
+function formatNodeConfig(config: unknown): string {
+  if (config === undefined) return '';
+  return JSON.stringify(config);
 }
