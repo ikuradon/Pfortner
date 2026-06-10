@@ -15,7 +15,7 @@
 - admin/operation: `createAdminHandler`, `AdminState`, `AdminConnectionDto`, `AdminServiceState`, `ConnectionManager`, `ShutdownManager`, `UpstreamProbe`, `ManagedConnection`
 - policies/conditions/routing: builtin policy plugins, condition helpers, `UpstreamPool`
 
-内部 helper は `mod.ts` から直接 export しない。特に `src/session/*`、`admin/*_routes.ts`、`admin/static/router.js`、`src/config/pipeline-resolver.ts`、`src/config/runtime-guards.ts` は内部構造として扱う。
+内部 helper は `mod.ts` から直接 export しない。特に `src/session/*`、`admin/*_routes.ts`、`src/config/pipeline-resolver.ts`、`src/config/runtime-guards.ts` は内部構造として扱う。
 
 ## Core Session
 
@@ -46,7 +46,7 @@
 
 - `admin/security.ts`: cookie credential、login redirect/cookie、same-origin/CSRF 判定
 - `admin/static_files.ts`: static path resolution、content type、cache-control、file cache
-- `admin/page_routes.ts`: authenticated SPA shell page route registration
+- `admin/page_routes.ts`: authenticated Fresh page route registration
 - `admin/api_routes.ts`: Admin JSON/SSE/mutation API route registration
 - `admin/route_types.ts`: route registrar が必要とする最小 app interface
 
@@ -66,17 +66,18 @@
 
 新規 code は、互換が必要な場合を除いて `src/admin/service.ts` ではなく実体 module を import する。
 
-## Admin SPA
+## Admin UI
 
-Authenticated `/admin/*` page route は同じ `AdminAppShell` を返し、browser が SPA として画面を描画する。`/admin/login` は SSR login page のまま扱う。
+Authenticated `/admin/*` page route は Fresh-rendered page を返す。`/admin/login` も Fresh `ctx.render()` を通る SSR page として扱う。
 
-- `admin/static/app.js`: `globalThis.__PFORTNER_SPA__` 設定、asset version propagation、SPA boot
-- `admin/static/router.js`: path normalize、active nav、History API、dynamic import、cleanup lifecycle
-- `admin/static/page_templates.js`: route ごとの DOM template、module path、initializer name
-- `admin/static/dom.js`: shared DOM helper
-- `admin/static/{dashboard,connections,pipelines,playground,metrics,blocklist,config,logs}.js`: fetch/event binding/cleanup
+- `admin/components/Sidebar.tsx`: shared sidebar と `Layout`。`body` に `f-client-nav` を付け、sidebar を Fresh `Partial` の `admin-sidebar`、`main` 内を `admin-content` として差し替え対象にする。
+- `admin/page_routes.ts`: `/admin/`, `/admin/connections`, `/admin/pipelines`, `/admin/metrics`, `/admin/blocklist`, `/admin/config`, `/admin/logs` を page renderer map に登録する。
+- `admin/routes/*.tsx`: page DOM の source of truth。
+- `admin/static/dom.js`: shared DOM helper。
+- `admin/static/fresh_nav.js`: programmatic Fresh App で空の client entry が出ることを避ける admin-local partial navigation runtime。Fresh の partial marker を使い、page-local module の `init*Page()` を navigation 後に呼び直す。
+- `admin/static/{dashboard,connections,pipelines,metrics,blocklist,config,logs}.js`: SSR page markup に対する page-local behavior module。
 
-page module は `init*Page()` を export し、SPA router 経由では自動初期化 guard により二重初期化を避ける。
+古い custom SPA shell (`AdminAppShell`, `admin/static/app.js`, `admin/static/router.js`, `admin/static/page_templates.js`) は active architecture から削除済みである。page-local behavior module は互換層として残し、複雑な interactive UI は段階的に Fresh islands へ移す。
 
 ## Docs
 

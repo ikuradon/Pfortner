@@ -1,21 +1,29 @@
-import type { AdminRouteApp } from './route_types.ts';
+import type { AdminRouteApp, AdminRouteContext, AdminRouteHandler } from './route_types.ts';
 
-type RenderAdminShell = (pathname: string) => Response;
+export interface AdminPageRenderers {
+  dashboard: AdminRouteHandler;
+  connections: AdminRouteHandler;
+  pipelines: AdminRouteHandler;
+  metrics: AdminRouteHandler;
+  blocklist: AdminRouteHandler;
+  config: AdminRouteHandler;
+  logs: AdminRouteHandler;
+}
 
-const SPA_PAGE_PATHS = [
-  '/',
-  '/connections',
-  '/pipelines',
-  '/metrics',
-  '/blocklist',
-  '/config',
-  '/logs',
-] as const;
+const PAGE_ROUTES: Array<[keyof AdminPageRenderers, string]> = [
+  ['dashboard', '/'],
+  ['connections', '/connections'],
+  ['pipelines', '/pipelines'],
+  ['metrics', '/metrics'],
+  ['blocklist', '/blocklist'],
+  ['config', '/config'],
+  ['logs', '/logs'],
+];
 
 export function registerAdminPageRoutes(
   app: AdminRouteApp,
   adminPath: string,
-  renderAdminShell: RenderAdminShell,
+  renderers: AdminPageRenderers,
 ): void {
   app.get(adminPath, (_ctx) => {
     return new Response(null, {
@@ -24,11 +32,8 @@ export function registerAdminPageRoutes(
     });
   });
 
-  for (const pagePath of SPA_PAGE_PATHS) {
+  for (const [key, pagePath] of PAGE_ROUTES) {
     const routePath = pagePath === '/' ? `${adminPath}/` : `${adminPath}${pagePath}`;
-    app.get(routePath, (ctx) => {
-      const url = new URL(ctx.req.url);
-      return renderAdminShell(url.pathname);
-    });
+    app.get(routePath, (ctx: AdminRouteContext) => renderers[key](ctx));
   }
 }

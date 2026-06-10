@@ -7,6 +7,7 @@
     "maxmind": "npm:maxmind@4.3.21",
     "redis": "npm:redis@4.7.0",
     "@fresh/core": "jsr:@fresh/core@^2.2.0",
+    "@fresh/core/runtime": "jsr:@fresh/core@^2.2.0/runtime",
     "preact": "npm:preact@^10.25.0",
     "preact/": "npm:preact@^10.25.0/",
     "preact/jsx-runtime": "npm:preact@^10.25.0/jsx-runtime",

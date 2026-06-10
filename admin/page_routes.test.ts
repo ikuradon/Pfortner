@@ -24,16 +24,28 @@ function makeContext(path: string): AdminRouteContext {
   return {
     req: new Request(`http://localhost:3000${path}`),
     params: {},
+    render: () => Promise.resolve(new Response('rendered')),
   };
 }
 
-Deno.test('page route registrar redirects root and registers SPA shell pages', async () => {
+Deno.test('page route registrar redirects root and renders registered Fresh pages', async () => {
   const app = new RecordedRoutes();
   const rendered: string[] = [];
 
-  registerAdminPageRoutes(app, '/admin', (pathname: string) => {
-    rendered.push(pathname);
-    return new Response(`shell:${pathname}`);
+  registerAdminPageRoutes(app, '/admin', {
+    dashboard: (ctx) => {
+      rendered.push(`dashboard:${new URL(ctx.req.url).pathname}`);
+      return new Response('dashboard-page');
+    },
+    connections: () => new Response('connections-page'),
+    pipelines: () => new Response('pipelines-page'),
+    metrics: () => new Response('metrics-page'),
+    blocklist: (ctx) => {
+      rendered.push(`blocklist:${new URL(ctx.req.url).pathname}`);
+      return new Response('blocklist-page');
+    },
+    config: () => new Response('config-page'),
+    logs: () => new Response('logs-page'),
   });
 
   assertEquals(app.getRoutes.has('/admin'), true);
@@ -47,8 +59,8 @@ Deno.test('page route registrar redirects root and registers SPA shell pages', a
   assertEquals(redirect.status, 302);
   assertEquals(redirect.headers.get('Location'), '/admin/');
 
-  const shell = await app.getRoutes.get('/admin/blocklist')!(makeContext('/admin/blocklist'));
-  assertEquals(shell.status, 200);
-  assertEquals(await shell.text(), 'shell:/admin/blocklist');
-  assertEquals(rendered, ['/admin/blocklist']);
+  const blocklist = await app.getRoutes.get('/admin/blocklist')!(makeContext('/admin/blocklist'));
+  assertEquals(blocklist.status, 200);
+  assertEquals(await blocklist.text(), 'blocklist-page');
+  assertEquals(rendered, ['blocklist:/admin/blocklist']);
 });

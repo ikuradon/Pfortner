@@ -1,4 +1,5 @@
 /** @jsxImportSource preact */
+import { Partial } from '@fresh/core/runtime';
 import type { ComponentChildren } from 'preact';
 
 export interface NavItem {
@@ -74,11 +75,15 @@ export function Layout({ currentPath, title, children }: LayoutProps) {
         {/* deno-lint-ignore -- safe: hardcoded string literal, no user input */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
-      <body>
+      <body {...{ 'f-client-nav': true }}>
         <div class='layout'>
-          <Sidebar currentPath={currentPath} />
+          <Partial name='admin-sidebar'>
+            <Sidebar currentPath={currentPath} />
+          </Partial>
           <main class='main-content'>
-            {children}
+            <Partial name='admin-content'>
+              {children}
+            </Partial>
           </main>
         </div>
         <script src='/admin/static/client.js' type='module'></script>

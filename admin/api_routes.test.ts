@@ -45,6 +45,7 @@ function makeContext(
   return {
     req: new Request(`http://localhost:3000${path}`, init),
     params,
+    render: () => Promise.resolve(new Response('rendered')),
   };
 }
 
