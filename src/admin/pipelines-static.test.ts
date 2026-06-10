@@ -6,6 +6,14 @@ import {
   validatePipelineGraph,
 } from '../../admin/static/pipeline_graph.js';
 import {
+  configToEditorRows,
+  parseConfigJson,
+  shouldOpenPlaygroundForNode,
+  shouldRenderRunAction,
+  shouldRenderSettingsAction,
+  updateConfigFromEditorRows,
+} from '../../admin/static/pipeline_config_editor.js';
+import {
   applyHistoryChange,
   buildPipelineDraft,
   fingerprintPipelines,
@@ -526,4 +534,52 @@ Deno.test('pipeline workbench detects unpublished changes', () => {
 
   assertEquals(hasUnpublishedChanges(changed, published), true);
   assertEquals(hasUnpublishedChanges(published, published), false);
+});
+
+Deno.test('pipeline node actions separate start run from policy settings', () => {
+  const start = { type: 'start', policy: 'start' };
+  const policy = { type: 'policy', policy: 'write-guard' };
+
+  assertEquals(shouldRenderRunAction(start), true);
+  assertEquals(shouldRenderSettingsAction(start), false);
+  assertEquals(shouldOpenPlaygroundForNode(start), true);
+
+  assertEquals(shouldRenderRunAction(policy), false);
+  assertEquals(shouldRenderSettingsAction(policy), true);
+  assertEquals(shouldOpenPlaygroundForNode(policy), false);
+});
+
+Deno.test('pipeline config editor parses JSON with readable errors', () => {
+  assertEquals(parseConfigJson('{"require_auth":true}'), {
+    config: { require_auth: true },
+  });
+
+  const bad = parseConfigJson('{');
+  assertEquals('error' in bad, true);
+});
+
+Deno.test('pipeline config editor converts generic interactive rows', () => {
+  const rows = configToEditorRows({
+    require_auth: true,
+    window: 60,
+    upstream: 'wss://relay.example',
+    kinds: [1, 3],
+    condition: { message_type: 'REQ' },
+  });
+
+  const updated = updateConfigFromEditorRows(rows.map((row: any) => {
+    if (row.key === 'window') return { ...row, value: '120' };
+    if (row.key === 'require_auth') return { ...row, value: false };
+    return row;
+  }));
+
+  assertEquals(updated, {
+    config: {
+      require_auth: false,
+      window: 120,
+      upstream: 'wss://relay.example',
+      kinds: [1, 3],
+      condition: { message_type: 'REQ' },
+    },
+  });
 });
