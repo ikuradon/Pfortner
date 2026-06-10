@@ -1,10 +1,10 @@
-import { assertEquals, assertStringIncludes } from 'jsr:@std/assert@1.0.18';
+import { assertEquals, assertRejects, assertStringIncludes } from 'jsr:@std/assert@1.0.18';
 import {
   graphToPipelines,
   matchExecutionSteps,
   pipelinesToGraph,
   validatePipelineGraph,
-} from '../../admin/static/pipeline_graph.js';
+} from '../../admin/islands/pipeline/graph.js';
 import {
   configToEditorRows,
   parseConfigJson,
@@ -12,7 +12,7 @@ import {
   shouldRenderRunAction,
   shouldRenderSettingsAction,
   updateConfigFromEditorRows,
-} from '../../admin/static/pipeline_config_editor.js';
+} from '../../admin/islands/pipeline/config_editor.js';
 import {
   applyHistoryChange,
   buildPipelineDraft,
@@ -28,7 +28,7 @@ import {
   PALETTE_COLLAPSED_KEY,
   recordDirectionHistorySnapshot,
   recordHistorySnapshot,
-} from '../../admin/static/pipeline_workbench_state.js';
+} from '../../admin/islands/pipeline/workbench_state.js';
 import { buildPublishConfirmationMessage, buildYamlPreview } from '../../admin/islands/pipeline/yaml_preview.ts';
 import { createInitialWorkbenchState, reduceWorkbench } from '../../admin/islands/pipeline/workbench_reducer.ts';
 import {
@@ -39,6 +39,21 @@ import {
   removeMatchCaseDraftConfig,
   shouldRenderInputPort,
 } from '../../admin/islands/pipeline/node_defaults.ts';
+
+Deno.test('pipeline helper implementations are not URL-addressed static files', async () => {
+  for (
+    const fileName of [
+      'pipeline_graph.js',
+      'pipeline_workbench_state.js',
+      'pipeline_config_editor.js',
+    ]
+  ) {
+    await assertRejects(
+      () => Deno.stat(new URL(`../../admin/static/${fileName}`, import.meta.url)),
+      Deno.errors.NotFound,
+    );
+  }
+});
 
 Deno.test('pipeline editor defaults protected-event to require authentication', () => {
   assertEquals(defaultConfigForPolicy('protected-event'), {

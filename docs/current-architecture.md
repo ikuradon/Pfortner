@@ -81,7 +81,6 @@ Authenticated `/admin/*` page route は Fresh-rendered page を返す。`/admin/
 - `admin/islands/pipeline/*`: graph canvas、toolbar、palette、modals、API client、reducer、viewport/minimap/canvas interaction hook、keyboard hook。
 - `admin/islands/pipeline/{graph.js,workbench_state.js,config_editor.js}`: Pipeline Workbench の pure helper 実体。Fresh island/reducer code は `admin/static` の helper 実装を import しない。
 - `admin/static/islands/PipelineWorkbench.js`: `deno task build:admin-islands` の生成 output。programmatic Fresh app が URL-addressed island chunk を必要とする間だけ残す compatibility artifact で、source of truth は `admin/islands/PipelineWorkbench.browser.tsx` と `admin/islands/pipeline/*` である。
-- `admin/static/pipeline_{graph,workbench_state,config_editor}.js`: 旧 static Workbench bridge 用の一時互換 helper copy。生成済み `PipelineWorkbench.js` からは import されていないため、次の削減対象は static file expectations と tests を更新してこれらを削除すること。
 
 古い custom SPA shell (`AdminAppShell`, `admin/static/app.js`, `admin/static/router.js`, `admin/static/page_templates.js`) は active architecture から削除済みである。複雑な interactive UI は段階的に Fresh islands へ移す。
 

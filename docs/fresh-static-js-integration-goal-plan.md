@@ -24,7 +24,7 @@
 - `admin/islands/PipelineWorkbench.tsx` is the Fresh island composition root, and `admin/islands/pipeline/*` now owns reducer-backed canvas render, viewport state, node drag, selection, minimap drag, edge rewiring, keyboard shortcuts, settings/playground/save/load/publish actions, and SSR initial graph props.
 - `admin/islands/pipeline/{graph.js,workbench_state.js,config_editor.js}` are the Fresh-side pure helper modules. Fresh island/reducer/component code must not import implementation from `admin/static`.
 - `admin/static/islands/PipelineWorkbench.js` is now a generated browser bundle from `admin/islands/PipelineWorkbench.browser.tsx`; it remains URL-addressed static output only because the programmatic Fresh app still needs an island chunk URL during the transition.
-- `admin/static/pipeline_graph.js`, `admin/static/pipeline_workbench_state.js`, and `admin/static/pipeline_config_editor.js` remain stale temporary browser compatibility copies and should be removed after static file expectations are updated.
+- `admin/static/pipeline_graph.js`, `admin/static/pipeline_workbench_state.js`, and `admin/static/pipeline_config_editor.js` are removed; helper tests import the Fresh-side modules directly.
 - `admin/static/fresh_nav.js` is the admin-local client entry for the programmatic Fresh app. It handles `f-client-nav` / `Partial` replacement, layout behavior, page-local behavior that was moved out of deleted URL scripts, and hand-written admin island chunk mounting.
 - `admin/static/{client,dashboard,connections,metrics,blocklist,config,logs,utils}.js` are removed. Their behavior is currently initialized from `admin/static/fresh_nav.js`.
 - `admin/fresh_islands.ts` uses `@fresh/core/internal` to install a hand-written `ProdBuildCache` that points Fresh SSR at `/admin/static/fresh_nav.js` and the admin island chunk URLs, including `/admin/static/islands/PipelineWorkbench.js`.
@@ -32,8 +32,8 @@
 ## Final Completion Gates
 
 - [ ] `admin/islands/PipelineWorkbench.tsx` and its `admin/islands/pipeline/*` modules own Workbench browser interactions through Preact hooks/reducer state, not through the hand-written `admin/static/islands/PipelineWorkbench.js` controller.
-- [ ] No island/reducer/component code imports implementation from `admin/static/*.js`.
-- [ ] Pure helper implementation files live outside `admin/static`; any remaining `admin/static/pipeline_*.js` files are tiny transitional URL compatibility shims or are removed.
+- [x] No island/reducer/component code imports implementation from `admin/static/*.js`.
+- [x] Pure helper implementation files live outside `admin/static`; any remaining `admin/static/pipeline_*.js` files are tiny transitional URL compatibility shims or are removed.
 - [ ] `admin/static/islands/PipelineWorkbench.js` is removed or reduced to a generated/compatibility artifact that no longer contains Workbench behavior.
 - [ ] `admin/fresh_islands.ts` no longer needs to register `PipelineWorkbench` as a handwritten static chunk, or the remaining bridge is documented as a minimal Fresh runtime compatibility layer with no Workbench behavior.
 - [ ] Page-local behavior is either migrated into islands/client entry modules or documented as intentionally URL-addressed static behavior with a removal plan and tests.
@@ -285,7 +285,9 @@
     - Removed the old static controller behavior test block from `admin/static/fresh_nav.test.js`; the file now keeps partial navigation mount coverage plus a mountable module smoke test for the generated chunk.
     - Added `admin/main.test.ts` assertions that the registered chunk no longer contains old static controller entry points or static helper imports.
     - Existing Fresh island reducer/action/interaction tests remain the behavior source of truth while the generated bundle is only a deployable artifact.
-  - [ ] Remove `admin/static/pipeline_{graph,workbench_state,config_editor}.js` after the generated adapter no longer imports static helper copies.
+  - [x] Remove `admin/static/pipeline_{graph,workbench_state,config_editor}.js` after the generated adapter no longer imports static helper copies.
+    - `src/admin/pipelines-static.test.ts` now imports helper behavior from `admin/islands/pipeline/*`.
+    - Added a regression test that the old helper implementation files are no longer URL-addressed static files.
 
 - [ ] **Step 6: Browser QA**
 
