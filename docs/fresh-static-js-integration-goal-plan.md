@@ -257,6 +257,7 @@
   - [x] Removed the Fresh island toolbar Run no-op so playground launch is owned by the start-node action.
   - [x] Pass active config pipelines and plugin names into `PipelineWorkbench` as SSR props so the initial graph render no longer depends on client-side config/plugin fetches.
   - [x] Stop `PipelineWorkbench` from fetching active config and plugin lists after SSR render; mount-time loading now checks only saved DAG drafts.
+  - [x] Remove the legacy `initialDataLoaded` reducer action and unused active config/plugin client fetchers.
 
 - [ ] **Step 5: Shrink or remove the static bridge**
 

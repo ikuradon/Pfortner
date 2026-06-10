@@ -1,6 +1,6 @@
 import { assertEquals, assertMatch, assertStrictEquals } from '@std/assert';
 import { graphToPipelines, pipelinesToGraph, validatePipelineGraph } from './graph.js';
-import { buildPipelineDraft, fingerprintPipelines, normalizeWorkbenchDraft } from './workbench_state.js';
+import { buildPipelineDraft, fingerprintPipelines } from './workbench_state.js';
 import { evaluatePipeline } from './api_client.ts';
 import {
   createInitialWorkbenchState,
@@ -562,72 +562,6 @@ Deno.test('workbench reducer loads saved draft as undoable replace', () => {
     state.graphs.client.nodes.some((node) => node.policy === 'accept'),
     false,
   );
-});
-
-Deno.test('workbench reducer initial data prefers draft graphs over config pipelines', () => {
-  const configPipelines = {
-    client: [{ policy: 'accept' }],
-    server: [{ policy: 'rate-limit' }],
-  };
-  const draftGraphs = pipelinesToGraph({
-    client: [{ policy: 'write-guard' }],
-    server: [],
-  });
-  const publishedFingerprint = fingerprintPipelines(configPipelines);
-  const draft = buildPipelineDraft({
-    graphs: draftGraphs,
-    viewports: {
-      client: { zoom: 1.2, pan: { x: 10, y: 20 } },
-      server: { zoom: 1, pan: { x: 0, y: 0 } },
-    },
-    publishedFingerprint,
-    now: 1000,
-  });
-  const normalizedDraft = normalizeWorkbenchDraft(draft);
-  let state = createInitialWorkbenchState({
-    graphs: pipelinesToGraph({ client: [], server: [] }),
-    plugins: [],
-    publishedFingerprint: '',
-  });
-
-  assertEquals('error' in normalizedDraft, false);
-
-  state = reduceWorkbench(state, {
-    type: 'initialDataLoaded',
-    pipelines: configPipelines,
-    plugins: ['write-guard', 'rate-limit'],
-    draft,
-  });
-
-  assertEquals(
-    state.graphs.client.nodes.some((node) => node.policy === 'write-guard'),
-    true,
-  );
-  assertEquals(
-    state.graphs.client.nodes.some((node) => node.policy === 'accept'),
-    false,
-  );
-  assertEquals(state.plugins, ['write-guard', 'rate-limit']);
-  assertEquals(state.publishedFingerprint, publishedFingerprint);
-  assertEquals(state.viewports.client.pan, { x: 10, y: 20 });
-
-  state = reduceWorkbench(state, {
-    type: 'initialDataLoaded',
-    pipelines: configPipelines,
-    plugins: ['accept'],
-    draft: null,
-  });
-
-  assertEquals(
-    state.graphs.client.nodes.some((node) => node.policy === 'accept'),
-    true,
-  );
-  assertEquals(
-    state.graphs.client.nodes.some((node) => node.policy === 'write-guard'),
-    false,
-  );
-  assertEquals(state.plugins, ['accept']);
-  assertEquals(state.publishedFingerprint, publishedFingerprint);
 });
 
 Deno.test('workbench draft selection falls back to local draft when server draft is invalid', () => {

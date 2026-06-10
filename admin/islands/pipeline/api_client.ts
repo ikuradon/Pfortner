@@ -35,22 +35,6 @@ function sameOriginJsonPost(body: unknown): RequestInit {
   };
 }
 
-export async function fetchAdminConfig(): Promise<unknown> {
-  return await readJson(
-    await fetch('/admin/api/config', { credentials: 'same-origin' }),
-  );
-}
-
-export async function fetchAdminPlugins(): Promise<{ plugins: string[] }> {
-  const data = await readJson(
-    await fetch('/admin/api/plugins', { credentials: 'same-origin' }),
-  );
-  if (!isRecord(data) || !Array.isArray(data.plugins)) return { plugins: [] };
-  return {
-    plugins: data.plugins.filter((plugin): plugin is string => typeof plugin === 'string'),
-  };
-}
-
 export async function fetchPipelineDraft(): Promise<unknown | null> {
   const data = await readJson(
     await fetch('/admin/api/pipeline-draft', { credentials: 'same-origin' }),

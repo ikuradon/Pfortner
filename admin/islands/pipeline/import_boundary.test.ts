@@ -37,3 +37,9 @@ Deno.test('PipelineWorkbench does not fetch active config or plugins after SSR r
   assertEquals(source.includes('fetchAdminConfig'), false);
   assertEquals(source.includes('fetchAdminPlugins'), false);
 });
+
+Deno.test('workbench reducer does not keep legacy active config load action', async () => {
+  const source = await Deno.readTextFile(new URL('./workbench_reducer.ts', import.meta.url));
+
+  assertEquals(source.includes('initialDataLoaded'), false);
+});

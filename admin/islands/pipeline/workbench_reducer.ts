@@ -6,7 +6,7 @@ import {
   recordDirectionHistorySnapshot,
   recordHistorySnapshot,
 } from './workbench_state.js';
-import { graphToPipelines, matchExecutionSteps, pipelinesToGraph, validatePipelineGraph } from './graph.js';
+import { graphToPipelines, matchExecutionSteps, validatePipelineGraph } from './graph.js';
 import { defaultConfigForPolicy } from './node_defaults.ts';
 import { buildYamlPreview } from './yaml_preview.ts';
 import type {
@@ -83,12 +83,6 @@ export type WorkbenchAction =
   | { type: 'settingsApplied' }
   | { type: 'publishModalOpened' }
   | { type: 'publishConfirmed' }
-  | {
-    type: 'initialDataLoaded';
-    pipelines: unknown;
-    plugins: string[];
-    draft: unknown | null;
-  }
   | {
     type: 'graphsLoaded';
     graphs: PipelineGraphsInput;
@@ -399,10 +393,6 @@ function recordGraphsReplaceHistory(
     client: recordHistorySnapshot(state.history.client, graphs.client),
     server: recordHistorySnapshot(state.history.server, graphs.server),
   };
-}
-
-function sanitizePlugins(plugins: string[]): string[] {
-  return plugins.filter((plugin) => typeof plugin === 'string');
 }
 
 function emptyDirectionSelections(): DirectionSelections {
@@ -775,51 +765,6 @@ function reduceWorkbenchInner(
 
   if (action.type === 'publishConfirmed') {
     return setActiveModal(state, { type: 'none' });
-  }
-
-  if (action.type === 'initialDataLoaded') {
-    const configPipelines = normalizePipelineEntries(action.pipelines);
-    const configGraphs = normalizePipelineGraphs(
-      pipelinesToGraph(configPipelines) as PipelineGraphsInput,
-    );
-    const publishedFingerprint = fingerprintPipelines(configPipelines);
-    let graphs = configGraphs;
-    let viewports = cloneValue(DEFAULT_VIEWPORT);
-    let status: WorkbenchStatus = {
-      message: 'Loaded active config',
-      kind: 'success',
-    };
-
-    if (action.draft !== null && action.draft !== undefined) {
-      const normalized = normalizeWorkbenchDraft(action.draft);
-      if (!('error' in normalized)) {
-        graphs = normalizePipelineGraphs(normalized.draft.graphs);
-        viewports = normalizeViewports(normalized.draft.viewports);
-        status = {
-          message: 'Loaded saved DAG',
-          kind: 'success',
-        };
-      }
-    }
-
-    return {
-      ...state,
-      graphs,
-      history: initialDirectionHistoryState(graphs),
-      viewports,
-      selectedNodeIds: [],
-      selectedNodeIdsByDirection: emptyDirectionSelections(),
-      executionNodeIdsByDirection: clearAllExecution(),
-      plugins: sanitizePlugins(action.plugins),
-      publishedFingerprint,
-      savedDraftFingerprint: draftFingerprint(graphs, viewports),
-      status,
-      ui: {
-        ...state.ui,
-        activeModal: { type: 'none' },
-        marquee: null,
-      },
-    };
   }
 
   if (action.type === 'graphsLoaded') {
