@@ -36,11 +36,17 @@ type DragState =
     type: 'minimap';
     model: MinimapModel;
     pointerOffset: Point;
+  }
+  | {
+    type: 'wire';
+    from: string;
+    fromPort: string;
   };
 
 export interface CanvasInteractions {
   onWheel(event: WheelEvent): void;
   onNodePointerDown(event: PointerEvent, node: PipelineNode): void;
+  onOutputPointerDown(event: PointerEvent, nodeId: string, portName: string): void;
   onMinimapPointerDown(event: PointerEvent, preserveViewportOffset: boolean): void;
 }
 
@@ -133,6 +139,26 @@ export function minimapPointFromClientPoint(
   };
 }
 
+interface PortTargetLike {
+  getAttribute?(name: string): string | null;
+  closest?(selector: string): PortTargetLike | null;
+}
+
+function asPortTargetLike(target: unknown): PortTargetLike | null {
+  return target !== null && typeof target === 'object' ? target as PortTargetLike : null;
+}
+
+export function inputPortNodeIdFromTarget(target: unknown): string | null {
+  const candidate = asPortTargetLike(target);
+  const port = candidate?.getAttribute?.('data-port-kind') === 'input'
+    ? candidate
+    : candidate?.closest?.('[data-port-kind="input"]') ?? null;
+  if (port?.getAttribute?.('data-port-kind') !== 'input') return null;
+  if (port.getAttribute('data-port-name') !== 'in') return null;
+  const nodeId = port.getAttribute('data-node-id');
+  return nodeId && nodeId.length > 0 ? nodeId : null;
+}
+
 export function useCanvasInteractions(options: {
   graph: PipelineGraph;
   viewport: Viewport;
@@ -141,6 +167,7 @@ export function useCanvasInteractions(options: {
   minimapRef: ElementRef<SVGSVGElement>;
   onViewportChange?(viewport: Viewport): void;
   onNodeMove?(nodeId: string, position: Point): void;
+  onEdgeReplace?(from: string, fromPort: string, to: string): void;
 }): CanvasInteractions {
   const dragState = useRef<DragState | null>(null);
 
@@ -170,6 +197,10 @@ export function useCanvasInteractions(options: {
         return;
       }
 
+      if (state.type === 'wire') {
+        return;
+      }
+
       const rect = options.minimapRef.current?.getBoundingClientRect();
       if (!rect) return;
       const point = minimapPointFromClientPoint(event, rect, {
@@ -187,7 +218,12 @@ export function useCanvasInteractions(options: {
       });
     }
 
-    function handlePointerUp(): void {
+    function handlePointerUp(event: PointerEvent): void {
+      const state = dragState.current;
+      if (state?.type === 'wire') {
+        const to = inputPortNodeIdFromTarget(event.target);
+        if (to) options.onEdgeReplace?.(state.from, state.fromPort, to);
+      }
       dragState.current = null;
     }
 
@@ -230,6 +266,18 @@ export function useCanvasInteractions(options: {
           rect,
         ),
         nodeStart: { x: node.x ?? 0, y: node.y ?? 0 },
+      };
+    },
+
+    onOutputPointerDown(event, nodeId, portName) {
+      if (!options.onEdgeReplace) return;
+      if (event.button !== undefined && event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      dragState.current = {
+        type: 'wire',
+        from: nodeId,
+        fromPort: portName,
       };
     },
 

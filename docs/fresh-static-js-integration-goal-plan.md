@@ -240,7 +240,7 @@
 
   - [x] Added `admin/islands/pipeline/use_canvas_interactions.ts` with pure viewport pan/zoom, graph point, node drag, and minimap point helpers.
   - [x] Wired Fresh `Canvas` wheel pan/zoom, node pointer drag, and minimap pointer drag callbacks to reducer dispatch through `PipelineWorkbench.tsx`.
-  - [ ] Move connection drag from output port to input port into the hook.
+  - [x] Move connection drag from output port to input port into the hook.
   - [ ] Move selection and marquee behavior into reducer-backed Fresh island state.
 
 - [ ] **Step 4: Preserve settings/playground/save/load/publish parity**

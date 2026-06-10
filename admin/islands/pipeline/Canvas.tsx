@@ -20,6 +20,7 @@ export function Canvas(props: {
   canvasSize?: Size;
   onViewportChange?(viewport: Viewport): void;
   onNodeMove?(nodeId: string, position: { x: number; y: number }): void;
+  onEdgeReplace?(from: string, fromPort: string, to: string): void;
   onNodeDoubleClick(nodeId: string): void;
 }) {
   const viewport = props.viewport ?? DEFAULT_VIEWPORT;
@@ -36,6 +37,7 @@ export function Canvas(props: {
     minimapRef,
     onViewportChange: props.onViewportChange,
     onNodeMove: props.onNodeMove,
+    onEdgeReplace: props.onEdgeReplace,
   });
 
   return (
@@ -136,6 +138,7 @@ export function Canvas(props: {
                     data-node-id={node.id}
                     data-port-kind='output'
                     data-port-name='next'
+                    onPointerDown={(event) => interactions.onOutputPointerDown(event, node.id, 'next')}
                   />
                 </g>
               );

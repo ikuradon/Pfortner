@@ -328,6 +328,15 @@ export default function PipelineWorkbench() {
     });
   }
 
+  function handleEdgeReplace(from: string, fromPort: string, to: string): void {
+    dispatch({
+      type: 'edgeReplaced',
+      from,
+      fromPort,
+      to,
+    });
+  }
+
   return (
     <div class={workbenchClass} id='pipeline-workbench'>
       <div class='pipeline-mode-bar' aria-label='Pipeline direction'>
@@ -403,6 +412,7 @@ export default function PipelineWorkbench() {
             viewport={activeViewport}
             onViewportChange={handleViewportChange}
             onNodeMove={handleNodeMove}
+            onEdgeReplace={handleEdgeReplace}
             onNodeDoubleClick={(nodeId) => dispatch({ type: 'nodeDoubleClicked', nodeId })}
           />
         </section>

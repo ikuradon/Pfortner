@@ -1,6 +1,7 @@
 import { assertAlmostEquals, assertEquals } from '@std/assert';
 import {
   graphPointFromClientPoint,
+  inputPortNodeIdFromTarget,
   nodePositionFromDrag,
   panViewportWithWheel,
   zoomViewportAtPoint,
@@ -82,4 +83,37 @@ Deno.test('canvas interactions convert client points and node drags through view
     ),
     { x: 280, y: 120 },
   );
+});
+
+Deno.test('canvas interactions read input port targets for wire replacement', () => {
+  const inputPort = {
+    getAttribute(name: string): string | null {
+      const values: Record<string, string> = {
+        'data-port-kind': 'input',
+        'data-port-name': 'in',
+        'data-node-id': 'client-node-2',
+      };
+      return values[name] ?? null;
+    },
+  };
+  const child = {
+    closest(selector: string): typeof inputPort | null {
+      return selector === '[data-port-kind="input"]' ? inputPort : null;
+    },
+  };
+  const outputPort = {
+    getAttribute(name: string): string | null {
+      const values: Record<string, string> = {
+        'data-port-kind': 'output',
+        'data-port-name': 'next',
+        'data-node-id': 'client-node-1',
+      };
+      return values[name] ?? null;
+    },
+  };
+
+  assertEquals(inputPortNodeIdFromTarget(inputPort), 'client-node-2');
+  assertEquals(inputPortNodeIdFromTarget(child), 'client-node-2');
+  assertEquals(inputPortNodeIdFromTarget(outputPort), null);
+  assertEquals(inputPortNodeIdFromTarget(null), null);
 });
