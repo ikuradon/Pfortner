@@ -109,15 +109,17 @@ Deno.test('admin app installs Fresh island build cache for admin islands', async
 
   assertEquals(html.includes(removedEmptyFreshBootImport), false);
   assertEquals(html.includes('/admin/static/fresh_nav.js'), true);
-  assertEquals(html.includes('/admin/static/islands/AdminIslandSmoke.js'), true);
+  assertEquals(html.includes('/admin/static/islands/PipelineWorkbench.js'), true);
+  assertEquals(html.includes('/admin/static/pipelines.js'), false);
+  assertEquals(/id="btn-undo-pipeline"[^>]*disabled/.test(html), true);
+  assertEquals(/id="btn-redo-pipeline"[^>]*disabled/.test(html), true);
   assertEquals(html.includes('frsh:island'), true);
-  assertEquals(html.includes('AdminIslandSmoke'), true);
-  assertEquals(html.includes('data-admin-island-smoke'), true);
+  assertEquals(html.includes('PipelineWorkbench'), true);
   assertEquals(html.includes('rel="icon"'), true);
   assertEquals(html.includes('href="data:,"'), true);
 
   const chunkRes = await handler(
-    makeRequest('/admin/static/islands/AdminIslandSmoke.js', 'test-token'),
+    makeRequest('/admin/static/islands/PipelineWorkbench.js', 'test-token'),
   );
   assertEquals(chunkRes.status, 200);
   assertEquals(
@@ -125,7 +127,7 @@ Deno.test('admin app installs Fresh island build cache for admin islands', async
     true,
   );
   const chunkText = await chunkRes.text();
-  assertEquals(chunkText.includes('mountAdminIslandSmoke'), true);
+  assertEquals(chunkText.includes('mountPipelineWorkbench'), true);
 });
 
 Deno.test('admin app does not keep legacy deny-list page route', async () => {

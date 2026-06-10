@@ -1,6 +1,7 @@
 import type { App } from '@fresh/core';
 import { IslandPreparer, ProdBuildCache, setBuildCache } from '@fresh/core/internal';
 import * as AdminIslandSmokeModule from './islands/AdminIslandSmoke.tsx';
+import * as PipelineWorkbenchModule from './islands/PipelineWorkbench.tsx';
 
 type AdminIslandModule = Record<string, unknown>;
 
@@ -19,6 +20,11 @@ const ADMIN_ISLANDS: AdminIslandSpec[] = [
     module: AdminIslandSmokeModule,
     chunk: ADMIN_ISLAND_SMOKE_CHUNK,
     name: 'AdminIslandSmoke',
+  },
+  {
+    module: PipelineWorkbenchModule,
+    chunk: '/admin/static/islands/PipelineWorkbench.js',
+    name: 'PipelineWorkbench',
   },
 ];
 

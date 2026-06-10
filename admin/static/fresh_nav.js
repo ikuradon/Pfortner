@@ -3,7 +3,6 @@
 const PAGE_INITIALIZERS = {
   '/admin/static/dashboard.js': 'initDashboardPage',
   '/admin/static/connections.js': 'initConnectionsPage',
-  '/admin/static/pipelines.js': 'initPipelinesPage',
   '/admin/static/metrics.js': 'initMetricsPage',
   '/admin/static/blocklist.js': 'initBlocklistPage',
   '/admin/static/config.js': 'initConfigPage',
@@ -12,6 +11,7 @@ const PAGE_INITIALIZERS = {
 
 const ADMIN_ISLAND_MODULES = {
   '/admin/static/islands/AdminIslandSmoke.js': () => import('./islands/AdminIslandSmoke.js'),
+  '/admin/static/islands/PipelineWorkbench.js': () => import('./islands/PipelineWorkbench.js'),
 };
 
 let booted = false;

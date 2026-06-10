@@ -55,11 +55,19 @@ class FakeDocument {
   }
 
   querySelector(selector) {
-    if (selector !== '[data-admin-island-smoke="true"]') return null;
-    return this.childNodes.find((node) =>
-      node.nodeType === 1 &&
-      node.getAttribute('data-admin-island-smoke') === 'true'
-    ) ?? null;
+    if (selector === '[data-admin-island-smoke="true"]') {
+      return this.childNodes.find((node) =>
+        node.nodeType === 1 &&
+        node.getAttribute('data-admin-island-smoke') === 'true'
+      ) ?? null;
+    }
+    if (selector === '#pipeline-workbench') {
+      return this.childNodes.find((node) =>
+        node.nodeType === 1 &&
+        node.getAttribute('id') === 'pipeline-workbench'
+      ) ?? null;
+    }
+    return null;
   }
 
   querySelectorAll(selector) {
@@ -101,24 +109,60 @@ class FakeElement {
   parentNode = null;
   parentElement = null;
   nextSibling = null;
+  childNodes = [];
   listeners = [];
   dataset = {};
   textContent = '';
 
-  constructor(tagName, attributes = {}, textContent = '') {
+  constructor(tagName, attributes = {}, textContent = '', childNodes = []) {
     this.tagName = tagName.toUpperCase();
     this.attributes = new Map(Object.entries(attributes));
     this.href = attributes.href;
     this.target = attributes.target ?? '';
     this.textContent = textContent;
+    this.setChildNodes(childNodes);
   }
 
   getAttribute(name) {
     return this.attributes.get(name) ?? null;
   }
 
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
+    if (name === 'href') this.href = String(value);
+    if (name === 'target') this.target = String(value);
+  }
+
   hasAttribute(name) {
     return this.attributes.has(name);
+  }
+
+  setChildNodes(childNodes) {
+    this.childNodes = childNodes;
+    for (const [index, node] of this.childNodes.entries()) {
+      node.parentNode = this;
+      node.parentElement = this;
+      node.nextSibling = this.childNodes[index + 1] ?? null;
+    }
+  }
+
+  matchesSelector(selector) {
+    if (selector.startsWith('#')) {
+      return this.getAttribute('id') === selector.slice(1);
+    }
+    if (selector === '[data-admin-island-smoke="true"]') {
+      return this.getAttribute('data-admin-island-smoke') === 'true';
+    }
+    return false;
+  }
+
+  querySelector(selector) {
+    if (this.matchesSelector(selector)) return this;
+    for (const child of this.childNodes) {
+      const match = child.querySelector?.(selector);
+      if (match) return match;
+    }
+    return null;
   }
 
   closest(selector) {
@@ -146,6 +190,7 @@ class FakeElement {
       this.tagName,
       Object.fromEntries(this.attributes),
       this.textContent,
+      this.childNodes.map((node) => node.clone()),
     );
     clone.dataset = { ...this.dataset };
     return clone;
@@ -187,6 +232,65 @@ async function waitFor(predicate) {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
   throw new Error('Timed out waiting for condition');
+}
+
+function pipelineWorkbenchFixture() {
+  const clientButton = new FakeElement('button', {
+    id: 'tab-client',
+    'aria-pressed': 'true',
+  }, 'Client');
+  const serverButton = new FakeElement('button', {
+    id: 'tab-server',
+    'aria-pressed': 'false',
+  }, 'Server');
+  const undoButton = new FakeElement('button', {
+    id: 'btn-undo-pipeline',
+  }, 'Undo');
+  const redoButton = new FakeElement('button', {
+    id: 'btn-redo-pipeline',
+  }, 'Redo');
+  const paletteToggle = new FakeElement('button', {
+    id: 'btn-toggle-palette',
+    'aria-label': 'Collapse palette',
+  }, '‹');
+  const palette = new FakeElement(
+    'aside',
+    {
+      id: 'palette-panel',
+      class: 'workbench-panel palette-panel',
+    },
+    '',
+    [paletteToggle],
+  );
+  const canvasTitle = new FakeElement('span', {
+    id: 'canvas-title',
+  }, 'Client Pipeline');
+  const workbench = new FakeElement(
+    'div',
+    {
+      id: 'pipeline-workbench',
+      class: 'pipeline-workbench',
+    },
+    '',
+    [
+      clientButton,
+      serverButton,
+      undoButton,
+      redoButton,
+      palette,
+      canvasTitle,
+    ],
+  );
+
+  return {
+    canvasTitle,
+    clientButton,
+    paletteToggle,
+    redoButton,
+    serverButton,
+    undoButton,
+    workbench,
+  };
 }
 
 Deno.test('fresh nav boot stores Fresh island boot arguments and mounts islands', async () => {
@@ -469,6 +573,118 @@ Deno.test('fresh nav mounts island modules from partial navigation Link header',
   }
 });
 
+Deno.test('fresh nav mounts PipelineWorkbench island introduced by partial navigation', async () => {
+  const currentDocument = new FakeDocument({
+    title: 'Blocklist',
+    childNodes: [
+      new FakeComment('frsh:partial:admin-content'),
+      new FakeElement('div'),
+      new FakeComment('/frsh:partial'),
+    ],
+  });
+  const workbench = new FakeElement('div', {
+    id: 'pipeline-workbench',
+  });
+  const nextDocument = new FakeDocument({
+    title: 'Pipelines',
+    childNodes: [
+      new FakeComment('frsh:partial:admin-content'),
+      workbench,
+      new FakeComment('/frsh:partial'),
+    ],
+    moduleElements: [
+      new FakeElement('script', {
+        type: 'module',
+      }, 'import PipelineWorkbench from "/admin/static/islands/PipelineWorkbench.js";'),
+    ],
+  });
+  const window = new FakeWindow();
+  const location = {
+    href: 'http://localhost/admin/blocklist',
+    origin: 'http://localhost',
+    assignCalls: [],
+    assign(url) {
+      this.assignCalls.push(url);
+    },
+  };
+  const restoreDocument = setGlobal('document', currentDocument);
+  const restoreWindow = setGlobal('window', window);
+  const restoreNode = setGlobal('Node', { ELEMENT_NODE: 1, COMMENT_NODE: 8 });
+  const restoreNodeFilter = setGlobal('NodeFilter', { SHOW_COMMENT: 128 });
+  const restoreLocation = setGlobal('location', location);
+  const restoreHistory = setGlobal('history', {
+    pushState(_state, _title, url) {
+      location.href = new URL(url, location.href).href;
+    },
+    replaceState(_state, _title, url) {
+      location.href = new URL(url, location.href).href;
+    },
+  });
+  const restoreFetch = setGlobal('fetch', () =>
+    Promise.resolve({
+      ok: true,
+      url: 'http://localhost/admin/pipelines',
+      headers: { get: () => null },
+      text: () => Promise.resolve('<html></html>'),
+    }));
+  const restoreParser = setGlobal(
+    'DOMParser',
+    class {
+      parseFromString() {
+        return nextDocument;
+      }
+    },
+  );
+  const restoreBootArgs = setGlobal(
+    '__PFORTNER_FRESH_ISLAND_BOOT_ARGS__',
+    undefined,
+  );
+  delete globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__;
+
+  try {
+    const { boot } = await importFreshNav();
+
+    boot({}, []);
+    const clickListener = currentDocument.listeners.find((entry) => entry.type === 'click')?.listener;
+    const anchor = new FakeElement('a', {
+      href: 'http://localhost/admin/pipelines',
+      'f-client-nav': 'true',
+    });
+
+    clickListener({
+      target: anchor,
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault() {},
+    });
+
+    await waitFor(() =>
+      currentDocument.querySelector('#pipeline-workbench')
+        ?.dataset.mounted === 'true'
+    );
+
+    assertEquals(location.assignCalls, []);
+    assertEquals(
+      currentDocument.querySelector('#pipeline-workbench')?.dataset.mounted,
+      'true',
+    );
+  } finally {
+    restoreBootArgs();
+    restoreParser();
+    restoreFetch();
+    restoreHistory();
+    restoreLocation();
+    restoreNodeFilter();
+    restoreNode();
+    restoreWindow();
+    restoreDocument();
+  }
+});
+
 Deno.test('admin island smoke static chunk exports a mountable module', async () => {
   const mod = await import(
     `./islands/AdminIslandSmoke.js?test=${crypto.randomUUID()}`
@@ -476,4 +692,46 @@ Deno.test('admin island smoke static chunk exports a mountable module', async ()
 
   assertEquals(typeof mod.default, 'function');
   assertEquals(typeof mod.default.mount, 'function');
+});
+
+Deno.test('PipelineWorkbench static chunk exports a mountable module', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+
+  assertEquals(typeof mod.default, 'function');
+  assertEquals(typeof mod.default.mount, 'function');
+});
+
+Deno.test('PipelineWorkbench static chunk wires shell controls', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture();
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+
+  mod.default.mount(document);
+  fixture.serverButton.click();
+
+  assertEquals(fixture.clientButton.getAttribute('aria-pressed'), 'false');
+  assertEquals(fixture.serverButton.getAttribute('aria-pressed'), 'true');
+  assertEquals(fixture.canvasTitle.textContent, 'Server Pipeline');
+
+  fixture.paletteToggle.click();
+
+  assertEquals(
+    fixture.workbench.getAttribute('class')?.includes('palette-collapsed'),
+    true,
+  );
+  assertEquals(fixture.paletteToggle.getAttribute('aria-label'), 'Expand palette');
+  assertEquals(fixture.paletteToggle.textContent, '›');
+});
+
+Deno.test('fresh nav does not keep legacy pipelines page initializer', async () => {
+  const source = await Deno.readTextFile(new URL('./fresh_nav.js', import.meta.url));
+
+  assertEquals(source.includes('/admin/static/pipelines.js'), false);
+  assertEquals(source.includes('initPipelinesPage'), false);
 });
