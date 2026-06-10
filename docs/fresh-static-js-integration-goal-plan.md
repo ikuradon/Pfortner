@@ -416,6 +416,10 @@
   - document why the bridge remains;
   - ensure the bridge does not mount Workbench or page-local behavior directly.
 
+  Progress:
+
+  - [x] Made `admin/static/fresh_nav.js` pass direct `deno lint admin/static/fresh_nav.js` by removing bare `window` references while preserving fake-window test compatibility. This prepares the client entry source to move outside `admin/static`.
+
 - [ ] **Step 3: Commit runtime bridge reduction**
 
   Run targeted SSR and partial navigation tests, then commit.

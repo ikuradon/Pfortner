@@ -11,6 +11,10 @@ const ADMIN_ISLAND_MODULES = {
   '/admin/static/islands/PipelineWorkbench.js': () => import('./islands/PipelineWorkbench.js'),
 };
 
+function browserGlobal() {
+  return globalThis.window ?? globalThis;
+}
+
 let booted = false;
 let navigating = false;
 let dashboardPoller = null;
@@ -1269,7 +1273,7 @@ function createLogEventStream(options) {
   }
 
   function connect() {
-    const EventSourceCtor = window.EventSource;
+    const EventSourceCtor = browserGlobal().EventSource;
     if (typeof EventSourceCtor !== 'function') {
       setStatus('fallback', 'fallback');
       options.fallback?.();
@@ -1295,8 +1299,8 @@ function createLogEventStream(options) {
     close,
     connect,
     isClosed: () =>
-      !source || typeof window.EventSource !== 'function' ||
-      source.readyState === window.EventSource.CLOSED,
+      !source || typeof browserGlobal().EventSource !== 'function' ||
+      source.readyState === browserGlobal().EventSource.CLOSED,
   };
 }
 
@@ -1653,7 +1657,7 @@ function installNavigation() {
     navigate(anchor.href, 'push');
   });
 
-  window.addEventListener('popstate', () => {
+  browserGlobal().addEventListener('popstate', () => {
     navigate(location.href, 'replace');
   });
 }
