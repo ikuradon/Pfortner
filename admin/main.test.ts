@@ -114,6 +114,19 @@ Deno.test('admin config page uses the Fresh client entry without a page-local st
   assertEquals(html.includes('id="btn-reload-config"'), true);
 });
 
+Deno.test('admin dashboard page uses the Fresh client entry without a page-local static script', async () => {
+  const handler = createAdminApp(makeState());
+  const res = await handler(makeRequest('/admin/', 'test-token'));
+
+  assertEquals(res.status, 200);
+  const html = await res.text();
+  assertEquals(html.includes('/admin/static/fresh_nav.js'), true);
+  assertEquals(html.includes('/admin/static/dashboard.js'), false);
+  assertEquals(html.includes('/admin/static/utils.js'), false);
+  assertEquals(html.includes('id="stats-cards"'), true);
+  assertEquals(html.includes('id="throughput-chart-body"'), true);
+});
+
 Deno.test('admin app installs Fresh island build cache for admin islands', async () => {
   const handler = createAdminApp(makeState());
   const res = await handler(makeRequest('/admin/pipelines', 'test-token'));
@@ -236,7 +249,7 @@ Deno.test('admin app does not keep standalone playground page route', async () =
 Deno.test('admin app static JavaScript requires revalidation', async () => {
   const handler = createAdminApp(makeState());
   const res = await handler(
-    makeRequest('/admin/static/dashboard.js?v=test', 'test-token'),
+    makeRequest('/admin/static/fresh_nav.js?v=test', 'test-token'),
   );
 
   assertEquals(res.status, 200);

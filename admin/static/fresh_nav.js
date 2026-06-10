@@ -1,11 +1,12 @@
 // Lightweight Fresh-compatible partial navigation for the programmatic admin app.
 
 const PAGE_INITIALIZERS = {
-  '/admin/static/dashboard.js': 'initDashboardPage',
   '/admin/static/connections.js': 'initConnectionsPage',
   '/admin/static/metrics.js': 'initMetricsPage',
   '/admin/static/logs.js': 'initLogsPage',
 };
+
+const DASHBOARD_POLL_INTERVAL_MS = 5000;
 
 const ADMIN_ISLAND_MODULES = {
   '/admin/static/islands/AdminIslandSmoke.js': () => import('./islands/AdminIslandSmoke.js'),
@@ -14,6 +15,7 @@ const ADMIN_ISLAND_MODULES = {
 
 let booted = false;
 let navigating = false;
+let dashboardPoller = null;
 
 function mountThemeToggle() {
   const mount = document.getElementById('theme-toggle-mount');
@@ -59,6 +61,273 @@ function bindOnce(element, key, listener, type = 'click') {
   if (element.getAttribute(attribute) === 'true') return;
   element.setAttribute(attribute, 'true');
   element.addEventListener(type, listener);
+}
+
+function clearElementChildren(element) {
+  while (element?.firstChild) element.removeChild(element.firstChild);
+}
+
+function formatUptime(seconds) {
+  if (seconds === null || seconds === undefined) return 'unknown';
+  const total = Number(seconds);
+  if (!Number.isFinite(total)) return 'unknown';
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+async function fetchJsonOrNull(url, options) {
+  try {
+    const response = await fetch(url, {
+      credentials: 'same-origin',
+      ...options,
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+function createPagePoller({ intervalMs, run, runImmediately = true }) {
+  let timer = null;
+  let running = false;
+
+  async function refresh() {
+    if (running) return;
+    running = true;
+    try {
+      await run();
+    } finally {
+      running = false;
+    }
+  }
+
+  function stop() {
+    if (timer !== null) {
+      clearInterval(timer);
+      timer = null;
+    }
+  }
+
+  function start() {
+    stop();
+    if (runImmediately) refresh();
+    timer = setInterval(() => {
+      if (document.visibilityState !== 'hidden') refresh();
+    }, intervalMs);
+  }
+
+  return { refresh, start, stop };
+}
+
+function stopDashboardPoller() {
+  dashboardPoller?.stop();
+  dashboardPoller = null;
+}
+
+function formatDashboardMb(bytes) {
+  return `${Math.round(bytes / 1024 / 1024)} MB`;
+}
+
+function makeDashboardBadge(cssClass, text) {
+  const span = document.createElement('span');
+  span.className = cssClass;
+  span.textContent = text;
+  return span;
+}
+
+function makeDashboardCard(title, valueNode, subtitle) {
+  const card = document.createElement('div');
+  card.className = 'card';
+
+  const titleEl = document.createElement('div');
+  titleEl.className = 'card-title';
+  titleEl.textContent = title;
+  card.appendChild(titleEl);
+
+  const valueEl = document.createElement('div');
+  valueEl.className = 'card-value';
+  if (typeof valueNode === 'string') {
+    valueEl.textContent = valueNode;
+  } else {
+    valueEl.appendChild(valueNode);
+  }
+  card.appendChild(valueEl);
+
+  const subtitleEl = document.createElement('div');
+  subtitleEl.className = 'card-subtitle';
+  subtitleEl.textContent = subtitle;
+  card.appendChild(subtitleEl);
+
+  return card;
+}
+
+function updateDashboardStats(data) {
+  const cards = document.getElementById('stats-cards');
+  if (!cards) return;
+
+  const statusBadge = data.status === 'ok'
+    ? makeDashboardBadge('badge badge-success', 'OK')
+    : data.status === 'draining'
+    ? makeDashboardBadge('badge badge-warning', 'Draining')
+    : makeDashboardBadge('badge badge-danger', String(data.status));
+
+  const upstreamBadge = data.upstream?.status === 'ok'
+    ? makeDashboardBadge('badge badge-success', 'Online')
+    : makeDashboardBadge('badge badge-danger', String(data.upstream?.status ?? 'unknown'));
+
+  const active = data.connections?.active ?? 0;
+  const max = data.connections?.max ?? 0;
+  const pressure = data.connections?.pressure ?? 'normal';
+  const latency = data.upstream?.latency_ms !== null && data.upstream?.latency_ms !== undefined
+    ? `${data.upstream.latency_ms}ms`
+    : 'N/A';
+  const rss = data.memory?.rss ? formatDashboardMb(data.memory.rss) : 'N/A';
+  const heap = data.memory?.heapUsed ? formatDashboardMb(data.memory.heapUsed) : 'N/A';
+
+  clearElementChildren(cards);
+  cards.appendChild(makeDashboardCard('Status', statusBadge, `Uptime: ${formatUptime(data.uptime_seconds)}`));
+  cards.appendChild(makeDashboardCard('Connections', String(active), `Max: ${max}`));
+  cards.appendChild(makeDashboardCard('Upstream', upstreamBadge, `Latency: ${latency}`));
+  cards.appendChild(makeDashboardCard('Memory (RSS)', rss, `Heap: ${heap}`));
+
+  const pct = max > 0 ? Math.round((active / max) * 100) : 0;
+  const pressureClass = pct >= 90 ? 'progress-bar-danger' : pct >= 70 ? 'progress-bar-warning' : 'progress-bar-success';
+  const container = document.querySelector('.chart-container');
+  if (!container) return;
+
+  const titleEl = container.querySelector('.chart-title');
+  if (titleEl) titleEl.textContent = `Connection Pressure — ${pct}% (${active}/${max})`;
+
+  const bar = container.querySelector('.progress-bar');
+  if (bar) {
+    bar.className = `progress-bar ${pressureClass}`;
+    bar.style.width = `${pct}%`;
+  }
+
+  const pressureText = container.querySelector('strong');
+  if (pressureText) pressureText.textContent = pressure;
+}
+
+function renderDashboardThroughputChart(data) {
+  const container = document.getElementById('throughput-chart-body');
+  if (!container) return;
+
+  clearElementChildren(container);
+
+  if (!Array.isArray(data) || data.length === 0) {
+    const message = document.createElement('span');
+    message.className = 'text-muted';
+    message.textContent = 'No throughput data available';
+    container.appendChild(message);
+    return;
+  }
+
+  const maxVal = Math.max(
+    ...data.map((entry) => Math.max(entry.accept || 0, entry.reject || 0)),
+    1,
+  );
+  const barWidth = 8;
+  const barGap = 2;
+  const chartHeight = 80;
+  const totalWidth = data.length * (barWidth * 2 + barGap + 2);
+  const svgNs = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNs, 'svg');
+  svg.setAttribute('width', String(totalWidth));
+  svg.setAttribute('height', String(chartHeight));
+  svg.setAttribute('style', 'display:block;overflow:visible');
+
+  data.forEach((entry, index) => {
+    const x = index * (barWidth * 2 + barGap + 2);
+    const acceptHeight = Math.round(((entry.accept || 0) / maxVal) * chartHeight);
+    const rejectHeight = Math.round(((entry.reject || 0) / maxVal) * chartHeight);
+
+    if (acceptHeight > 0) {
+      const rect = document.createElementNS(svgNs, 'rect');
+      rect.setAttribute('x', String(x));
+      rect.setAttribute('y', String(chartHeight - acceptHeight));
+      rect.setAttribute('width', String(barWidth));
+      rect.setAttribute('height', String(acceptHeight));
+      rect.setAttribute('fill', 'var(--color-accent)');
+      rect.setAttribute('opacity', '0.8');
+      svg.appendChild(rect);
+    }
+
+    if (rejectHeight > 0) {
+      const rect = document.createElementNS(svgNs, 'rect');
+      rect.setAttribute('x', String(x + barWidth + 1));
+      rect.setAttribute('y', String(chartHeight - rejectHeight));
+      rect.setAttribute('width', String(barWidth));
+      rect.setAttribute('height', String(rejectHeight));
+      rect.setAttribute('fill', 'var(--color-danger)');
+      rect.setAttribute('opacity', '0.8');
+      svg.appendChild(rect);
+    }
+  });
+
+  const wrapper = document.createElement('div');
+  const scrollDiv = document.createElement('div');
+  scrollDiv.style.cssText = 'overflow-x:auto';
+  scrollDiv.appendChild(svg);
+  wrapper.appendChild(scrollDiv);
+
+  const legend = document.createElement('div');
+  legend.style.cssText = 'display:flex;gap:16px;margin-top:8px;font-size:11px;color:var(--color-text-muted)';
+
+  const acceptItem = document.createElement('span');
+  acceptItem.style.cssText = 'display:flex;align-items:center;gap:4px';
+  const acceptSwatch = document.createElement('span');
+  acceptSwatch.style.cssText =
+    'width:10px;height:10px;background:var(--color-accent);display:inline-block;border-radius:2px';
+  acceptItem.appendChild(acceptSwatch);
+  acceptItem.appendChild(document.createTextNode('Accept'));
+  legend.appendChild(acceptItem);
+
+  const rejectItem = document.createElement('span');
+  rejectItem.style.cssText = 'display:flex;align-items:center;gap:4px';
+  const rejectSwatch = document.createElement('span');
+  rejectSwatch.style.cssText =
+    'width:10px;height:10px;background:var(--color-danger);display:inline-block;border-radius:2px';
+  rejectItem.appendChild(rejectSwatch);
+  rejectItem.appendChild(document.createTextNode('Reject'));
+  legend.appendChild(rejectItem);
+
+  wrapper.appendChild(legend);
+  container.appendChild(wrapper);
+}
+
+async function pollDashboardStats() {
+  const data = await fetchJsonOrNull('/admin/api/health/detail');
+  if (data) updateDashboardStats(data);
+}
+
+async function pollDashboardThroughput() {
+  const data = await fetchJsonOrNull('/admin/api/metrics/throughput');
+  if (data) renderDashboardThroughputChart(data);
+}
+
+async function pollDashboard() {
+  await Promise.all([pollDashboardStats(), pollDashboardThroughput()]);
+}
+
+function initializeDashboardPage() {
+  const hasDashboard = document.getElementById('stats-cards') &&
+    document.getElementById('throughput-chart-body');
+  if (!hasDashboard) {
+    stopDashboardPoller();
+    return;
+  }
+
+  stopDashboardPoller();
+  dashboardPoller = createPagePoller({
+    intervalMs: DASHBOARD_POLL_INTERVAL_MS,
+    run: pollDashboard,
+  });
+  dashboardPoller.start();
 }
 
 function showConfigStatus(message, isError) {
@@ -317,6 +586,7 @@ function initializeBlocklistPage() {
 }
 
 function initializeClientEntryPageBehaviors() {
+  initializeDashboardPage();
   initializeConfigPage();
   initializeBlocklistPage();
 }

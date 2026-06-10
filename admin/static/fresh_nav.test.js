@@ -705,6 +705,35 @@ function blocklistFixture() {
   };
 }
 
+function dashboardFixture() {
+  const statsCards = new FakeElement('div', { id: 'stats-cards' });
+  const chartTitle = new FakeElement('div', { class: 'chart-title' }, 'Connection Pressure');
+  const progressBar = new FakeElement('div', { class: 'progress-bar' });
+  const pressureText = new FakeElement('strong', {}, 'normal');
+  const chartContainer = new FakeElement(
+    'div',
+    { class: 'chart-container' },
+    '',
+    [chartTitle, progressBar, pressureText],
+  );
+  const throughputBody = new FakeElement(
+    'div',
+    { id: 'throughput-chart-body' },
+    '',
+    [new FakeElement('span', { class: 'text-muted' }, 'Loading...')],
+  );
+
+  return {
+    chartContainer,
+    chartTitle,
+    pressureText,
+    progressBar,
+    statsCards,
+    throughputBody,
+    nodes: [statsCards, chartContainer, throughputBody],
+  };
+}
+
 Deno.test('fresh nav boot stores Fresh island boot arguments and mounts islands', async () => {
   const document = new FakeDocument();
   const window = new FakeWindow();
@@ -785,6 +814,76 @@ Deno.test('fresh nav boot mounts the layout theme toggle', async () => {
   } finally {
     restoreBootArgs();
     restoreLocalStorage();
+    restoreWindow();
+    restoreDocument();
+  }
+});
+
+Deno.test('fresh nav boot initializes dashboard page behavior from the client entry', async () => {
+  const fixture = dashboardFixture();
+  const document = new FakeDocument({ childNodes: fixture.nodes });
+  const window = new FakeWindow();
+  const fetchCalls = [];
+  const intervalIds = [];
+  const restoreDocument = setGlobal('document', document);
+  const restoreWindow = setGlobal('window', window);
+  const restoreSetInterval = setGlobal('setInterval', (_listener, _delay) => {
+    const id = intervalIds.length + 1;
+    intervalIds.push(id);
+    return id;
+  });
+  const restoreClearInterval = setGlobal('clearInterval', (_id) => {});
+  const restoreFetch = setGlobal('fetch', (url) => {
+    fetchCalls.push(url);
+    if (url === '/admin/api/health/detail') {
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            status: 'ok',
+            uptime_seconds: 65,
+            connections: { active: 7, max: 10, pressure: 'high' },
+            upstream: { status: 'ok', latency_ms: 12 },
+            memory: { rss: 10485760, heapUsed: 5242880 },
+          }),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      json: () =>
+        Promise.resolve([
+          { ts: Date.now(), accept: 3, reject: 1 },
+        ]),
+    });
+  });
+  const restoreBootArgs = setGlobal(
+    '__PFORTNER_FRESH_ISLAND_BOOT_ARGS__',
+    undefined,
+  );
+  delete globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__;
+
+  try {
+    const { boot } = await importFreshNav();
+
+    boot({}, []);
+    await waitFor(() => fixture.statsCards.textContent.includes('Connections7Max: 10'));
+
+    assertEquals(fetchCalls, [
+      '/admin/api/health/detail',
+      '/admin/api/metrics/throughput',
+    ]);
+    assertEquals(intervalIds, [1]);
+    assertEquals(fixture.statsCards.textContent.includes('Uptime: 1m 5s'), true);
+    assertEquals(fixture.chartTitle.textContent, 'Connection Pressure — 70% (7/10)');
+    assertEquals(fixture.progressBar.getAttribute('class'), 'progress-bar progress-bar-warning');
+    assertEquals(fixture.progressBar.style.width, '70%');
+    assertEquals(fixture.pressureText.textContent, 'high');
+    assertEquals(fixture.throughputBody.querySelector('svg') !== null, true);
+  } finally {
+    restoreBootArgs();
+    restoreFetch();
+    restoreClearInterval();
+    restoreSetInterval();
     restoreWindow();
     restoreDocument();
   }
@@ -1260,6 +1359,136 @@ Deno.test('fresh nav initializes config behavior after partial navigation withou
     restoreBootArgs();
     restoreParser();
     restoreFetch();
+    restoreHistory();
+    restoreLocation();
+    restoreNodeFilter();
+    restoreNode();
+    restoreWindow();
+    restoreDocument();
+  }
+});
+
+Deno.test('fresh nav initializes dashboard behavior after partial navigation without a page script', async () => {
+  const currentDocument = new FakeDocument({
+    title: 'Config',
+    childNodes: [
+      new FakeComment('frsh:partial:admin-content'),
+      new FakeElement('div'),
+      new FakeComment('/frsh:partial'),
+    ],
+  });
+  const fixture = dashboardFixture();
+  const nextDocument = new FakeDocument({
+    title: 'Dashboard',
+    childNodes: [
+      new FakeComment('frsh:partial:admin-content'),
+      ...fixture.nodes,
+      new FakeComment('/frsh:partial'),
+    ],
+  });
+  const window = new FakeWindow();
+  const location = {
+    href: 'http://localhost/admin/config',
+    origin: 'http://localhost',
+    assignCalls: [],
+    assign(url) {
+      this.assignCalls.push(url);
+    },
+  };
+  const fetchCalls = [];
+  const restoreDocument = setGlobal('document', currentDocument);
+  const restoreWindow = setGlobal('window', window);
+  const restoreNode = setGlobal('Node', { ELEMENT_NODE: 1, COMMENT_NODE: 8 });
+  const restoreNodeFilter = setGlobal('NodeFilter', { SHOW_COMMENT: 128 });
+  const restoreLocation = setGlobal('location', location);
+  const restoreHistory = setGlobal('history', {
+    pushState(_state, _title, url) {
+      location.href = new URL(url, location.href).href;
+    },
+    replaceState(_state, _title, url) {
+      location.href = new URL(url, location.href).href;
+    },
+  });
+  const restoreSetInterval = setGlobal('setInterval', () => 1);
+  const restoreClearInterval = setGlobal('clearInterval', () => {});
+  const restoreFetch = setGlobal('fetch', (url) => {
+    fetchCalls.push(url);
+    if (url === '/admin/api/health/detail') {
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            status: 'draining',
+            uptime_seconds: 5,
+            connections: { active: 2, max: 20, pressure: 'normal' },
+            upstream: { status: 'offline', latency_ms: null },
+            memory: null,
+          }),
+      });
+    }
+    if (url === '/admin/api/metrics/throughput') {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve([]),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      url: 'http://localhost/admin/',
+      headers: { get: () => null },
+      text: () => Promise.resolve('<html></html>'),
+    });
+  });
+  const restoreParser = setGlobal(
+    'DOMParser',
+    class {
+      parseFromString() {
+        return nextDocument;
+      }
+    },
+  );
+  const restoreBootArgs = setGlobal(
+    '__PFORTNER_FRESH_ISLAND_BOOT_ARGS__',
+    undefined,
+  );
+  delete globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__;
+
+  try {
+    const { boot } = await importFreshNav();
+
+    boot({}, []);
+    const clickListener = currentDocument.listeners.find((entry) => entry.type === 'click')?.listener;
+    const anchor = new FakeElement('a', {
+      href: 'http://localhost/admin/',
+      'f-client-nav': 'true',
+    });
+
+    clickListener({
+      target: anchor,
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault() {},
+    });
+
+    await waitFor(() => currentDocument.querySelector('#stats-cards')?.textContent.includes('Draining'));
+
+    assertEquals(fetchCalls, [
+      'http://localhost/admin/',
+      '/admin/api/health/detail',
+      '/admin/api/metrics/throughput',
+    ]);
+    assertEquals(location.assignCalls, []);
+    assertEquals(currentDocument.querySelector('#throughput-chart-body')?.textContent, 'No throughput data available');
+  } finally {
+    restoreBootArgs();
+    restoreParser();
+    restoreFetch();
+    restoreClearInterval();
+    restoreSetInterval();
     restoreHistory();
     restoreLocation();
     restoreNodeFilter();

@@ -120,9 +120,6 @@ export function DashboardPage({ currentPath, health }: DashboardPageProps) {
           <span class='text-muted'>Loading...</span>
         </div>
       </div>
-
-      <script src='/admin/static/utils.js'></script>
-      <script src='/admin/static/dashboard.js' type='module'></script>
     </Layout>
   );
 }
