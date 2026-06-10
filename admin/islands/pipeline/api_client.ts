@@ -1,5 +1,12 @@
 type JsonRecord = Record<string, unknown>;
 
+export interface PlaygroundEvaluationPayload {
+  pipeline: unknown;
+  message: unknown[];
+  direction?: string;
+  connectionInfo?: unknown;
+}
+
 function isRecord(value: unknown): value is JsonRecord {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -60,5 +67,13 @@ export async function savePipelineDraft(draft: unknown): Promise<unknown> {
 export async function publishPipelines(pipelines: unknown): Promise<unknown> {
   return await readJson(
     await fetch('/admin/api/pipelines', sameOriginJsonPost({ pipelines })),
+  );
+}
+
+export async function evaluatePipeline(
+  payload: PlaygroundEvaluationPayload,
+): Promise<unknown> {
+  return await readJson(
+    await fetch('/admin/api/playground/evaluate', sameOriginJsonPost(payload)),
   );
 }

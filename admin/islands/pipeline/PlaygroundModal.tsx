@@ -4,6 +4,7 @@ import { useState } from 'preact/hooks';
 export function PlaygroundModal(props: {
   nodeId: string | null;
   result?: string;
+  error?: string;
   onRun(message: string): void;
   onClose(): void;
 }) {
@@ -49,6 +50,7 @@ export function PlaygroundModal(props: {
               <button
                 type='button'
                 class='btn btn-primary'
+                data-modal-action='run-playground'
                 onClick={() => props.onRun(message)}
               >
                 Run
@@ -56,14 +58,17 @@ export function PlaygroundModal(props: {
             </section>
             <section aria-label='Run result'>
               <label class='form-label'>Result</label>
-              <div class='playground-result-panel'>
-                {props.result ?? 'No result yet.'}
+              <div
+                class={props.error ? 'playground-result-panel modal-error' : 'playground-result-panel'}
+                role={props.error ? 'alert' : undefined}
+              >
+                {props.error ?? props.result ?? 'No result yet.'}
               </div>
             </section>
           </div>
         </div>
         <footer class='workbench-modal-footer'>
-          <span class='text-muted'>Local preview only</span>
+          <span class='text-muted'>API evaluation</span>
           <button type='button' class='btn btn-ghost' onClick={props.onClose}>
             Close
           </button>

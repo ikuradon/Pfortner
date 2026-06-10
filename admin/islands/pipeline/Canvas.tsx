@@ -31,6 +31,10 @@ export function Canvas(props: {
                 key={edge.id}
                 class='pipeline-edge'
                 data-edge-id={edge.id}
+                data-edge-from={edge.from}
+                data-edge-from-port={edge.fromPort ?? ''}
+                data-edge-to={edge.to}
+                data-edge-to-port={edge.toPort ?? ''}
                 d={path}
               />
             );

@@ -1,6 +1,17 @@
 import { assertEquals, assertMatch, assertStrictEquals } from '@std/assert';
 import { graphToPipelines, pipelinesToGraph, validatePipelineGraph } from '../../static/pipeline_graph.js';
-import { createInitialWorkbenchState, reduceWorkbench } from './workbench_reducer.ts';
+import {
+  buildPipelineDraft,
+  fingerprintPipelines,
+  normalizeWorkbenchDraft,
+} from '../../static/pipeline_workbench_state.js';
+import { evaluatePipeline } from './api_client.ts';
+import {
+  createInitialWorkbenchState,
+  reduceWorkbench,
+  selectWorkbenchDraft,
+  validateWorkbenchGraphsForPublish,
+} from './workbench_reducer.ts';
 
 type PipelineNodeForTest = {
   id: string;
@@ -68,6 +79,38 @@ function publishModal(
     throw new Error(`Expected publish modal, got ${modal.type}`);
   }
   return modal;
+}
+
+function playgroundModal(
+  state: ReturnType<typeof createInitialWorkbenchState>,
+) {
+  const modal = state.ui.activeModal;
+  if (modal.type !== 'playground') {
+    throw new Error(`Expected playground modal, got ${modal.type}`);
+  }
+  return modal;
+}
+
+function setGlobalValue(name: string, value: unknown): () => void {
+  const target = globalThis as Record<string, unknown>;
+  const hadValue = Object.prototype.hasOwnProperty.call(target, name);
+  const previousValue = target[name];
+
+  Object.defineProperty(globalThis, name, {
+    value,
+    configurable: true,
+  });
+
+  return () => {
+    if (hadValue) {
+      Object.defineProperty(globalThis, name, {
+        value: previousValue,
+        configurable: true,
+      });
+    } else {
+      delete target[name];
+    }
+  };
 }
 
 Deno.test('workbench reducer switches direction and preserves viewport', () => {
@@ -434,6 +477,302 @@ Deno.test('workbench reducer opens publish modal with YAML preview', () => {
   assertMatch(publishModal(state).yaml, /pipelines:/);
   assertMatch(publishModal(state).yaml, /write-guard/);
   assertMatch(publishModal(state).yaml, /require_auth: true/);
+});
+
+Deno.test('workbench reducer loads saved draft as undoable replace', () => {
+  const graphs = pipelinesToGraph({ client: [], server: [] });
+  const nextGraphs = pipelinesToGraph({
+    client: [{ policy: 'accept' }],
+    server: [],
+  });
+  let state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept'],
+    publishedFingerprint: 'fp',
+  });
+
+  state = reduceWorkbench(state, {
+    type: 'graphsLoaded',
+    graphs: nextGraphs,
+    message: 'Loaded saved DAG',
+  });
+
+  assertEquals(
+    state.graphs.client.nodes.some((node) => node.policy === 'accept'),
+    true,
+  );
+  assertEquals(state.status, {
+    message: 'Loaded saved DAG',
+    kind: 'success',
+  });
+
+  state = reduceWorkbench(state, { type: 'undo' });
+
+  assertEquals(
+    state.graphs.client.nodes.some((node) => node.policy === 'accept'),
+    false,
+  );
+});
+
+Deno.test('workbench reducer initial data prefers draft graphs over config pipelines', () => {
+  const configPipelines = {
+    client: [{ policy: 'accept' }],
+    server: [{ policy: 'rate-limit' }],
+  };
+  const draftGraphs = pipelinesToGraph({
+    client: [{ policy: 'write-guard' }],
+    server: [],
+  });
+  const publishedFingerprint = fingerprintPipelines(configPipelines);
+  const draft = buildPipelineDraft({
+    graphs: draftGraphs,
+    viewports: {
+      client: { zoom: 1.2, pan: { x: 10, y: 20 } },
+      server: { zoom: 1, pan: { x: 0, y: 0 } },
+    },
+    publishedFingerprint,
+    now: 1000,
+  });
+  const normalizedDraft = normalizeWorkbenchDraft(draft);
+  let state = createInitialWorkbenchState({
+    graphs: pipelinesToGraph({ client: [], server: [] }),
+    plugins: [],
+    publishedFingerprint: '',
+  });
+
+  assertEquals('error' in normalizedDraft, false);
+
+  state = reduceWorkbench(state, {
+    type: 'initialDataLoaded',
+    pipelines: configPipelines,
+    plugins: ['write-guard', 'rate-limit'],
+    draft,
+  });
+
+  assertEquals(
+    state.graphs.client.nodes.some((node) => node.policy === 'write-guard'),
+    true,
+  );
+  assertEquals(
+    state.graphs.client.nodes.some((node) => node.policy === 'accept'),
+    false,
+  );
+  assertEquals(state.plugins, ['write-guard', 'rate-limit']);
+  assertEquals(state.publishedFingerprint, publishedFingerprint);
+  assertEquals(state.viewports.client.pan, { x: 10, y: 20 });
+
+  state = reduceWorkbench(state, {
+    type: 'initialDataLoaded',
+    pipelines: configPipelines,
+    plugins: ['accept'],
+    draft: null,
+  });
+
+  assertEquals(
+    state.graphs.client.nodes.some((node) => node.policy === 'accept'),
+    true,
+  );
+  assertEquals(
+    state.graphs.client.nodes.some((node) => node.policy === 'write-guard'),
+    false,
+  );
+  assertEquals(state.plugins, ['accept']);
+  assertEquals(state.publishedFingerprint, publishedFingerprint);
+});
+
+Deno.test('workbench draft selection falls back to local draft when server draft is invalid', () => {
+  const localDraft = buildPipelineDraft({
+    graphs: pipelinesToGraph({
+      client: [{ policy: 'accept' }],
+      server: [],
+    }),
+    viewports: {
+      client: { zoom: 1, pan: { x: 0, y: 0 } },
+      server: { zoom: 1, pan: { x: 0, y: 0 } },
+    },
+    publishedFingerprint: '',
+    now: 1,
+  });
+
+  const selected = selectWorkbenchDraft([
+    { version: 1, graphs: { client: null, server: null } },
+    localDraft,
+  ]);
+
+  if ('error' in selected) throw new Error(selected.error);
+  assertEquals(
+    selected.draft.graphs.client.nodes.some((node: any) => node.policy === 'accept'),
+    true,
+  );
+});
+
+Deno.test('workbench publish validation reports invalid direction before API publish', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'accept' }],
+    server: [],
+  });
+  graphs.server.nodes = [];
+
+  assertMatch(
+    validateWorkbenchGraphsForPublish(graphs),
+    /server graph is invalid/,
+  );
+});
+
+Deno.test('workbench reducer records draft save status and fingerprint', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'accept' }],
+    server: [],
+  });
+  const state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept'],
+    publishedFingerprint: 'fp',
+  });
+  const next = reduceWorkbench(state, {
+    type: 'draftSaved',
+    message: 'DAG saved',
+    kind: 'success',
+    savedDraftFingerprint: 'draft-fp',
+  });
+
+  assertEquals(next.status, {
+    message: 'DAG saved',
+    kind: 'success',
+  });
+  assertEquals(next.savedDraftFingerprint, 'draft-fp');
+});
+
+Deno.test('workbench reducer publishes response pipelines without replacing DAG layout', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'accept' }],
+    server: [],
+  });
+  let state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept', 'write-guard', 'rate-limit'],
+    publishedFingerprint: 'old-fp',
+  });
+  const nodeId = policyNode(state, 'client', 'accept').id;
+  const originalX = policyNode(state, 'client', 'accept').x;
+
+  state = reduceWorkbench(state, {
+    type: 'nodeMoved',
+    nodeId,
+    x: 432,
+    y: 96,
+  });
+  const responsePipelines = graphToPipelines(state.graphs);
+
+  state = reduceWorkbench(state, { type: 'publishModalOpened' });
+  state = reduceWorkbench(state, {
+    type: 'published',
+    pipelines: responsePipelines,
+    message: 'Pipeline published',
+  });
+
+  assertEquals(graphToPipelines(state.graphs), responsePipelines);
+  assertEquals(policyNode(state, 'client', 'accept').x, 432);
+  assertEquals(
+    state.publishedFingerprint,
+    fingerprintPipelines(responsePipelines),
+  );
+  assertEquals(state.ui.activeModal, { type: 'none' });
+  assertEquals(state.status, {
+    message: 'Pipeline published',
+    kind: 'success',
+  });
+
+  const undone = reduceWorkbench(state, { type: 'undo' });
+  assertEquals(policyNode(undone, 'client', 'accept').x, originalX);
+});
+
+Deno.test('workbench reducer stores load failures as error status', () => {
+  const state = createInitialWorkbenchState({
+    graphs: pipelinesToGraph({ client: [], server: [] }),
+    plugins: [],
+    publishedFingerprint: 'fp',
+  });
+  const next = reduceWorkbench(state, {
+    type: 'loadFailed',
+    message: 'Draft load failed',
+  });
+
+  assertEquals(next.status, {
+    message: 'Draft load failed',
+    kind: 'error',
+  });
+});
+
+Deno.test('workbench reducer stores playground result and errors in the active modal', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'accept' }],
+    server: [],
+  });
+  let state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept'],
+    publishedFingerprint: 'fp',
+  });
+  const start = policyNode(state, 'client', 'start');
+
+  state = reduceWorkbench(state, {
+    type: 'nodeDoubleClicked',
+    nodeId: start.id,
+  });
+  state = reduceWorkbench(state, {
+    type: 'playgroundResultLoaded',
+    result: { finalAction: 'accept' },
+  });
+
+  assertEquals(playgroundModal(state).nodeId, start.id);
+  assertEquals(playgroundModal(state).result, { finalAction: 'accept' });
+  assertEquals(playgroundModal(state).error, undefined);
+
+  state = reduceWorkbench(state, {
+    type: 'playgroundFailed',
+    message: 'Message must be a JSON array.',
+  });
+
+  assertEquals(playgroundModal(state).nodeId, start.id);
+  assertEquals(playgroundModal(state).result, undefined);
+  assertEquals(playgroundModal(state).error, 'Message must be a JSON array.');
+});
+
+Deno.test('pipeline API client posts playground evaluation payload', async () => {
+  const fetchCalls: Array<{
+    url: string;
+    init: RequestInit;
+    body: unknown;
+  }> = [];
+  const restoreFetch = setGlobalValue('fetch', (url: string, init: RequestInit = {}) => {
+    fetchCalls.push({
+      url,
+      init,
+      body: JSON.parse(String(init.body ?? '{}')),
+    });
+    return Promise.resolve(
+      new Response(JSON.stringify({ finalAction: 'accept' }), { status: 200 }),
+    );
+  });
+
+  try {
+    const payload = {
+      pipeline: [{ policy: 'accept' }],
+      message: ['EVENT', { id: '1' }],
+      direction: 'client',
+      connectionInfo: {},
+    };
+    const result = await evaluatePipeline(payload);
+
+    assertEquals(fetchCalls.length, 1);
+    assertEquals(fetchCalls[0].url, '/admin/api/playground/evaluate');
+    assertEquals(fetchCalls[0].init.method, 'POST');
+    assertEquals(fetchCalls[0].body, payload);
+    assertEquals(result, { finalAction: 'accept' });
+  } finally {
+    restoreFetch();
+  }
 });
 
 Deno.test('workbench reducer redoes an undone node move', () => {

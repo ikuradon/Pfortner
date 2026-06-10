@@ -294,9 +294,18 @@ function pipelineWorkbenchFixture() {
   const redoButton = new FakeElement('button', {
     id: 'btn-redo-pipeline',
   }, 'Redo');
+  const loadButton = new FakeElement('button', {
+    id: 'btn-load-dag',
+  }, 'Load');
+  const saveButton = new FakeElement('button', {
+    id: 'btn-save-dag',
+  }, 'Save');
   const publishButton = new FakeElement('button', {
     id: 'btn-publish-pipeline',
   }, 'Publish');
+  const statusSummary = new FakeElement('span', {
+    id: 'workbench-status-summary',
+  }, 'Ready');
   const paletteToggle = new FakeElement('button', {
     id: 'btn-toggle-palette',
     'aria-label': 'Collapse palette',
@@ -313,6 +322,13 @@ function pipelineWorkbenchFixture() {
   const canvasTitle = new FakeElement('span', {
     id: 'canvas-title',
   }, 'Client Pipeline');
+  const edge = new FakeElement('path', {
+    'data-edge-id': 'client-edge-1',
+    'data-edge-from': 'client-start',
+    'data-edge-from-port': 'next',
+    'data-edge-to': 'client-node-1',
+    'data-edge-to-port': 'in',
+  });
   const startNode = new FakeElement('g', {
     'data-node-id': 'client-start',
     'data-node-policy': 'start',
@@ -331,7 +347,7 @@ function pipelineWorkbenchFixture() {
       id: 'pipeline-svg',
     },
     '',
-    [startNode, policyNode],
+    [edge, startNode, policyNode],
   );
   const workbench = new FakeElement(
     'div',
@@ -345,7 +361,10 @@ function pipelineWorkbenchFixture() {
       serverButton,
       undoButton,
       redoButton,
+      loadButton,
+      saveButton,
       publishButton,
+      statusSummary,
       palette,
       canvasTitle,
       canvas,
@@ -355,12 +374,15 @@ function pipelineWorkbenchFixture() {
   return {
     canvasTitle,
     clientButton,
+    loadButton,
     paletteToggle,
     policyNode,
     publishButton,
     redoButton,
+    saveButton,
     serverButton,
     startNode,
+    statusSummary,
     undoButton,
     workbench,
   };
@@ -862,8 +884,594 @@ Deno.test('PipelineWorkbench static chunk opens publish modal from toolbar butto
   mod.default.mount(document);
   fixture.publishButton.click();
 
+  await waitFor(() => document.querySelector('.modal-backdrop') !== null);
   assertEquals(document.querySelector('.modal-backdrop') !== null, true);
   assertMatch(document.querySelector('.yaml-preview')?.textContent ?? '', /pipelines:/);
+  assertMatch(document.querySelector('.yaml-preview')?.textContent ?? '', /write-guard/);
+  assertEquals(
+    document.querySelectorAll('.text-muted').some((element) => element.textContent === 'Writes active config'),
+    true,
+  );
+});
+
+Deno.test('PipelineWorkbench static chunk saves rendered graph through draft API', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture();
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+  const savedItems = new Map();
+  const fetchCalls = [];
+  const restoreFetch = setGlobal('fetch', (url, init = {}) => {
+    fetchCalls.push({
+      url,
+      init,
+      body: JSON.parse(init.body ?? '{}'),
+    });
+    return Promise.resolve(
+      new Response(JSON.stringify({ status: 'saved' }), { status: 200 }),
+    );
+  });
+  const restoreStorage = setGlobal('localStorage', {
+    getItem(key) {
+      return savedItems.get(key) ?? null;
+    },
+    setItem(key, value) {
+      savedItems.set(key, value);
+    },
+  });
+
+  try {
+    mod.default.mount(document);
+    fixture.saveButton.click();
+
+    await waitFor(() =>
+      fetchCalls.some((call) => call.url === '/admin/api/pipeline-draft' && call.init.method === 'POST') &&
+      fixture.statusSummary.textContent === 'DAG saved'
+    );
+
+    const saveCall = fetchCalls.find((call) => call.url === '/admin/api/pipeline-draft' && call.init.method === 'POST');
+    assertEquals(saveCall.url, '/admin/api/pipeline-draft');
+    assertEquals(saveCall.body.draft.graphs.client.nodes.some((node) => node.policy === 'write-guard'), true);
+    assertEquals(savedItems.has('pfortner.pipelineWorkbenchDraft.v1'), true);
+    assertEquals(fixture.statusSummary.textContent, 'DAG saved');
+  } finally {
+    restoreStorage();
+    restoreFetch();
+  }
+});
+
+Deno.test('PipelineWorkbench static chunk waits for initial load before saving', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture();
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+  let resolveConfig;
+  let resolveDraft;
+  const fetchCalls = [];
+  const restoreFetch = setGlobal('fetch', (url, init = {}) => {
+    fetchCalls.push({
+      url,
+      init,
+      body: init.body ? JSON.parse(init.body) : null,
+    });
+    if (url === '/admin/api/config') {
+      return new Promise((resolve) => {
+        resolveConfig = () =>
+          resolve(
+            new Response(
+              JSON.stringify({
+                pipelines: {
+                  client: [{ policy: 'write-guard', config: { require_auth: true } }],
+                  server: [{ policy: 'rate-limit' }],
+                },
+              }),
+              { status: 200 },
+            ),
+          );
+      });
+    }
+    if (url === '/admin/api/pipeline-draft' && init.method !== 'POST') {
+      return new Promise((resolve) => {
+        resolveDraft = () =>
+          resolve(
+            new Response(JSON.stringify({ draft: null }), { status: 200 }),
+          );
+      });
+    }
+    return Promise.resolve(
+      new Response(JSON.stringify({ status: 'saved' }), { status: 200 }),
+    );
+  });
+  const restoreStorage = setGlobal('localStorage', {
+    getItem() {
+      return null;
+    },
+    setItem() {},
+  });
+
+  try {
+    mod.default.mount(document);
+    fixture.saveButton.click();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assertEquals(
+      fetchCalls.some((call) => call.url === '/admin/api/pipeline-draft' && call.init.method === 'POST'),
+      false,
+    );
+
+    resolveConfig();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    resolveDraft();
+
+    await waitFor(() =>
+      fetchCalls.some((call) => call.url === '/admin/api/pipeline-draft' && call.init.method === 'POST')
+    );
+
+    const saveCall = fetchCalls.find((call) => call.url === '/admin/api/pipeline-draft' && call.init.method === 'POST');
+    assertEquals(saveCall.body.draft.graphs.server.nodes.some((node) => node.policy === 'rate-limit'), true);
+  } finally {
+    restoreStorage();
+    restoreFetch();
+  }
+});
+
+Deno.test('PipelineWorkbench static chunk loads saved graph through draft API', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture();
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+  const draft = {
+    version: 1,
+    graphs: {
+      client: {
+        direction: 'client',
+        nodes: [
+          { id: 'client-start', type: 'start', policy: 'start' },
+          { id: 'client-node-1', type: 'policy', policy: 'accept' },
+        ],
+        edges: [
+          {
+            id: 'client-edge-1',
+            from: 'client-start',
+            fromPort: 'next',
+            to: 'client-node-1',
+            toPort: 'in',
+          },
+        ],
+      },
+      server: { direction: 'server', nodes: [], edges: [] },
+    },
+    viewports: {},
+    updatedAt: '1970-01-01T00:00:01.000Z',
+    lastPublishedFingerprint: '',
+  };
+  const fetchCalls = [];
+  const restoreFetch = setGlobal('fetch', (url, init = {}) => {
+    fetchCalls.push({ url, init });
+    return Promise.resolve(
+      new Response(JSON.stringify({ draft }), { status: 200 }),
+    );
+  });
+  const restoreStorage = setGlobal('localStorage', {
+    getItem() {
+      return null;
+    },
+    setItem() {},
+  });
+
+  try {
+    mod.default.mount(document);
+    fixture.loadButton.click();
+
+    await waitFor(() =>
+      fetchCalls.some((call) => call.url === '/admin/api/pipeline-draft') &&
+      fixture.statusSummary.textContent === 'Loaded saved DAG'
+    );
+
+    assertEquals(fetchCalls.some((call) => call.url === '/admin/api/pipeline-draft'), true);
+    assertEquals(fixture.statusSummary.textContent, 'Loaded saved DAG');
+    assertEquals(
+      [...document.querySelectorAll('[data-node-id]')].some((node) =>
+        node.getAttribute('data-node-policy') === 'accept'
+      ),
+      true,
+    );
+  } finally {
+    restoreStorage();
+    restoreFetch();
+  }
+});
+
+Deno.test('PipelineWorkbench static chunk saves loaded draft graph instead of stale DOM', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture();
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+  const draft = {
+    version: 1,
+    graphs: {
+      client: {
+        direction: 'client',
+        nodes: [
+          { id: 'client-start', type: 'start', policy: 'start' },
+          { id: 'client-node-1', type: 'policy', policy: 'accept' },
+        ],
+        edges: [
+          {
+            id: 'client-edge-1',
+            from: 'client-start',
+            fromPort: 'next',
+            to: 'client-node-1',
+            toPort: 'in',
+          },
+        ],
+      },
+      server: {
+        direction: 'server',
+        nodes: [
+          { id: 'server-start', type: 'start', policy: 'start' },
+          { id: 'server-node-1', type: 'policy', policy: 'rate-limit' },
+        ],
+        edges: [
+          {
+            id: 'server-edge-1',
+            from: 'server-start',
+            fromPort: 'next',
+            to: 'server-node-1',
+            toPort: 'in',
+          },
+        ],
+      },
+    },
+    viewports: {},
+    updatedAt: '1970-01-01T00:00:01.000Z',
+    lastPublishedFingerprint: '',
+  };
+  const fetchCalls = [];
+  const restoreFetch = setGlobal('fetch', (url, init = {}) => {
+    fetchCalls.push({
+      url,
+      init,
+      body: init.body ? JSON.parse(init.body) : null,
+    });
+    if (url === '/admin/api/pipeline-draft' && init.method === 'POST') {
+      return Promise.resolve(
+        new Response(JSON.stringify({ status: 'saved' }), { status: 200 }),
+      );
+    }
+    return Promise.resolve(
+      new Response(JSON.stringify({ draft }), { status: 200 }),
+    );
+  });
+  const restoreStorage = setGlobal('localStorage', {
+    getItem() {
+      return null;
+    },
+    setItem() {},
+  });
+
+  try {
+    mod.default.mount(document);
+    fixture.loadButton.click();
+    await waitFor(() => fixture.statusSummary.textContent === 'Loaded saved DAG');
+
+    fixture.saveButton.click();
+    await waitFor(() => fetchCalls.some((call) => call.init.method === 'POST'));
+
+    const saveCall = fetchCalls.find((call) => call.init.method === 'POST');
+    assertEquals(saveCall.url, '/admin/api/pipeline-draft');
+    assertEquals(
+      saveCall.body.draft.graphs.client.nodes.some((node) => node.policy === 'accept'),
+      true,
+    );
+    assertEquals(
+      saveCall.body.draft.graphs.server.nodes.some((node) => node.policy === 'rate-limit'),
+      true,
+    );
+  } finally {
+    restoreStorage();
+    restoreFetch();
+  }
+});
+
+Deno.test('PipelineWorkbench static chunk loads local draft when server draft is invalid', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture();
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+  const localDraft = {
+    version: 1,
+    graphs: {
+      client: {
+        direction: 'client',
+        nodes: [
+          { id: 'client-start', type: 'start', policy: 'start' },
+          { id: 'client-node-1', type: 'policy', policy: 'accept' },
+        ],
+        edges: [
+          {
+            id: 'client-edge-1',
+            from: 'client-start',
+            fromPort: 'next',
+            to: 'client-node-1',
+            toPort: 'in',
+          },
+        ],
+      },
+      server: { direction: 'server', nodes: [{ id: 'server-start', type: 'start', policy: 'start' }], edges: [] },
+    },
+    viewports: {},
+    updatedAt: '1970-01-01T00:00:01.000Z',
+    lastPublishedFingerprint: '',
+  };
+  const restoreFetch = setGlobal('fetch', () =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({ draft: { version: 1, graphs: { client: null, server: null } } }),
+        { status: 200 },
+      ),
+    ));
+  const restoreStorage = setGlobal('localStorage', {
+    getItem() {
+      return JSON.stringify(localDraft);
+    },
+    setItem() {},
+  });
+
+  try {
+    mod.default.mount(document);
+    fixture.loadButton.click();
+
+    await waitFor(() => fixture.statusSummary.textContent === 'Loaded saved DAG');
+
+    assertEquals(
+      [...document.querySelectorAll('[data-node-id]')].some((node) =>
+        node.getAttribute('data-node-policy') === 'accept'
+      ),
+      true,
+    );
+  } finally {
+    restoreStorage();
+    restoreFetch();
+  }
+});
+
+Deno.test('PipelineWorkbench static chunk publishes rendered graph from modal confirm', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture();
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+  const fetchCalls = [];
+  const restoreFetch = setGlobal('fetch', (url, init = {}) => {
+    fetchCalls.push({
+      url,
+      init,
+      body: JSON.parse(init.body ?? '{}'),
+    });
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({ status: 'saved', pipelines: fetchCalls.at(-1).body.pipelines }),
+        { status: 200 },
+      ),
+    );
+  });
+
+  try {
+    mod.default.mount(document);
+    fixture.publishButton.click();
+    await waitFor(() => document.querySelector('[data-modal-action="confirm-publish"]') !== null);
+    document.querySelector('[data-modal-action="confirm-publish"]').click();
+
+    await waitFor(() =>
+      fetchCalls.some((call) => call.url === '/admin/api/pipelines') &&
+      document.querySelector('.modal-backdrop') === null &&
+      fixture.statusSummary.textContent === 'Pipeline published'
+    );
+
+    const publishCall = fetchCalls.find((call) => call.url === '/admin/api/pipelines');
+    assertEquals(publishCall.url, '/admin/api/pipelines');
+    assertEquals(publishCall.body.pipelines.client, [
+      { policy: 'write-guard', config: { require_auth: true } },
+    ]);
+    assertEquals(document.querySelector('.modal-backdrop'), null);
+    assertEquals(fixture.statusSummary.textContent, 'Pipeline published');
+  } finally {
+    restoreFetch();
+  }
+});
+
+Deno.test('PipelineWorkbench static chunk preserves both directions when publishing loaded draft', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture();
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+  const draft = {
+    version: 1,
+    graphs: {
+      client: {
+        direction: 'client',
+        nodes: [
+          { id: 'client-start', type: 'start', policy: 'start' },
+          { id: 'client-node-1', type: 'policy', policy: 'write-guard', config: { require_auth: true } },
+        ],
+        edges: [
+          {
+            id: 'client-edge-1',
+            from: 'client-start',
+            fromPort: 'next',
+            to: 'client-node-1',
+            toPort: 'in',
+          },
+        ],
+      },
+      server: {
+        direction: 'server',
+        nodes: [
+          { id: 'server-start', type: 'start', policy: 'start' },
+          { id: 'server-node-1', type: 'policy', policy: 'rate-limit' },
+        ],
+        edges: [
+          {
+            id: 'server-edge-1',
+            from: 'server-start',
+            fromPort: 'next',
+            to: 'server-node-1',
+            toPort: 'in',
+          },
+        ],
+      },
+    },
+    viewports: {},
+    updatedAt: '1970-01-01T00:00:01.000Z',
+    lastPublishedFingerprint: '',
+  };
+  const fetchCalls = [];
+  const restoreFetch = setGlobal('fetch', (url, init = {}) => {
+    fetchCalls.push({
+      url,
+      init,
+      body: init.body ? JSON.parse(init.body) : null,
+    });
+    if (url === '/admin/api/pipelines') {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ status: 'saved', pipelines: fetchCalls.at(-1).body.pipelines }),
+          { status: 200 },
+        ),
+      );
+    }
+    return Promise.resolve(
+      new Response(JSON.stringify({ draft }), { status: 200 }),
+    );
+  });
+  const restoreStorage = setGlobal('localStorage', {
+    getItem() {
+      return null;
+    },
+    setItem() {},
+  });
+
+  try {
+    mod.default.mount(document);
+    fixture.loadButton.click();
+    await waitFor(() => fixture.statusSummary.textContent === 'Loaded saved DAG');
+
+    fixture.publishButton.click();
+    await waitFor(() => document.querySelector('[data-modal-action="confirm-publish"]') !== null);
+    document.querySelector('[data-modal-action="confirm-publish"]').click();
+
+    await waitFor(() => fetchCalls.some((call) => call.url === '/admin/api/pipelines'));
+
+    const publishCall = fetchCalls.find((call) => call.url === '/admin/api/pipelines');
+    assertEquals(publishCall.body.pipelines.client, [
+      { policy: 'write-guard', config: { require_auth: true } },
+    ]);
+    assertEquals(publishCall.body.pipelines.server, [{ policy: 'rate-limit' }]);
+  } finally {
+    restoreStorage();
+    restoreFetch();
+  }
+});
+
+Deno.test('PipelineWorkbench static chunk evaluates playground messages through API', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture();
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+  const fetchCalls = [];
+  const restoreFetch = setGlobal('fetch', (url, init = {}) => {
+    fetchCalls.push({
+      url,
+      init,
+      body: JSON.parse(init.body ?? '{}'),
+    });
+    return Promise.resolve(
+      new Response(JSON.stringify({ finalAction: 'accept' }), { status: 200 }),
+    );
+  });
+
+  try {
+    mod.default.mount(document);
+    fixture.startNode.dispatchEvent({ type: 'dblclick' });
+    document.querySelector('#playground-message-input').value = '["EVENT",{"id":"1"}]';
+    document.querySelector('[data-modal-action="run-playground"]').click();
+
+    await waitFor(() =>
+      fetchCalls.some((call) => call.url === '/admin/api/playground/evaluate') &&
+      /finalAction/.test(
+        document.querySelector('.playground-result-panel')?.textContent ?? '',
+      )
+    );
+
+    const evaluateCall = fetchCalls.find((call) => call.url === '/admin/api/playground/evaluate');
+    assertEquals(evaluateCall.url, '/admin/api/playground/evaluate');
+    assertEquals(evaluateCall.body.message, ['EVENT', { id: '1' }]);
+    assertEquals(evaluateCall.body.direction, 'client');
+    assertEquals(evaluateCall.body.pipeline, [
+      { policy: 'write-guard', config: { require_auth: true } },
+    ]);
+    assertMatch(
+      document.querySelector('.playground-result-panel')?.textContent ?? '',
+      /finalAction/,
+    );
+  } finally {
+    restoreFetch();
+  }
+});
+
+Deno.test('PipelineWorkbench static chunk rejects non-array playground messages before fetch', async () => {
+  const mod = await import(
+    `./islands/PipelineWorkbench.js?test=${crypto.randomUUID()}`
+  );
+  const fixture = pipelineWorkbenchFixture();
+  const document = new FakeDocument({
+    childNodes: [fixture.workbench],
+  });
+  const fetchCalls = [];
+  const restoreFetch = setGlobal('fetch', (url, init = {}) => {
+    fetchCalls.push({ url, init });
+    return Promise.resolve(new Response('{}', { status: 200 }));
+  });
+
+  try {
+    mod.default.mount(document);
+    fixture.startNode.dispatchEvent({ type: 'dblclick' });
+    document.querySelector('#playground-message-input').value = '{"kind":1}';
+    document.querySelector('[data-modal-action="run-playground"]').click();
+
+    assertEquals(fetchCalls.some((call) => call.url === '/admin/api/playground/evaluate'), false);
+    await waitFor(() => /JSON array/.test(document.querySelector('.playground-result-panel')?.textContent ?? ''));
+    assertMatch(
+      document.querySelector('.playground-result-panel')?.textContent ?? '',
+      /JSON array/,
+    );
+  } finally {
+    restoreFetch();
+  }
 });
 
 Deno.test('fresh nav does not keep legacy pipelines page initializer', async () => {

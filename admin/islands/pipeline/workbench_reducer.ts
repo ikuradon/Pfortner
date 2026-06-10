@@ -1,9 +1,12 @@
 import {
   applyHistoryChange,
+  fingerprintPipelines,
   initialDirectionHistoryState,
+  normalizeWorkbenchDraft,
   recordDirectionHistorySnapshot,
+  recordHistorySnapshot,
 } from '../../static/pipeline_workbench_state.js';
-import { graphToPipelines, validatePipelineGraph } from '../../static/pipeline_graph.js';
+import { graphToPipelines, pipelinesToGraph, validatePipelineGraph } from '../../static/pipeline_graph.js';
 import { defaultConfigForPolicy } from './node_defaults.ts';
 import { buildYamlPreview } from './yaml_preview.ts';
 import type {
@@ -21,9 +24,15 @@ import type {
 
 type PipelineGraphsInput = PipelineGraphs | Record<string, PipelineGraph>;
 type SettingsMode = 'interactive' | 'json';
+type WorkbenchModal = Exclude<ActiveModal, { type: 'playground' }> | {
+  type: 'playground';
+  nodeId: string | null;
+  result?: unknown;
+  error?: string;
+};
 
 interface WorkbenchUiState {
-  activeModal: ActiveModal;
+  activeModal: WorkbenchModal;
   paletteCollapsed: boolean;
 }
 
@@ -36,6 +45,7 @@ export interface WorkbenchState {
   selectedNodeIdsByDirection: DirectionSelections;
   plugins: string[];
   publishedFingerprint: string;
+  savedDraftFingerprint: string;
   status: WorkbenchStatus;
   ui: WorkbenchUiState;
 }
@@ -54,6 +64,29 @@ export type WorkbenchAction =
   | { type: 'settingsApplied' }
   | { type: 'publishModalOpened' }
   | { type: 'publishConfirmed' }
+  | {
+    type: 'initialDataLoaded';
+    pipelines: unknown;
+    plugins: string[];
+    draft: unknown | null;
+  }
+  | {
+    type: 'graphsLoaded';
+    graphs: PipelineGraphsInput;
+    viewports?: unknown;
+    message: string;
+    savedDraftFingerprint?: string;
+  }
+  | {
+    type: 'draftSaved';
+    message: string;
+    kind?: WorkbenchStatus['kind'];
+    savedDraftFingerprint?: string;
+  }
+  | { type: 'published'; pipelines: unknown; message?: string }
+  | { type: 'loadFailed'; message: string }
+  | { type: 'playgroundResultLoaded'; result: unknown }
+  | { type: 'playgroundFailed'; message: string }
   | { type: 'paletteToggled' }
   | { type: 'undo' }
   | { type: 'redo' };
@@ -93,7 +126,7 @@ function parseSettingsJson(
 
 function setActiveModal(
   state: WorkbenchState,
-  activeModal: ActiveModal,
+  activeModal: WorkbenchModal,
 ): WorkbenchState {
   return {
     ...state,
@@ -102,6 +135,26 @@ function setActiveModal(
       activeModal,
     },
   };
+}
+
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.keys(value).sort().map((key) => [
+        key,
+        stableValue((value as Record<string, unknown>)[key]),
+      ]),
+    );
+  }
+  return value;
+}
+
+function draftFingerprint(
+  graphs: PipelineGraphs,
+  viewports: DirectionViewports,
+): string {
+  return JSON.stringify(stableValue({ graphs, viewports }));
 }
 
 function updateGraph(
@@ -213,6 +266,89 @@ function normalizePipelineGraphs(graphs: PipelineGraphsInput): PipelineGraphs {
   };
 }
 
+function normalizePipelineEntries(value: unknown): {
+  client: unknown[];
+  server: unknown[];
+} {
+  const record = value !== null && typeof value === 'object' ? value as Record<string, unknown> : {};
+  return {
+    client: Array.isArray(record.client) ? cloneValue(record.client) : [],
+    server: Array.isArray(record.server) ? cloneValue(record.server) : [],
+  };
+}
+
+function normalizeViewport(
+  value: unknown,
+  fallback: DirectionViewports['client'],
+): DirectionViewports['client'] {
+  const record = value !== null && typeof value === 'object' ? value as Record<string, unknown> : {};
+  const pan = record.pan !== null && typeof record.pan === 'object' ? record.pan as Record<string, unknown> : {};
+  const zoom = Number(record.zoom);
+  const x = Number(pan.x);
+  const y = Number(pan.y);
+  return {
+    zoom: Number.isFinite(zoom) ? Math.max(0.35, Math.min(1.8, zoom)) : fallback.zoom,
+    pan: {
+      x: Number.isFinite(x) ? x : fallback.pan.x,
+      y: Number.isFinite(y) ? y : fallback.pan.y,
+    },
+  };
+}
+
+function normalizeViewports(
+  value: unknown,
+  fallback: DirectionViewports = DEFAULT_VIEWPORT,
+): DirectionViewports {
+  const record = value !== null && typeof value === 'object' ? value as Record<string, unknown> : {};
+  return {
+    client: normalizeViewport(record.client, fallback.client),
+    server: normalizeViewport(record.server, fallback.server),
+  };
+}
+
+export function selectWorkbenchDraft(
+  candidates: unknown[],
+): { draft: any } | { error: string } {
+  const errors: string[] = [];
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined) continue;
+    const normalized = normalizeWorkbenchDraft(candidate);
+    if (!('error' in normalized)) return { draft: normalized.draft };
+    errors.push(normalized.error);
+  }
+  return {
+    error: errors[0] ?? 'No saved DAG found.',
+  };
+}
+
+export function validateWorkbenchGraphsForPublish(
+  graphs: PipelineGraphsInput,
+): string {
+  for (const direction of ['client', 'server'] as const) {
+    const result = validatePipelineGraph(graphs[direction]);
+    if (!result.valid) {
+      const first = result.errors[0];
+      const message = first?.message ?? first?.code ?? 'invalid graph';
+      return `${direction} graph is invalid: ${message}`;
+    }
+  }
+  return '';
+}
+
+function recordGraphsReplaceHistory(
+  state: WorkbenchState,
+  graphs: PipelineGraphs,
+): WorkbenchState['history'] {
+  return {
+    client: recordHistorySnapshot(state.history.client, graphs.client),
+    server: recordHistorySnapshot(state.history.server, graphs.server),
+  };
+}
+
+function sanitizePlugins(plugins: string[]): string[] {
+  return plugins.filter((plugin) => typeof plugin === 'string');
+}
+
 function emptyDirectionSelections(): DirectionSelections {
   return {
     client: [],
@@ -226,15 +362,17 @@ export function createInitialWorkbenchState(input: {
   publishedFingerprint: string;
 }): WorkbenchState {
   const graphs = normalizePipelineGraphs(input.graphs);
+  const viewports = cloneValue(DEFAULT_VIEWPORT);
   return {
     direction: 'client',
     graphs,
     history: initialDirectionHistoryState(graphs),
-    viewports: cloneValue(DEFAULT_VIEWPORT),
+    viewports,
     selectedNodeIds: [],
     selectedNodeIdsByDirection: emptyDirectionSelections(),
     plugins: [...input.plugins],
     publishedFingerprint: input.publishedFingerprint,
+    savedDraftFingerprint: draftFingerprint(graphs, viewports),
     status: { message: 'Ready', kind: 'idle' },
     ui: {
       activeModal: { type: 'none' },
@@ -493,6 +631,151 @@ export function reduceWorkbench(
 
   if (action.type === 'publishConfirmed') {
     return setActiveModal(state, { type: 'none' });
+  }
+
+  if (action.type === 'initialDataLoaded') {
+    const configPipelines = normalizePipelineEntries(action.pipelines);
+    const configGraphs = normalizePipelineGraphs(
+      pipelinesToGraph(configPipelines) as PipelineGraphsInput,
+    );
+    const publishedFingerprint = fingerprintPipelines(configPipelines);
+    let graphs = configGraphs;
+    let viewports = cloneValue(DEFAULT_VIEWPORT);
+    let status: WorkbenchStatus = {
+      message: 'Loaded active config',
+      kind: 'success',
+    };
+
+    if (action.draft !== null && action.draft !== undefined) {
+      const normalized = normalizeWorkbenchDraft(action.draft);
+      if (!('error' in normalized)) {
+        graphs = normalizePipelineGraphs(normalized.draft.graphs);
+        viewports = normalizeViewports(normalized.draft.viewports);
+        status = {
+          message: 'Loaded saved DAG',
+          kind: 'success',
+        };
+      }
+    }
+
+    return {
+      ...state,
+      graphs,
+      history: initialDirectionHistoryState(graphs),
+      viewports,
+      selectedNodeIds: [],
+      selectedNodeIdsByDirection: emptyDirectionSelections(),
+      plugins: sanitizePlugins(action.plugins),
+      publishedFingerprint,
+      savedDraftFingerprint: draftFingerprint(graphs, viewports),
+      status,
+      ui: {
+        ...state.ui,
+        activeModal: { type: 'none' },
+      },
+    };
+  }
+
+  if (action.type === 'graphsLoaded') {
+    const graphs = normalizePipelineGraphs(action.graphs);
+    const viewports = action.viewports === undefined
+      ? state.viewports
+      : normalizeViewports(action.viewports, state.viewports);
+
+    return {
+      ...state,
+      graphs,
+      history: recordGraphsReplaceHistory(state, graphs),
+      viewports,
+      selectedNodeIds: [],
+      selectedNodeIdsByDirection: emptyDirectionSelections(),
+      savedDraftFingerprint: action.savedDraftFingerprint ??
+        draftFingerprint(graphs, viewports),
+      status: {
+        message: action.message,
+        kind: 'success',
+      },
+      ui: {
+        ...state.ui,
+        activeModal: { type: 'none' },
+      },
+    };
+  }
+
+  if (action.type === 'draftSaved') {
+    return {
+      ...state,
+      savedDraftFingerprint: action.savedDraftFingerprint ??
+        draftFingerprint(state.graphs, state.viewports),
+      status: {
+        message: action.message,
+        kind: action.kind ?? 'success',
+      },
+    };
+  }
+
+  if (action.type === 'published') {
+    const pipelines = normalizePipelineEntries(action.pipelines);
+    return {
+      ...state,
+      publishedFingerprint: fingerprintPipelines(pipelines),
+      status: {
+        message: action.message ?? 'Pipeline published',
+        kind: 'success',
+      },
+      ui: {
+        ...state.ui,
+        activeModal: { type: 'none' },
+      },
+    };
+  }
+
+  if (action.type === 'loadFailed') {
+    return {
+      ...state,
+      status: {
+        message: action.message,
+        kind: 'error',
+      },
+    };
+  }
+
+  if (action.type === 'playgroundResultLoaded') {
+    if (state.ui.activeModal.type !== 'playground') return state;
+    return setActiveModal({
+      ...state,
+      status: {
+        message: 'Playground run complete',
+        kind: 'success',
+      },
+    }, {
+      ...state.ui.activeModal,
+      result: cloneValue(action.result),
+      error: undefined,
+    });
+  }
+
+  if (action.type === 'playgroundFailed') {
+    if (state.ui.activeModal.type !== 'playground') {
+      return {
+        ...state,
+        status: {
+          message: action.message,
+          kind: 'error',
+        },
+      };
+    }
+    return setActiveModal({
+      ...state,
+      status: {
+        message: action.message,
+        kind: 'error',
+      },
+    }, {
+      ...state.ui.activeModal,
+      result: undefined,
+      error: action.message,
+    });
   }
 
   if (action.type === 'paletteToggled') {

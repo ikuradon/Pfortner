@@ -99,6 +99,7 @@ export function registerAdminApiRoutes(
     }
     try {
       const body = await ctx.req.json();
+      if (!isRecord(body)) return json({ error: 'draft object required' }, 400);
       const normalized = normalizePipelineWorkbenchDraft(body.draft);
       if ('error' in normalized) return json({ error: normalized.error }, 400);
       await writePipelineWorkbenchDraft(state.pipelineDraftPath, normalized.draft);
@@ -114,6 +115,7 @@ export function registerAdminApiRoutes(
     }
     try {
       const body = await ctx.req.json();
+      if (!isRecord(body)) return json({ error: 'pipelines object required' }, 400);
       const normalized = normalizePipelines(body.pipelines);
       if ('error' in normalized) {
         return json({ error: normalized.error }, 400);
@@ -124,8 +126,8 @@ export function registerAdminApiRoutes(
         pipelines: normalized.pipelines,
       };
       const yaml = stringifyConfig(nextConfig);
-      await Deno.writeTextFile(state.configPath, yaml);
       await state.reloadFn(yaml);
+      await Deno.writeTextFile(state.configPath, yaml);
       return json({
         status: 'saved',
         pipelines: state.config.pipelines ?? normalized.pipelines,
@@ -141,18 +143,23 @@ export function registerAdminApiRoutes(
   app.post(`${adminPath}/api/playground/evaluate`, async (ctx) => {
     try {
       const body = await ctx.req.json();
+      if (!isRecord(body)) return json({ error: 'request body object required' }, 400);
       const message = body.message;
       const direction = body.direction ?? 'client';
+      const postedPipeline = body.pipeline === undefined ? null : normalizePipelineEntries(body.pipeline, 'pipeline');
+      if (postedPipeline && 'error' in postedPipeline) {
+        return json({ error: postedPipeline.error }, 400);
+      }
+      const connectionInfoBody = isRecord(body.connectionInfo) ? body.connectionInfo : {};
       const connectionInfo = {
-        clientAuthorized: body.connectionInfo?.authenticated ?? false,
-        clientPubkey: body.connectionInfo?.pubkey ?? '',
-        connectionIpAddr: body.connectionInfo?.clientIp ?? '127.0.0.1',
+        clientAuthorized: connectionInfoBody.authenticated === true,
+        clientPubkey: typeof connectionInfoBody.pubkey === 'string' ? connectionInfoBody.pubkey : '',
+        connectionIpAddr: typeof connectionInfoBody.clientIp === 'string' ? connectionInfoBody.clientIp : '127.0.0.1',
       };
       if (!Array.isArray(message)) {
         return json({ error: 'message must be an array' }, 400);
       }
-      const postedPipeline = Array.isArray(body.pipeline) ? body.pipeline : null;
-      const pipeline = postedPipeline ??
+      const pipeline = postedPipeline?.entries ??
         (direction === 'server' ? (state.config.pipelines?.server ?? []) : (state.config.pipelines?.client ?? []));
       const result = await simulatePipeline(pipeline, message, connectionInfo);
       return json(result);

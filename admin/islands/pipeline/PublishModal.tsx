@@ -2,6 +2,7 @@
 
 export function PublishModal(props: {
   yaml: string;
+  validationError?: string;
   onConfirm(): void;
   onClose(): void;
 }) {
@@ -29,9 +30,16 @@ export function PublishModal(props: {
         </header>
         <div class='workbench-modal-body'>
           <pre class='yaml-preview'>{props.yaml}</pre>
+          {props.validationError
+            ? (
+              <div class='modal-error' role='alert'>
+                {props.validationError}
+              </div>
+            )
+            : null}
         </div>
         <footer class='workbench-modal-footer'>
-          <span class='text-muted'>No changes are written in this step</span>
+          <span class='text-muted'>Writes active config</span>
           <div class='modal-footer-actions'>
             <button type='button' class='btn btn-ghost' onClick={props.onClose}>
               Cancel
@@ -39,6 +47,8 @@ export function PublishModal(props: {
             <button
               type='button'
               class='btn btn-primary'
+              data-modal-action='confirm-publish'
+              disabled={Boolean(props.validationError)}
               onClick={props.onConfirm}
             >
               Publish

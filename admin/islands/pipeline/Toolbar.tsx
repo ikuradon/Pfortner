@@ -64,7 +64,6 @@ export function Toolbar(props: {
         type='button'
         id='btn-load-dag'
         class='btn btn-ghost'
-        disabled
         onClick={props.onLoad}
       >
         Load
@@ -73,7 +72,6 @@ export function Toolbar(props: {
         type='button'
         id='btn-save-dag'
         class='btn btn-ghost'
-        disabled
         onClick={props.onSave}
       >
         Save

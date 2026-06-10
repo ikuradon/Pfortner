@@ -174,6 +174,36 @@ Deno.test('pipeline save route persists posted pipelines and reloads runtime', a
   await Deno.remove(configPath);
 });
 
+Deno.test('pipeline save route leaves config file unchanged when reload validation fails', async () => {
+  const app = new RecordedRoutes();
+  const state = makeState();
+  const configPath = await Deno.makeTempFile({ suffix: '.yaml' });
+  const originalYaml =
+    'server:\n  port: 3000\n  upstream_relay: ws://localhost:7777\nadmin:\n  enabled: true\n  auth_token: test-token\npipelines:\n  client:\n    - policy: accept\n  server:\n    - policy: accept\n';
+  state.configPath = configPath;
+  state.reloadFn = () => Promise.reject(new Error('invalid policy config'));
+  await Deno.writeTextFile(configPath, originalYaml);
+  registerAdminApiRoutes(app, '/admin', state);
+
+  const handler = app.postRoutes.get('/admin/api/pipelines');
+  assertExists(handler);
+  const res = await handler(makeContext('/admin/api/pipelines', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      pipelines: {
+        client: [{ policy: 'accept' }],
+        server: [{ policy: 'accept' }],
+      },
+    }),
+  }));
+
+  assertEquals(res.status, 500);
+  assertEquals(await Deno.readTextFile(configPath), originalYaml);
+
+  await Deno.remove(configPath);
+});
+
 Deno.test('pipeline draft API returns null when draft storage is not configured', async () => {
   const app = new RecordedRoutes();
   const state = makeState();
@@ -235,4 +265,43 @@ Deno.test('pipeline draft API saves and reads workbench draft sidecar', async ()
 
   await Deno.remove(configPath);
   await Deno.remove(draftPath);
+});
+
+Deno.test('pipeline draft API rejects non-object JSON bodies with 400', async () => {
+  const configPath = await Deno.makeTempFile({ suffix: '.yaml' });
+  const draftPath = pipelineDraftPathForConfig(configPath);
+  const state = makeState();
+  state.pipelineDraftPath = draftPath;
+  const app = new RecordedRoutes();
+  registerAdminApiRoutes(app, '/admin', state);
+
+  const handler = app.postRoutes.get('/admin/api/pipeline-draft');
+  assertExists(handler);
+  const res = await handler(makeContext('/admin/api/pipeline-draft', {
+    method: 'POST',
+    body: 'null',
+    headers: { 'Content-Type': 'application/json' },
+  }));
+
+  assertEquals(res.status, 400);
+  assertEquals((await res.json()).error, 'draft object required');
+
+  await Deno.remove(configPath);
+});
+
+Deno.test('playground evaluate rejects non-object JSON bodies with 400', async () => {
+  const app = new RecordedRoutes();
+  const state = makeState();
+  registerAdminApiRoutes(app, '/admin', state);
+
+  const handler = app.postRoutes.get('/admin/api/playground/evaluate');
+  assertExists(handler);
+  const res = await handler(makeContext('/admin/api/playground/evaluate', {
+    method: 'POST',
+    body: 'null',
+    headers: { 'Content-Type': 'application/json' },
+  }));
+
+  assertEquals(res.status, 400);
+  assertEquals((await res.json()).error, 'request body object required');
 });
