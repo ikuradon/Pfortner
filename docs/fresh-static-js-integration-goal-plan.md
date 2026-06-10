@@ -310,8 +310,10 @@
   - [x] Moved Dashboard page polling/rendering from `admin/static/dashboard.js` into `admin/static/fresh_nav.js`, then removed the separate `dashboard.js` URL script.
   - [x] Moved Connections page fetch/filter/disconnect behavior from `admin/static/connections.js` into `admin/static/fresh_nav.js`, then removed the separate `connections.js` URL script.
   - [x] Moved Metrics page chart/raw viewer behavior from `admin/static/metrics.js` into `admin/static/fresh_nav.js`, then removed the separate `metrics.js` URL script.
+  - [x] Moved Logs page info/fallback/SSE behavior from `admin/static/logs.js` into `admin/static/fresh_nav.js`, then removed the separate `logs.js` URL script.
   - [x] Moved Config page read/reload behavior from `admin/static/config.js` into `admin/static/fresh_nav.js`, then removed the separate `config.js` URL script.
   - [x] Moved Blocklist page add/delete/list behavior from `admin/static/blocklist.js` into `admin/static/fresh_nav.js`, then removed the separate `blocklist.js` URL script.
+  - [x] Removed `admin/static/utils.js` after every page-local script consumer was rehomed.
 
 - [ ] **Step 2: Migrate one page at a time**
 
@@ -328,6 +330,7 @@
   - [x] Dashboard page no longer renders `/admin/static/dashboard.js` or `/admin/static/utils.js`; `fresh_nav` initializes the page on initial boot and after Fresh partial replacement.
   - [x] Connections page no longer renders `/admin/static/connections.js` or `/admin/static/utils.js`; `fresh_nav` initializes the page on initial boot and after Fresh partial replacement.
   - [x] Metrics page no longer renders `/admin/static/metrics.js` or `/admin/static/utils.js`; `fresh_nav` initializes the page on initial boot and after Fresh partial replacement.
+  - [x] Logs page no longer renders `/admin/static/logs.js` or `/admin/static/utils.js`; `fresh_nav` initializes the page on initial boot and after Fresh partial replacement.
   - [x] Config page no longer renders `/admin/static/config.js` or `/admin/static/utils.js`; `fresh_nav` initializes the page on initial boot and after Fresh partial replacement.
   - [x] Blocklist page no longer renders `/admin/static/blocklist.js` or `/admin/static/utils.js`; `fresh_nav` initializes the page on initial boot and after Fresh partial replacement.
 

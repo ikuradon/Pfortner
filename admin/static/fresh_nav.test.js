@@ -865,6 +865,51 @@ function metricsFixture() {
   };
 }
 
+function logsFixture() {
+  const refreshButton = new FakeElement('button', { id: 'btn-refresh-logs' }, 'Refresh');
+  const pauseButton = new FakeElement('button', { id: 'btn-pause-logs' }, 'Pause');
+  const clearButton = new FakeElement('button', { id: 'btn-clear-logs' }, 'Clear');
+  const logCount = new FakeElement('span', { id: 'log-count-display' }, '0 lines');
+  const emptyState = new FakeElement('div', { id: 'log-empty-state' }, 'No logs loaded');
+  const viewer = new FakeElement('div', { id: 'log-viewer' }, '', [emptyState]);
+  viewer.scrollTop = 0;
+  viewer.clientHeight = 100;
+  viewer.scrollHeight = 100;
+  const status = new FakeElement('span', {
+    id: 'log-stream-status',
+    class: 'log-status log-status-connecting',
+  }, 'connecting');
+  const logLevel = new FakeElement('div', { id: 'log-level-display' }, '—');
+  const runtimeInfo = new FakeElement(
+    'tbody',
+    { id: 'runtime-info-tbody' },
+    '',
+    [new FakeElement('tr', {}, '', [new FakeElement('td', { colspan: '2' }, 'Loading...')])],
+  );
+
+  return {
+    clearButton,
+    emptyState,
+    logCount,
+    logLevel,
+    pauseButton,
+    refreshButton,
+    runtimeInfo,
+    status,
+    viewer,
+    nodes: [
+      refreshButton,
+      pauseButton,
+      clearButton,
+      logCount,
+      viewer,
+      status,
+      logLevel,
+      runtimeInfo,
+    ],
+  };
+}
+
 Deno.test('fresh nav boot stores Fresh island boot arguments and mounts islands', async () => {
   const document = new FakeDocument();
   const window = new FakeWindow();
@@ -1100,6 +1145,89 @@ Deno.test('fresh nav boot initializes metrics page behavior from the client entr
     restoreClearInterval();
     restoreSetInterval();
     restoreNavigator();
+    restoreWindow();
+    restoreDocument();
+  }
+});
+
+Deno.test('fresh nav boot initializes logs page behavior from the client entry', async () => {
+  const fixture = logsFixture();
+  const document = new FakeDocument({ childNodes: fixture.nodes });
+  const window = new FakeWindow();
+  const fetchCalls = [];
+  const restoreDocument = setGlobal('document', document);
+  const restoreWindow = setGlobal('window', window);
+  const restoreFetch = setGlobal('fetch', (url) => {
+    fetchCalls.push(url);
+    if (url === '/admin/api/config') {
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            infra: { metrics: { logging: { level: 'debug' } } },
+          }),
+      });
+    }
+    if (url === '/admin/api/health/detail') {
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            status: 'ok',
+            uptime_seconds: 65,
+            connections: { active: 2 },
+          }),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          logs: [
+            {
+              id: 1,
+              line: JSON.stringify({
+                timestamp: '2026-06-10T12:00:00.000Z',
+                level: 'info',
+                message: 'relay started',
+                connectionId: 'conn-1',
+              }),
+              received_at: '2026-06-10T12:00:00.000Z',
+            },
+          ],
+        }),
+    });
+  });
+  const restoreBootArgs = setGlobal(
+    '__PFORTNER_FRESH_ISLAND_BOOT_ARGS__',
+    undefined,
+  );
+  delete globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__;
+
+  try {
+    const { boot } = await importFreshNav();
+
+    boot({}, []);
+    await waitFor(() => fixture.viewer.textContent.includes('relay started'));
+
+    assertEquals(fixture.logLevel.textContent, 'debug');
+    assertEquals(fixture.runtimeInfo.textContent.includes('Uptime1m 5s'), true);
+    assertEquals(fixture.status.textContent, 'fallback');
+    assertEquals(fixture.logCount.textContent, '1 line');
+    assertEquals(fixture.emptyState.style.display, 'none');
+    assertEquals(fetchCalls.includes('/admin/api/logs?limit=200'), true);
+
+    fixture.pauseButton.click();
+    await waitFor(() => fixture.pauseButton.textContent === 'Resume');
+    await waitFor(() => fetchCalls.length >= 8);
+    assertEquals(fixture.status.textContent, 'paused');
+
+    fixture.clearButton.click();
+    assertEquals(fixture.logCount.textContent, '0 lines');
+    assertEquals(fixture.emptyState.style.display, 'block');
+  } finally {
+    restoreBootArgs();
+    restoreFetch();
     restoreWindow();
     restoreDocument();
   }
@@ -1551,6 +1679,142 @@ Deno.test('fresh nav mounts island modules from partial navigation Link header',
     assertEquals(location.assignCalls, []);
     assertEquals(mountedButton.dataset.count, '1');
     assertEquals(mountedButton.textContent, 'Island smoke 1');
+  } finally {
+    restoreBootArgs();
+    restoreParser();
+    restoreFetch();
+    restoreHistory();
+    restoreLocation();
+    restoreNodeFilter();
+    restoreNode();
+    restoreWindow();
+    restoreDocument();
+  }
+});
+
+Deno.test('fresh nav initializes logs behavior after partial navigation without a page script', async () => {
+  const currentDocument = new FakeDocument({
+    title: 'Metrics',
+    childNodes: [
+      new FakeComment('frsh:partial:admin-content'),
+      new FakeElement('div'),
+      new FakeComment('/frsh:partial'),
+    ],
+  });
+  const fixture = logsFixture();
+  const nextDocument = new FakeDocument({
+    title: 'Logs',
+    childNodes: [
+      new FakeComment('frsh:partial:admin-content'),
+      ...fixture.nodes,
+      new FakeComment('/frsh:partial'),
+    ],
+  });
+  const window = new FakeWindow();
+  const location = {
+    href: 'http://localhost/admin/metrics',
+    origin: 'http://localhost',
+    assignCalls: [],
+    assign(url) {
+      this.assignCalls.push(url);
+    },
+  };
+  const fetchCalls = [];
+  const restoreDocument = setGlobal('document', currentDocument);
+  const restoreWindow = setGlobal('window', window);
+  const restoreNode = setGlobal('Node', { ELEMENT_NODE: 1, COMMENT_NODE: 8 });
+  const restoreNodeFilter = setGlobal('NodeFilter', { SHOW_COMMENT: 128 });
+  const restoreLocation = setGlobal('location', location);
+  const restoreHistory = setGlobal('history', {
+    pushState(_state, _title, url) {
+      location.href = new URL(url, location.href).href;
+    },
+    replaceState(_state, _title, url) {
+      location.href = new URL(url, location.href).href;
+    },
+  });
+  const restoreFetch = setGlobal('fetch', (url) => {
+    fetchCalls.push(url);
+    if (url === '/admin/api/config') {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ infra: { metrics: { logging: { level: 'info' } } } }),
+      });
+    }
+    if (url === '/admin/api/health/detail') {
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            status: 'draining',
+            uptime_seconds: 5,
+            connections: { active: 1 },
+          }),
+      });
+    }
+    if (url === '/admin/api/logs?limit=200') {
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            logs: [
+              {
+                id: 2,
+                line: '2026-06-10T12:00:01.000Z WARN partial fallback',
+                received_at: '2026-06-10T12:00:01.000Z',
+              },
+            ],
+          }),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      url: 'http://localhost/admin/logs',
+      headers: { get: () => null },
+      text: () => Promise.resolve('<html></html>'),
+    });
+  });
+  const restoreParser = setGlobal(
+    'DOMParser',
+    class {
+      parseFromString() {
+        return nextDocument;
+      }
+    },
+  );
+  const restoreBootArgs = setGlobal(
+    '__PFORTNER_FRESH_ISLAND_BOOT_ARGS__',
+    undefined,
+  );
+  delete globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__;
+
+  try {
+    const { boot } = await importFreshNav();
+
+    boot({}, []);
+    const clickListener = currentDocument.listeners.find((entry) => entry.type === 'click')?.listener;
+    const anchor = new FakeElement('a', {
+      href: 'http://localhost/admin/logs',
+      'f-client-nav': 'true',
+    });
+
+    clickListener({
+      target: anchor,
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault() {},
+    });
+
+    await waitFor(() => currentDocument.querySelector('#log-viewer')?.textContent.includes('partial fallback'));
+
+    assertEquals(fetchCalls[0], 'http://localhost/admin/logs');
+    assertEquals(fetchCalls.includes('/admin/api/logs?limit=200'), true);
+    assertEquals(location.assignCalls, []);
+    assertEquals(currentDocument.querySelector('#log-stream-status')?.textContent, 'fallback');
   } finally {
     restoreBootArgs();
     restoreParser();

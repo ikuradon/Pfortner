@@ -1,13 +1,12 @@
 // Lightweight Fresh-compatible partial navigation for the programmatic admin app.
 
-const PAGE_INITIALIZERS = {
-  '/admin/static/logs.js': 'initLogsPage',
-};
+const PAGE_INITIALIZERS = {};
 
 const DASHBOARD_POLL_INTERVAL_MS = 5000;
 const CONNECTIONS_POLL_INTERVAL_MS = 10000;
 const METRICS_POLL_INTERVAL_MS = 10000;
 const MAX_METRICS_TRACKER_MINUTES = 5;
+const MAX_VISIBLE_LOGS = 500;
 
 const ADMIN_ISLAND_MODULES = {
   '/admin/static/islands/AdminIslandSmoke.js': () => import('./islands/AdminIslandSmoke.js'),
@@ -25,6 +24,9 @@ let metricsPoller = null;
 let metricsSelectedRange = 5;
 let rawMetricsText = '';
 let rawMetricsExpanded = false;
+let logStream = null;
+let logsPaused = false;
+const seenLogIds = new Set();
 
 function mountThemeToggle() {
   const mount = document.getElementById('theme-toggle-mount');
@@ -1038,6 +1040,345 @@ function initializeMetricsPage() {
   }
 }
 
+function makeLogInfoRow(label, value) {
+  const row = document.createElement('tr');
+
+  const labelCell = document.createElement('td');
+  labelCell.style.fontWeight = '600';
+  labelCell.style.color = 'var(--color-text-muted)';
+  labelCell.style.width = '200px';
+  labelCell.textContent = label;
+  row.appendChild(labelCell);
+
+  const valueCell = document.createElement('td');
+  valueCell.style.fontFamily = 'monospace';
+  valueCell.textContent = value;
+  row.appendChild(valueCell);
+
+  return row;
+}
+
+function getLogRows() {
+  const viewer = document.getElementById('log-viewer');
+  return Array.from(viewer?.querySelectorAll('.log-row') ?? []);
+}
+
+function updateLogCount() {
+  const rows = getLogRows();
+  const count = document.getElementById('log-count-display');
+  if (count) count.textContent = `${rows.length}${rows.length === 1 ? ' line' : ' lines'}`;
+
+  const empty = document.getElementById('log-empty-state');
+  if (empty) empty.style.display = rows.length === 0 ? 'block' : 'none';
+}
+
+function setLogStreamStatus(state, label) {
+  const status = document.getElementById('log-stream-status');
+  if (!status) return;
+
+  const effectiveState = logsPaused && state === 'streaming' ? 'paused' : state;
+  const effectiveLabel = logsPaused && state === 'streaming' ? 'paused' : label;
+  status.textContent = effectiveLabel;
+  status.className = `log-status log-status-${effectiveState}`;
+}
+
+function formatLogTimestamp(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString();
+}
+
+function normalizeLogLevel(level) {
+  const normalized = String(level || 'log').toLowerCase();
+  return normalized === 'debug' || normalized === 'info' ||
+      normalized === 'warn' || normalized === 'error'
+    ? normalized
+    : 'log';
+}
+
+function parseLogLine(line) {
+  try {
+    const parsed = JSON.parse(line);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const level = normalizeLogLevel(parsed.level);
+      const timestamp = typeof parsed.timestamp === 'string'
+        ? parsed.timestamp
+        : typeof parsed.time === 'string'
+        ? parsed.time
+        : '';
+      const message = typeof parsed.message === 'string'
+        ? parsed.message
+        : typeof parsed.msg === 'string'
+        ? parsed.msg
+        : line;
+      const details = {};
+      for (const [key, value] of Object.entries(parsed)) {
+        if (
+          key !== 'timestamp' && key !== 'time' && key !== 'level' &&
+          key !== 'message' && key !== 'msg'
+        ) {
+          details[key] = value;
+        }
+      }
+      return {
+        details: Object.keys(details).length > 0 ? JSON.stringify(details) : '',
+        level,
+        message,
+        timestamp,
+      };
+    }
+  } catch {
+    // Treat invalid JSON as a plain text log line.
+  }
+
+  const match = line.match(/^(\S+)\s+(DEBUG|INFO|WARN|ERROR)\s+(.*)$/);
+  if (match) {
+    return {
+      details: '',
+      level: normalizeLogLevel(match[2]),
+      message: match[3],
+      timestamp: match[1],
+    };
+  }
+
+  return { details: '', level: 'log', message: line, timestamp: '' };
+}
+
+function pruneLogRows() {
+  const rows = getLogRows();
+  while (rows.length > MAX_VISIBLE_LOGS) {
+    const row = rows.shift();
+    if (!row) break;
+    const id = Number(row.dataset.logId);
+    if (Number.isFinite(id)) seenLogIds.delete(id);
+    row.remove();
+  }
+}
+
+function appendLogEntry(entry, options = {}) {
+  if (!entry || typeof entry.line !== 'string') return;
+  if (logsPaused && !options.force) return;
+
+  const id = Number(entry.id);
+  if (Number.isFinite(id)) {
+    if (seenLogIds.has(id)) return;
+    seenLogIds.add(id);
+  }
+
+  const viewer = document.getElementById('log-viewer');
+  if (!viewer) return;
+
+  const wasAtBottom = viewer.scrollTop + viewer.clientHeight >= viewer.scrollHeight - 24;
+  const parsed = parseLogLine(entry.line);
+  const level = normalizeLogLevel(parsed.level);
+
+  const row = document.createElement('div');
+  row.className = `log-row log-row-${level}`;
+  row.title = entry.line;
+  if (Number.isFinite(id)) row.dataset.logId = String(id);
+
+  const time = document.createElement('span');
+  time.className = 'log-row-time';
+  time.textContent = formatLogTimestamp(parsed.timestamp || entry.received_at);
+  row.appendChild(time);
+
+  const levelElement = document.createElement('span');
+  levelElement.className = 'log-row-level';
+  levelElement.textContent = level.toUpperCase();
+  row.appendChild(levelElement);
+
+  const message = document.createElement('span');
+  message.className = 'log-row-message';
+  message.textContent = parsed.details ? `${parsed.message} ${parsed.details}` : parsed.message;
+  row.appendChild(message);
+
+  viewer.appendChild(row);
+  pruneLogRows();
+  updateLogCount();
+
+  if (wasAtBottom || options.force) {
+    viewer.scrollTop = viewer.scrollHeight;
+  }
+}
+
+function clearRenderedLogs() {
+  for (const row of getLogRows()) row.remove();
+  seenLogIds.clear();
+  updateLogCount();
+}
+
+async function fetchLogsInfoForPage() {
+  const [configData, healthData] = await Promise.all([
+    fetchJsonOrNull('/admin/api/config'),
+    fetchJsonOrNull('/admin/api/health/detail'),
+  ]);
+  if (typeof document === 'undefined') return;
+
+  const logLevel = configData?.infra?.metrics?.logging?.level ||
+    configData?.log?.level ||
+    configData?.logging?.level ||
+    configData?.log_level ||
+    '—';
+
+  const logLevelElement = document.getElementById('log-level-display');
+  if (logLevelElement) logLevelElement.textContent = String(logLevel);
+
+  const uptime = healthData?.uptime_seconds != null ? formatUptime(healthData.uptime_seconds) : '—';
+  const connections = healthData?.connections?.active != null ? String(healthData.connections.active) : '—';
+  const status = healthData?.status || '—';
+  const streamStatus = document.getElementById('log-stream-status')?.textContent || '—';
+
+  const tbody = document.getElementById('runtime-info-tbody');
+  if (!tbody) return;
+
+  clearElementChildren(tbody);
+  tbody.appendChild(makeLogInfoRow('Log Level', String(logLevel)));
+  tbody.appendChild(makeLogInfoRow('Server Status', status));
+  tbody.appendChild(makeLogInfoRow('Uptime', uptime));
+  tbody.appendChild(makeLogInfoRow('Active Connections', connections));
+  tbody.appendChild(makeLogInfoRow('Log Streaming', streamStatus));
+  tbody.appendChild(makeLogInfoRow('Timestamp', new Date().toLocaleString()));
+}
+
+async function fetchLogsForPage() {
+  const data = await fetchJsonOrNull('/admin/api/logs?limit=200');
+  if (typeof document === 'undefined') return;
+  if (!data || !Array.isArray(data.logs)) {
+    if (!logStream) setLogStreamStatus('fallback', 'fallback unavailable');
+    return;
+  }
+
+  clearRenderedLogs();
+  for (const entry of data.logs) appendLogEntry(entry, { force: true });
+
+  if (!logStream) setLogStreamStatus('fallback', 'fallback');
+}
+
+function createLogEventStream(options) {
+  let source = null;
+  const eventName = options.eventName ?? 'message';
+
+  function setStatus(state, label) {
+    options.onStatus?.(state, label);
+  }
+
+  function close() {
+    if (source) {
+      source.close();
+      source = null;
+    }
+  }
+
+  function connect() {
+    const EventSourceCtor = window.EventSource;
+    if (typeof EventSourceCtor !== 'function') {
+      setStatus('fallback', 'fallback');
+      options.fallback?.();
+      return;
+    }
+
+    close();
+    setStatus('connecting', 'connecting');
+    source = new EventSourceCtor(options.url);
+    source.onopen = () => setStatus('streaming', 'streaming');
+    source.addEventListener(eventName, options.onEvent);
+    source.addEventListener('heartbeat', (event) => {
+      options.onHeartbeat?.(event);
+      setStatus('streaming', 'streaming');
+    });
+    source.onerror = () => {
+      setStatus('disconnected', 'disconnected');
+      options.fallback?.();
+    };
+  }
+
+  return {
+    close,
+    connect,
+    isClosed: () =>
+      !source || typeof window.EventSource !== 'function' ||
+      source.readyState === window.EventSource.CLOSED,
+  };
+}
+
+function connectLogsStream() {
+  logStream?.close();
+  logStream = createLogEventStream({
+    url: '/admin/api/logs/stream?replay=100',
+    eventName: 'log',
+    onStatus(state, label) {
+      setLogStreamStatus(state, label);
+      if (state === 'streaming') fetchLogsInfoForPage();
+    },
+    onEvent(event) {
+      try {
+        appendLogEntry(JSON.parse(event.data));
+        if (!logsPaused) setLogStreamStatus('streaming', 'streaming');
+      } catch {
+        setLogStreamStatus('disconnected', 'invalid stream event');
+      }
+    },
+    fallback() {
+      fetchLogsForPage();
+      fetchLogsInfoForPage();
+    },
+  });
+  logStream.connect();
+}
+
+function stopLogsStream() {
+  logStream?.close();
+  logStream = null;
+}
+
+function toggleLogsPause() {
+  logsPaused = !logsPaused;
+
+  const pauseButton = document.getElementById('btn-pause-logs');
+  if (pauseButton) pauseButton.textContent = logsPaused ? 'Resume' : 'Pause';
+
+  if (logsPaused) {
+    setLogStreamStatus('paused', 'paused');
+  } else {
+    setLogStreamStatus(logStream ? 'streaming' : 'connecting', logStream ? 'streaming' : 'connecting');
+    fetchLogsForPage();
+  }
+
+  fetchLogsInfoForPage();
+}
+
+function initializeLogsPage() {
+  if (!document.getElementById('log-viewer') || !document.getElementById('runtime-info-tbody')) {
+    stopLogsStream();
+    return;
+  }
+
+  stopLogsStream();
+  logsPaused = false;
+  seenLogIds.clear();
+
+  updateLogCount();
+  fetchLogsInfoForPage();
+  fetchLogsForPage();
+  connectLogsStream();
+
+  const refreshButton = document.getElementById('btn-refresh-logs');
+  if (refreshButton) {
+    bindOnce(refreshButton, 'logs-refresh', () => {
+      fetchLogsInfoForPage();
+      fetchLogsForPage();
+      if (!logStream || logStream.isClosed()) connectLogsStream();
+    });
+  }
+
+  const pauseButton = document.getElementById('btn-pause-logs');
+  if (pauseButton) bindOnce(pauseButton, 'logs-pause', toggleLogsPause);
+
+  const clearButton = document.getElementById('btn-clear-logs');
+  if (clearButton) bindOnce(clearButton, 'logs-clear', clearRenderedLogs);
+}
+
 function showConfigStatus(message, isError) {
   const element = document.getElementById('config-status');
   if (!element) return;
@@ -1297,6 +1638,7 @@ function initializeClientEntryPageBehaviors() {
   initializeDashboardPage();
   initializeConnectionsPage();
   initializeMetricsPage();
+  initializeLogsPage();
   initializeConfigPage();
   initializeBlocklistPage();
 }
