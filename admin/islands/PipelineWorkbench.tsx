@@ -19,6 +19,7 @@ import { PublishModal } from './pipeline/PublishModal.tsx';
 import { Toolbar } from './pipeline/Toolbar.tsx';
 import { DEFAULT_CANVAS_SIZE } from './pipeline/minimap.ts';
 import { fitViewportToGraph, zoomViewportByStep } from './pipeline/use_canvas_interactions.ts';
+import { useWorkbenchKeyboard } from './pipeline/use_workbench_keyboard.ts';
 import {
   createInitialWorkbenchState,
   reduceWorkbench,
@@ -51,7 +52,10 @@ function stableValue(value: unknown): unknown {
   return value;
 }
 
-function draftFingerprintFromParts(graphs: unknown, viewports: unknown): string {
+function draftFingerprintFromParts(
+  graphs: unknown,
+  viewports: unknown,
+): string {
   return JSON.stringify(stableValue({ graphs, viewports }));
 }
 
@@ -76,7 +80,9 @@ function noop(): void {
   return undefined;
 }
 
-function isStartGraphNode(node: { type?: string; policy?: string } | null | undefined): boolean {
+function isStartGraphNode(
+  node: { type?: string; policy?: string } | null | undefined,
+): boolean {
   return node?.type === 'start' || node?.policy === 'start';
 }
 
@@ -119,6 +125,8 @@ export default function PipelineWorkbench() {
     ? state.graphs[state.direction].nodes.find((node) => node.id === activeModal.nodeId)
     : undefined;
 
+  useWorkbenchKeyboard(state, dispatch);
+
   useEffect(() => {
     let active = true;
 
@@ -129,7 +137,10 @@ export default function PipelineWorkbench() {
         WORKBENCH_ACTION_SERVICES.fetchPipelineDraft().catch(() => null),
       ]);
       if (!active) return;
-      const selectedDraft = selectWorkbenchDraft([draft, WORKBENCH_ACTION_SERVICES.readLocalDraft()]);
+      const selectedDraft = selectWorkbenchDraft([
+        draft,
+        WORKBENCH_ACTION_SERVICES.readLocalDraft(),
+      ]);
       dispatch({
         type: 'initialDataLoaded',
         pipelines: pipelinesFromConfig(config),
@@ -162,7 +173,12 @@ export default function PipelineWorkbench() {
   }
 
   async function handlePlaygroundRun(rawMessage: string): Promise<void> {
-    await runWorkbenchPlayground(state, rawMessage, WORKBENCH_ACTION_SERVICES, dispatch);
+    await runWorkbenchPlayground(
+      state,
+      rawMessage,
+      WORKBENCH_ACTION_SERVICES,
+      dispatch,
+    );
   }
 
   function handleViewportChange(viewport: Viewport): void {
@@ -296,7 +312,9 @@ export default function PipelineWorkbench() {
         <section class='canvas-shell canvas-shell-expanded'>
           <div class='canvas-toolbar'>
             <span id='canvas-title'>{title}</span>
-            <span class='text-muted' id='canvas-zoom-label'>{Math.round(activeViewport.zoom * 100)}%</span>
+            <span class='text-muted' id='canvas-zoom-label'>
+              {Math.round(activeViewport.zoom * 100)}%
+            </span>
           </div>
           <Canvas
             graph={state.graphs[state.direction]}
