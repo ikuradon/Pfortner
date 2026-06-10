@@ -296,7 +296,9 @@ function normalizeCompatibleDraft(rawDraft, currentPublishedFingerprint) {
   if (!rawDraft) return null;
   const normalized = normalizeWorkbenchDraft(rawDraft);
   if ('error' in normalized) return null;
-  if (normalized.draft.lastPublishedFingerprint !== currentPublishedFingerprint) {
+  if (
+    normalized.draft.lastPublishedFingerprint !== currentPublishedFingerprint
+  ) {
     return null;
   }
   return normalized.draft;
@@ -317,7 +319,12 @@ function recordGraphMutation() {
 
 function commitGraphMutation(beforeGraph) {
   if (!beforeGraph || sameValue(beforeGraph, currentGraph())) return;
-  setHistoryState(recordHistorySnapshot({ ...historyState, present: beforeGraph }, currentGraph()));
+  setHistoryState(
+    recordHistorySnapshot(
+      { ...historyState, present: beforeGraph },
+      currentGraph(),
+    ),
+  );
   updateHistoryButtons();
 }
 
@@ -345,8 +352,10 @@ function toYamlValue(val, indent) {
         typeof val[k] === 'object' && val[k] !== null && !Array.isArray(val[k])
       ) {
         return indent + k + ':\n' +
-          Object.keys(val[k]).map((sk) => indent + '  ' + sk + ': ' + toYamlValue(val[k][sk], indent + '    '))
-            .join('\n');
+          Object.keys(val[k]).map((sk) =>
+            indent + '  ' + sk + ': ' +
+            toYamlValue(val[k][sk], indent + '    ')
+          ).join('\n');
       }
       if (Array.isArray(val[k]) && val[k].length > 0) {
         return indent + k + ':' + v;
@@ -388,12 +397,15 @@ export function buildYamlPreview(pipes) {
 }
 
 export function buildPublishConfirmationMessage(yaml) {
-  return 'Publish this pipeline configuration to the active config file?\n\n' + yaml;
+  return 'Publish this pipeline configuration to the active config file?\n\n' +
+    yaml;
 }
 
 function confirmPublish(serialized) {
   if (typeof globalThis.confirm !== 'function') return true;
-  return globalThis.confirm(buildPublishConfirmationMessage(buildYamlPreview(serialized)));
+  return globalThis.confirm(
+    buildPublishConfirmationMessage(buildYamlPreview(serialized)),
+  );
 }
 
 function policyIcon(name) {
@@ -449,7 +461,12 @@ export function defaultConfigForPolicy(name) {
     case 'protected-event':
       return { require_auth: true };
     case 'rate-limit':
-      return { scope: 'connection', window: 60, max_events: 60, max_requests: 120 };
+      return {
+        scope: 'connection',
+        window: 60,
+        max_events: 60,
+        max_requests: 120,
+      };
     case 'spam-filter':
       return { max_content_length: 1000 };
     case 'content-filter':
@@ -676,8 +693,16 @@ function updateWorkbenchChangeBadges() {
     currentPipelineFingerprint: currentPipelinesFingerprint(),
     publishedFingerprint,
   });
-  setStateBadge('workbench-save-state', state.dagLabel, state.hasUnsavedDagChanges);
-  setStateBadge('workbench-publish-state', state.publishLabel, state.hasUnpublishedChanges);
+  setStateBadge(
+    'workbench-save-state',
+    state.dagLabel,
+    state.hasUnsavedDagChanges,
+  );
+  setStateBadge(
+    'workbench-publish-state',
+    state.publishLabel,
+    state.hasUnpublishedChanges,
+  );
 }
 
 function updateHistoryButtons() {
@@ -752,7 +777,9 @@ function graphPointFromEvent(event) {
 
 export function replaceEdge(graph, from, fromPort, to) {
   if (from === to) return false;
-  if ((graph.edges ?? []).some((edge) => edge.from === from && edge.fromPort === fromPort && edge.to === to)) {
+  if (
+    (graph.edges ?? []).some((edge) => edge.from === from && edge.fromPort === fromPort && edge.to === to)
+  ) {
     return false;
   }
   const target = findNode(graph, to);
@@ -1216,7 +1243,9 @@ function renderNode(group, node) {
       dataset: { nodeId: node.id, nodeAction: action.type },
       tabindex: '0',
     });
-    actionGroup.appendChild(svgEl('title', {}, [document.createTextNode(action.title)]));
+    actionGroup.appendChild(
+      svgEl('title', {}, [document.createTextNode(action.title)]),
+    );
     actionGroup.appendChild(svgEl('rect', {
       class: 'pipeline-node-action-bg',
       x: -12,
@@ -1511,7 +1540,14 @@ function renderValueControl(row, onChange) {
 
 function renderConfigRows(rows, renderContent, onCaseRowEdited = null) {
   const wrapper = htmlEl('div', { className: 'config-editor-rows' });
-  const typeOptions = ['string', 'number', 'boolean', 'array', 'object', 'null'];
+  const typeOptions = [
+    'string',
+    'number',
+    'boolean',
+    'array',
+    'object',
+    'null',
+  ];
 
   if (rows.length === 0) {
     wrapper.appendChild(htmlEl('div', {
@@ -1529,7 +1565,9 @@ function renderConfigRows(rows, renderContent, onCaseRowEdited = null) {
         input: (event) => {
           const previousKey = rows[index].key;
           rows[index].key = event.currentTarget.value;
-          if (previousKey === 'cases' || rows[index].key === 'cases') onCaseRowEdited?.();
+          if (previousKey === 'cases' || rows[index].key === 'cases') {
+            onCaseRowEdited?.();
+          }
         },
       },
     });
@@ -1711,7 +1749,8 @@ function openNodeSettingsModal(node) {
     const tabs = htmlEl('div', { className: 'config-editor-tabs' }, [
       htmlEl('button', {
         type: 'button',
-        className: 'btn ' + (mode === 'interactive' ? 'btn-primary' : 'btn-ghost'),
+        className: 'btn ' +
+          (mode === 'interactive' ? 'btn-primary' : 'btn-ghost'),
         text: 'Interactive',
         events: {
           click: () => {
@@ -1775,7 +1814,11 @@ function openNodeSettingsModal(node) {
       bodyChildren.push(renderConfigRows(rows, renderContent, () => {
         caseIndexMap = null;
       }));
-      const matchControls = renderMatchCaseControls(node, rows, changeDraftConfig);
+      const matchControls = renderMatchCaseControls(
+        node,
+        rows,
+        changeDraftConfig,
+      );
       if (matchControls) bodyChildren.push(matchControls);
     }
 
@@ -2111,7 +2154,10 @@ function openPlaygroundModal(node = null) {
         ]),
         htmlEl('div', { className: 'test-run-results' }, [
           htmlEl('div', { className: 'section-title', text: 'Results' }),
-          htmlEl('div', { id: 'result-panel', className: 'playground-result-panel' }, [
+          htmlEl('div', {
+            id: 'result-panel',
+            className: 'playground-result-panel',
+          }, [
             htmlEl('div', {
               className: 'playground-empty',
               text: 'Run a message to inspect the evaluated path.',
@@ -2243,7 +2289,9 @@ async function fetchPlugins() {
 
 async function fetchPipelineDraft() {
   try {
-    const res = await fetch('/admin/api/pipeline-draft', { credentials: 'same-origin' });
+    const res = await fetch('/admin/api/pipeline-draft', {
+      credentials: 'same-origin',
+    });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Unknown error' }));
       throw new Error(err.error || 'HTTP ' + res.status);
@@ -2294,7 +2342,10 @@ async function saveDag(options = {}) {
       await postPipelineDraft(draft);
     } catch (serverError) {
       if (!options.quietSuccess) {
-        setStatus('DAG saved locally; server draft failed: ' + serverError.message, true);
+        setStatus(
+          'DAG saved locally; server draft failed: ' + serverError.message,
+          true,
+        );
       }
       return { ok: false, draft, serverError };
     }
@@ -2349,13 +2400,23 @@ async function publishConfig() {
     pipelines.client = cloneValue(data.pipelines?.client ?? serialized.client);
     pipelines.server = cloneValue(data.pipelines?.server ?? serialized.server);
     publishedFingerprint = fingerprintPipelines(serialized);
-    const dagResult = await saveDag({ updateButton: false, quietSuccess: true });
+    const dagResult = await saveDag({
+      updateButton: false,
+      quietSuccess: true,
+    });
     renderYaml();
     setPersistentSummary();
     if (dagResult.serverError) {
-      setStatus('Pipeline published; DAG saved locally; server draft failed: ' + dagResult.serverError.message, true);
+      setStatus(
+        'Pipeline published; DAG saved locally; server draft failed: ' +
+          dagResult.serverError.message,
+        true,
+      );
     } else if (dagResult.error) {
-      setStatus('Pipeline published; DAG save failed: ' + dagResult.error.message, true);
+      setStatus(
+        'Pipeline published; DAG save failed: ' + dagResult.error.message,
+        true,
+      );
     } else {
       setStatus('Pipeline published at ' + new Date().toLocaleTimeString());
     }
@@ -2427,7 +2488,9 @@ function setPaletteCollapsed(collapsed, persist = true) {
     toggle.textContent = collapsed ? '›' : '‹';
     toggle.title = collapsed ? 'Expand palette' : 'Collapse palette';
   }
-  if (persist) writeStorageItem(PALETTE_COLLAPSED_KEY, collapsed ? 'true' : 'false');
+  if (persist) {
+    writeStorageItem(PALETTE_COLLAPSED_KEY, collapsed ? 'true' : 'false');
+  }
 }
 
 function restorePaletteCollapsed() {
@@ -2435,7 +2498,9 @@ function restorePaletteCollapsed() {
 }
 
 function togglePaletteCollapsed() {
-  const collapsed = document.getElementById('pipeline-workbench')?.classList.contains('palette-collapsed') ?? false;
+  const collapsed = document.getElementById('pipeline-workbench')?.classList.contains(
+    'palette-collapsed',
+  ) ?? false;
   setPaletteCollapsed(!collapsed);
 }
 

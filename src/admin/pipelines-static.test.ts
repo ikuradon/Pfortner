@@ -28,13 +28,15 @@ import {
   recordDirectionHistorySnapshot,
   recordHistorySnapshot,
 } from '../../admin/static/pipeline_workbench_state.js';
+import { buildPublishConfirmationMessage, buildYamlPreview } from '../../admin/islands/pipeline/yaml_preview.ts';
 import {
   addMatchCaseDraftConfig,
-  buildYamlPreview,
   defaultConfigForPolicy,
+  isMovablePipelineNode,
   reconcileMatchCaseEdges,
   removeMatchCaseDraftConfig,
-} from '../../admin/static/pipelines.js';
+  shouldRenderInputPort,
+} from '../../admin/islands/pipeline/node_defaults.ts';
 
 const pipelineEditor = await import(
   '../../admin/static/pipelines.js'
@@ -45,6 +47,107 @@ const pipelineEditor = await import(
 const workbenchState = await import(
   '../../admin/static/pipeline_workbench_state.js'
 ) as unknown as Record<string, (...args: any[]) => any>;
+
+Deno.test('pipeline static browser bundle does not import island TypeScript modules', async () => {
+  const source = await Deno.readTextFile(
+    new URL('../../admin/static/pipelines.js', import.meta.url),
+  );
+  const staticSpecifiers = Array.from(
+    source.matchAll(/\b(?:import|export)\s+(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]/g),
+    (match) => match[1],
+  );
+  const dynamicSpecifiers = Array.from(
+    source.matchAll(/\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g),
+    (match) => match[1],
+  );
+  const forbiddenSpecifiers = [...staticSpecifiers, ...dynamicSpecifiers]
+    .filter((specifier) => specifier.includes('islands/pipeline') || specifier.endsWith('.ts'));
+
+  assertEquals(forbiddenSpecifiers, []);
+});
+
+Deno.test('temporary parity guard for duplicated pipeline helpers until static runtime is removed', () => {
+  const sample = {
+    client: [
+      {
+        policy: 'ip-filter',
+        config: { blocklist: { ips: [], cidrs: ['10.0.0.0/8'] } },
+      },
+      {
+        policy: 'match',
+        config: {
+          cases: [
+            {
+              condition: { kind: 1 },
+              pipeline: [{ policy: 'accept', config: {} }],
+            },
+          ],
+          default: [],
+        },
+      },
+    ],
+    server: [{
+      policy: 'rate-limit',
+      config: defaultConfigForPolicy('rate-limit'),
+    }],
+  };
+  const yaml = buildYamlPreview(sample);
+
+  assertEquals(pipelineEditor.buildYamlPreview(sample), yaml);
+  assertEquals(
+    pipelineEditor.buildPublishConfirmationMessage(yaml),
+    buildPublishConfirmationMessage(yaml),
+  );
+
+  for (
+    const policy of ['protected-event', 'ip-filter', 'rate-limit', 'match']
+  ) {
+    assertEquals(
+      pipelineEditor.defaultConfigForPolicy(policy),
+      defaultConfigForPolicy(policy),
+    );
+  }
+
+  assertEquals(
+    pipelineEditor.shouldRenderInputPort({ type: 'start', policy: 'start' }),
+    shouldRenderInputPort({ type: 'start', policy: 'start' }),
+  );
+  assertEquals(
+    pipelineEditor.isMovablePipelineNode({ type: 'policy', policy: 'accept' }),
+    isMovablePipelineNode({ type: 'policy', policy: 'accept' }),
+  );
+
+  const matchConfig = {
+    cases: [
+      { condition: { kind: 1 }, pipeline: [{ policy: 'accept' }] },
+      { condition: { kind: 2 }, pipeline: [{ policy: 'reject' }] },
+    ],
+    default: [],
+  };
+  const removed = removeMatchCaseDraftConfig(matchConfig, 0, [0, 1]);
+  assertEquals(
+    pipelineEditor.removeMatchCaseDraftConfig(matchConfig, 0, [0, 1]),
+    removed,
+  );
+  assertEquals(
+    pipelineEditor.addMatchCaseDraftConfig(
+      removed.config,
+      removed.caseIndexMap,
+    ),
+    addMatchCaseDraftConfig(removed.config, removed.caseIndexMap),
+  );
+
+  const edges = [
+    { id: 'case-0', from: 'match-node', fromPort: 'case:0', to: 'a' },
+    { id: 'case-1', from: 'match-node', fromPort: 'case:1', to: 'b' },
+    { id: 'case-2', from: 'match-node', fromPort: 'case:2', to: 'c' },
+    { id: 'default', from: 'match-node', fromPort: 'default', to: 'd' },
+  ];
+  assertEquals(
+    pipelineEditor.reconcileMatchCaseEdges(edges, 'match-node', [0, 2], 2),
+    reconcileMatchCaseEdges(edges, 'match-node', [0, 2], 2),
+  );
+});
 
 Deno.test('pipeline editor defaults protected-event to require authentication', () => {
   assertEquals(defaultConfigForPolicy('protected-event'), {
@@ -117,11 +220,11 @@ Deno.test('pipeline editor YAML preview serializes ip-filter blocklist schema', 
 
 Deno.test('pipeline editor does not render an input port for the start node', () => {
   assertEquals(
-    pipelineEditor.shouldRenderInputPort?.({ type: 'start', policy: 'start' }),
+    shouldRenderInputPort({ type: 'start', policy: 'start' }),
     false,
   );
   assertEquals(
-    pipelineEditor.shouldRenderInputPort?.({
+    shouldRenderInputPort({
       type: 'policy',
       policy: 'accept',
     }),
@@ -131,11 +234,11 @@ Deno.test('pipeline editor does not render an input port for the start node', ()
 
 Deno.test('pipeline editor allows the start node to move', () => {
   assertEquals(
-    pipelineEditor.isMovablePipelineNode?.({ type: 'start', policy: 'start' }),
+    isMovablePipelineNode({ type: 'start', policy: 'start' }),
     true,
   );
   assertEquals(
-    pipelineEditor.isMovablePipelineNode?.({
+    isMovablePipelineNode({
       type: 'policy',
       policy: 'accept',
     }),
@@ -513,7 +616,11 @@ Deno.test('pipeline workbench history is scoped per direction', () => {
     nodes: graphs.client.nodes.map((node) => node.id === 'client-node-1' ? { ...node, x: node.x + 32 } : node),
   };
 
-  const nextHistories = recordDirectionHistorySnapshot(histories, 'client', changedClient);
+  const nextHistories = recordDirectionHistorySnapshot(
+    histories,
+    'client',
+    changedClient,
+  );
 
   assertEquals(nextHistories.client.past.length, 1);
   assertEquals(nextHistories.server.past.length, 0);
@@ -621,7 +728,7 @@ Deno.test('pipeline publish confirmation message includes YAML preview', () => {
     client: [{ policy: 'write-guard', config: { require_auth: true } }],
     server: [],
   });
-  const message = pipelineEditor.buildPublishConfirmationMessage?.(yaml);
+  const message = buildPublishConfirmationMessage(yaml);
 
   assertStringIncludes(message, 'Publish');
   assertStringIncludes(message, 'pipelines:');
@@ -747,7 +854,12 @@ Deno.test('pipeline edge replacement leaves identical connections unchanged', ()
     ],
   };
 
-  const changed = pipelineEditor.replaceEdge?.(graph, 'client-start', 'next', 'client-node-1');
+  const changed = pipelineEditor.replaceEdge?.(
+    graph,
+    'client-start',
+    'next',
+    'client-node-1',
+  );
 
   assertEquals(changed, false);
   assertEquals(graph.edges, [
