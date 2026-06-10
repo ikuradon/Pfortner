@@ -92,9 +92,6 @@ export function MetricsPage({ currentPath }: MetricsPageProps) {
           </pre>
         </div>
       </div>
-
-      <script src='/admin/static/utils.js'></script>
-      <script src='/admin/static/metrics.js' type='module'></script>
     </Layout>
   );
 }

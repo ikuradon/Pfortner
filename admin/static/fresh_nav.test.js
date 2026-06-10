@@ -794,6 +794,77 @@ function connectionsFixture() {
   };
 }
 
+function metricsFixture() {
+  const range5 = new FakeElement('button', {
+    class: 'btn btn-primary time-range-btn',
+    'data-range': '5',
+  }, '5m');
+  const range60 = new FakeElement('button', {
+    class: 'btn btn-ghost time-range-btn',
+    'data-range': '60',
+  }, '1h');
+  const refreshButton = new FakeElement('button', { id: 'btn-refresh-metrics' }, 'Refresh');
+  const throughputBody = new FakeElement(
+    'div',
+    { id: 'throughput-chart-body' },
+    '',
+    [new FakeElement('span', { class: 'text-muted' }, 'Loading...')],
+  );
+  const policyBody = new FakeElement(
+    'div',
+    { id: 'policy-decisions-body' },
+    '',
+    [new FakeElement('div', {}, 'Loading...')],
+  );
+  const connectionBody = new FakeElement(
+    'div',
+    { id: 'connection-chart-body' },
+    '',
+    [new FakeElement('span', { class: 'text-muted' }, 'Loading...')],
+  );
+  const rawToggle = new FakeElement('div', { id: 'raw-metrics-toggle' }, 'Raw Prometheus Metrics');
+  const rawChevron = new FakeElement('span', { id: 'raw-metrics-chevron' }, '▶ Expand');
+  const rawContent = new FakeElement('div', { id: 'raw-metrics-content' });
+  rawContent.style.display = 'none';
+  const rawSearch = new FakeElement('input', { id: 'raw-metrics-search', value: '' });
+  const copyButton = new FakeElement('button', { id: 'btn-copy-metrics' }, 'Copy');
+  const rawPre = new FakeElement(
+    'pre',
+    { id: 'raw-metrics-pre' },
+    '',
+    [new FakeElement('span', { class: 'text-muted' }, 'Loading...')],
+  );
+
+  return {
+    connectionBody,
+    copyButton,
+    policyBody,
+    range5,
+    range60,
+    rawChevron,
+    rawContent,
+    rawPre,
+    rawSearch,
+    rawToggle,
+    refreshButton,
+    throughputBody,
+    nodes: [
+      range5,
+      range60,
+      refreshButton,
+      throughputBody,
+      policyBody,
+      connectionBody,
+      rawToggle,
+      rawChevron,
+      rawContent,
+      rawSearch,
+      copyButton,
+      rawPre,
+    ],
+  };
+}
+
 Deno.test('fresh nav boot stores Fresh island boot arguments and mounts islands', async () => {
   const document = new FakeDocument();
   const window = new FakeWindow();
@@ -944,6 +1015,91 @@ Deno.test('fresh nav boot initializes dashboard page behavior from the client en
     restoreFetch();
     restoreClearInterval();
     restoreSetInterval();
+    restoreWindow();
+    restoreDocument();
+  }
+});
+
+Deno.test('fresh nav boot initializes metrics page behavior from the client entry', async () => {
+  const fixture = metricsFixture();
+  const document = new FakeDocument({ childNodes: fixture.nodes });
+  const window = new FakeWindow();
+  const now = Date.now();
+  const throughputBuckets = [
+    { ts: now - 1000, accept: 4, reject: 1 },
+    { ts: now - 2000, accept: 1, reject: 2 },
+  ];
+  const prometheusText = [
+    '# HELP pfortner_policy_decisions_total Policy decisions',
+    'pfortner_policy_decisions_total{policy="write-guard",action="accept"} 7',
+    'pfortner_policy_decisions_total{policy="write-guard",action="reject"} 2',
+    'pfortner_policy_decisions_total{policy="rate-limit",action="next"} 3',
+  ].join('\n');
+  const fetchCalls = [];
+  const copied = [];
+  const restoreDocument = setGlobal('document', document);
+  const restoreWindow = setGlobal('window', window);
+  const restoreNavigator = setGlobal('navigator', {
+    clipboard: {
+      writeText(value) {
+        copied.push(value);
+        return Promise.resolve();
+      },
+    },
+  });
+  const restoreSetInterval = setGlobal('setInterval', () => 1);
+  const restoreClearInterval = setGlobal('clearInterval', () => {});
+  const restoreFetch = setGlobal('fetch', (url) => {
+    fetchCalls.push(url);
+    if (url === '/admin/api/metrics/throughput') {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(throughputBuckets),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      text: () => Promise.resolve(prometheusText),
+    });
+  });
+  const restoreBootArgs = setGlobal(
+    '__PFORTNER_FRESH_ISLAND_BOOT_ARGS__',
+    undefined,
+  );
+  delete globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__;
+
+  try {
+    const { boot } = await importFreshNav();
+
+    boot({}, []);
+    await waitFor(() => fixture.policyBody.textContent.includes('write-guard'));
+
+    assertEquals(fetchCalls, [
+      '/admin/api/metrics/throughput',
+      '/admin/api/metrics/prometheus',
+    ]);
+    assertEquals(fixture.throughputBody.querySelector('svg') !== null, true);
+    assertEquals(fixture.connectionBody.querySelector('svg') !== null, true);
+    assertEquals(fixture.rawPre.textContent.includes('write-guard'), true);
+
+    fixture.rawToggle.click();
+    assertEquals(fixture.rawContent.style.display, 'block');
+    assertEquals(fixture.rawChevron.textContent, '▼ Collapse');
+
+    fixture.rawSearch.value = 'rate-limit';
+    fixture.rawSearch.dispatchEvent({ type: 'input', target: fixture.rawSearch });
+    assertEquals(fixture.rawPre.textContent.includes('rate-limit'), true);
+    assertEquals(fixture.rawPre.textContent.includes('write-guard'), false);
+
+    fixture.copyButton.click();
+    await waitFor(() => copied.length === 1);
+    assertEquals(copied, [prometheusText]);
+  } finally {
+    restoreBootArgs();
+    restoreFetch();
+    restoreClearInterval();
+    restoreSetInterval();
+    restoreNavigator();
     restoreWindow();
     restoreDocument();
   }
@@ -1399,6 +1555,132 @@ Deno.test('fresh nav mounts island modules from partial navigation Link header',
     restoreBootArgs();
     restoreParser();
     restoreFetch();
+    restoreHistory();
+    restoreLocation();
+    restoreNodeFilter();
+    restoreNode();
+    restoreWindow();
+    restoreDocument();
+  }
+});
+
+Deno.test('fresh nav initializes metrics behavior after partial navigation without a page script', async () => {
+  const currentDocument = new FakeDocument({
+    title: 'Connections',
+    childNodes: [
+      new FakeComment('frsh:partial:admin-content'),
+      new FakeElement('div'),
+      new FakeComment('/frsh:partial'),
+    ],
+  });
+  const fixture = metricsFixture();
+  const nextDocument = new FakeDocument({
+    title: 'Metrics',
+    childNodes: [
+      new FakeComment('frsh:partial:admin-content'),
+      ...fixture.nodes,
+      new FakeComment('/frsh:partial'),
+    ],
+  });
+  const window = new FakeWindow();
+  const location = {
+    href: 'http://localhost/admin/connections',
+    origin: 'http://localhost',
+    assignCalls: [],
+    assign(url) {
+      this.assignCalls.push(url);
+    },
+  };
+  const fetchCalls = [];
+  const restoreDocument = setGlobal('document', currentDocument);
+  const restoreWindow = setGlobal('window', window);
+  const restoreNode = setGlobal('Node', { ELEMENT_NODE: 1, COMMENT_NODE: 8 });
+  const restoreNodeFilter = setGlobal('NodeFilter', { SHOW_COMMENT: 128 });
+  const restoreLocation = setGlobal('location', location);
+  const restoreHistory = setGlobal('history', {
+    pushState(_state, _title, url) {
+      location.href = new URL(url, location.href).href;
+    },
+    replaceState(_state, _title, url) {
+      location.href = new URL(url, location.href).href;
+    },
+  });
+  const restoreSetInterval = setGlobal('setInterval', () => 1);
+  const restoreClearInterval = setGlobal('clearInterval', () => {});
+  const restoreFetch = setGlobal('fetch', (url) => {
+    fetchCalls.push(url);
+    if (url === '/admin/api/metrics/throughput') {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve([]),
+      });
+    }
+    if (url === '/admin/api/metrics/prometheus') {
+      return Promise.resolve({
+        ok: true,
+        text: () => Promise.resolve('pfortner_policy_decisions_total{policy="route",action="accept"} 1'),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      url: 'http://localhost/admin/metrics',
+      headers: { get: () => null },
+      text: () => Promise.resolve('<html></html>'),
+    });
+  });
+  const restoreParser = setGlobal(
+    'DOMParser',
+    class {
+      parseFromString() {
+        return nextDocument;
+      }
+    },
+  );
+  const restoreBootArgs = setGlobal(
+    '__PFORTNER_FRESH_ISLAND_BOOT_ARGS__',
+    undefined,
+  );
+  delete globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__;
+
+  try {
+    const { boot } = await importFreshNav();
+
+    boot({}, []);
+    const clickListener = currentDocument.listeners.find((entry) => entry.type === 'click')?.listener;
+    const anchor = new FakeElement('a', {
+      href: 'http://localhost/admin/metrics',
+      'f-client-nav': 'true',
+    });
+
+    clickListener({
+      target: anchor,
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault() {},
+    });
+
+    await waitFor(() => currentDocument.querySelector('#policy-decisions-body')?.textContent.includes('route'));
+
+    assertEquals(fetchCalls, [
+      'http://localhost/admin/metrics',
+      '/admin/api/metrics/throughput',
+      '/admin/api/metrics/prometheus',
+    ]);
+    assertEquals(location.assignCalls, []);
+    assertEquals(
+      currentDocument.querySelector('#throughput-chart-body')?.textContent,
+      'No throughput data available',
+    );
+  } finally {
+    restoreBootArgs();
+    restoreParser();
+    restoreFetch();
+    restoreClearInterval();
+    restoreSetInterval();
     restoreHistory();
     restoreLocation();
     restoreNodeFilter();

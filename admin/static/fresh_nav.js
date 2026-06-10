@@ -1,12 +1,13 @@
 // Lightweight Fresh-compatible partial navigation for the programmatic admin app.
 
 const PAGE_INITIALIZERS = {
-  '/admin/static/metrics.js': 'initMetricsPage',
   '/admin/static/logs.js': 'initLogsPage',
 };
 
 const DASHBOARD_POLL_INTERVAL_MS = 5000;
 const CONNECTIONS_POLL_INTERVAL_MS = 10000;
+const METRICS_POLL_INTERVAL_MS = 10000;
+const MAX_METRICS_TRACKER_MINUTES = 5;
 
 const ADMIN_ISLAND_MODULES = {
   '/admin/static/islands/AdminIslandSmoke.js': () => import('./islands/AdminIslandSmoke.js'),
@@ -20,6 +21,10 @@ let connectionsPoller = null;
 let allConnections = [];
 let connectionsAuthFilter = 'all';
 let connectionsSearchText = '';
+let metricsPoller = null;
+let metricsSelectedRange = 5;
+let rawMetricsText = '';
+let rawMetricsExpanded = false;
 
 function mountThemeToggle() {
   const mount = document.getElementById('theme-toggle-mount');
@@ -636,6 +641,403 @@ function initializeConnectionsPage() {
   });
 }
 
+function stopMetricsPoller() {
+  metricsPoller?.stop();
+  metricsPoller = null;
+}
+
+function buildMetricsSvgChart(data, options) {
+  const {
+    height = 100,
+    barW = 8,
+    barGap = 2,
+    valueKeys,
+    colors,
+    labels,
+  } = options;
+
+  if (!Array.isArray(data) || data.length === 0) {
+    const noData = document.createElement('span');
+    noData.className = 'text-muted';
+    noData.textContent = 'No data available';
+    return noData;
+  }
+
+  const maxVal = Math.max(
+    ...data.map((entry) => valueKeys.reduce((sum, key) => sum + (entry[key] || 0), 0)),
+    1,
+  );
+  const barGroupWidth = barW * valueKeys.length + barGap * (valueKeys.length - 1);
+  const groupGap = 3;
+  const totalWidth = data.length * (barGroupWidth + groupGap);
+  const svgNs = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNs, 'svg');
+  svg.setAttribute('width', String(totalWidth));
+  svg.setAttribute('height', String(height));
+  svg.setAttribute('style', 'display:block;overflow:visible');
+
+  const labelStep = Math.max(1, Math.floor(data.length / 10));
+  for (let index = 0; index < data.length; index += labelStep) {
+    const entry = data[index];
+    if (!entry.ts) continue;
+    const x = index * (barGroupWidth + groupGap) + barGroupWidth / 2;
+    const text = document.createElementNS(svgNs, 'text');
+    text.setAttribute('x', String(x));
+    text.setAttribute('y', String(height + 14));
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('font-size', '10');
+    text.setAttribute('fill', 'var(--color-text-muted)');
+    const date = new Date(entry.ts);
+    text.textContent = `${date.getHours().toString().padStart(2, '0')}:${
+      date.getMinutes().toString().padStart(2, '0')
+    }`;
+    svg.appendChild(text);
+  }
+
+  data.forEach((entry, index) => {
+    const groupX = index * (barGroupWidth + groupGap);
+    valueKeys.forEach((key, keyIndex) => {
+      const value = entry[key] || 0;
+      const barHeight = Math.round((value / maxVal) * height);
+      if (barHeight === 0) return;
+
+      const rect = document.createElementNS(svgNs, 'rect');
+      rect.setAttribute('x', String(groupX + keyIndex * (barW + barGap)));
+      rect.setAttribute('y', String(height - barHeight));
+      rect.setAttribute('width', String(barW));
+      rect.setAttribute('height', String(barHeight));
+      rect.setAttribute('fill', colors[keyIndex]);
+      rect.setAttribute('opacity', '0.85');
+      rect.setAttribute('rx', '2');
+
+      const title = document.createElementNS(svgNs, 'title');
+      title.textContent = `${labels[keyIndex] || key}: ${value}`;
+      rect.appendChild(title);
+      svg.appendChild(rect);
+    });
+  });
+
+  const wrapper = document.createElement('div');
+  const scrollDiv = document.createElement('div');
+  scrollDiv.style.cssText = 'overflow-x:auto;padding-bottom:20px';
+  scrollDiv.appendChild(svg);
+  wrapper.appendChild(scrollDiv);
+
+  const legend = document.createElement('div');
+  legend.style.cssText = 'display:flex;gap:16px;margin-top:4px;font-size:11px;color:var(--color-text-muted)';
+  valueKeys.forEach((key, keyIndex) => {
+    const item = document.createElement('span');
+    item.style.cssText = 'display:flex;align-items:center;gap:4px';
+    const swatch = document.createElement('span');
+    swatch.style.cssText = `width:10px;height:10px;display:inline-block;border-radius:2px;background:${
+      colors[keyIndex]
+    }`;
+    item.appendChild(swatch);
+    item.appendChild(document.createTextNode(labels[keyIndex] || key));
+    legend.appendChild(item);
+  });
+  wrapper.appendChild(legend);
+
+  return wrapper;
+}
+
+function renderMetricsThroughputChart(buckets) {
+  const container = document.getElementById('throughput-chart-body');
+  if (!container) return;
+
+  const cutoff = Date.now() - metricsSelectedRange * 60 * 1000;
+  const filtered = buckets.filter((bucket) => bucket.ts >= cutoff);
+  const insufficient = metricsSelectedRange > MAX_METRICS_TRACKER_MINUTES && filtered.length === 0;
+
+  if (insufficient || buckets.length === 0) {
+    clearElementChildren(container);
+    const message = document.createElement('span');
+    message.className = 'text-muted';
+    message.textContent = metricsSelectedRange > MAX_METRICS_TRACKER_MINUTES
+      ? 'Insufficient data \u2014 only ~5 minutes of history is available'
+      : 'No throughput data available';
+    container.appendChild(message);
+    return;
+  }
+
+  const chart = buildMetricsSvgChart(filtered.length > 0 ? filtered : buckets, {
+    height: 100,
+    barW: 8,
+    barGap: 2,
+    valueKeys: ['accept', 'reject'],
+    colors: ['var(--color-accent)', 'var(--color-danger)'],
+    labels: ['Accept', 'Reject'],
+  });
+  clearElementChildren(container);
+  container.appendChild(chart);
+}
+
+function renderMetricsConnectionChart(buckets) {
+  const container = document.getElementById('connection-chart-body');
+  if (!container) return;
+
+  const cutoff = Date.now() - metricsSelectedRange * 60 * 1000;
+  const filtered = buckets.filter((bucket) => bucket.ts >= cutoff);
+  const data = (filtered.length > 0 ? filtered : buckets).map((bucket) => ({
+    ts: bucket.ts,
+    total: (bucket.accept || 0) + (bucket.reject || 0),
+  }));
+
+  if (data.length === 0) {
+    clearElementChildren(container);
+    const message = document.createElement('span');
+    message.className = 'text-muted';
+    message.textContent = 'No activity data available';
+    container.appendChild(message);
+    return;
+  }
+
+  const chart = buildMetricsSvgChart(data, {
+    height: 80,
+    barW: 10,
+    barGap: 0,
+    valueKeys: ['total'],
+    colors: ['var(--color-success)'],
+    labels: ['Messages'],
+  });
+  clearElementChildren(container);
+  container.appendChild(chart);
+}
+
+function parsePrometheusPolicyMetrics(text) {
+  const decisions = {};
+  const metricLine = /^pfortner_policy_decisions_total\{([^}]+)\}\s+(\d+(?:\.\d+)?)$/;
+
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const match = metricLine.exec(trimmed);
+    if (!match) continue;
+
+    const labels = {};
+    for (const part of match[1].split(',')) {
+      const eq = part.indexOf('=');
+      if (eq === -1) continue;
+      labels[part.slice(0, eq).trim()] = part.slice(eq + 1).replace(/^"|"$/g, '').trim();
+    }
+
+    const policy = labels.policy || '(unknown)';
+    const action = labels.action || '(unknown)';
+    if (!decisions[policy]) decisions[policy] = { accept: 0, reject: 0, next: 0, other: 0 };
+    const key = action === 'accept' || action === 'reject' || action === 'next' ? action : 'other';
+    decisions[policy][key] += parseInt(match[2], 10);
+  }
+
+  return decisions;
+}
+
+function renderMetricsPolicyTable(text) {
+  const container = document.getElementById('policy-decisions-body');
+  if (!container) return;
+
+  const policies = Object.entries(parsePrometheusPolicyMetrics(text));
+  clearElementChildren(container);
+
+  if (policies.length === 0) {
+    const message = document.createElement('div');
+    message.style.cssText = 'text-align:center;padding:24px;color:var(--color-text-muted)';
+    message.textContent = 'No policy decision data available';
+    container.appendChild(message);
+    return;
+  }
+
+  policies.sort((a, b) => {
+    const totalA = a[1].accept + a[1].reject + a[1].next + a[1].other;
+    const totalB = b[1].accept + b[1].reject + b[1].next + b[1].other;
+    return totalB - totalA;
+  });
+
+  const table = document.createElement('table');
+  table.className = 'table';
+  const thead = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  for (const column of ['Policy', 'Accept', 'Reject', 'Next', 'Total']) {
+    const th = document.createElement('th');
+    th.textContent = column;
+    if (column !== 'Policy') th.style.textAlign = 'right';
+    headerRow.appendChild(th);
+  }
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  for (const [policyName, counts] of policies) {
+    const total = counts.accept + counts.reject + counts.next + counts.other;
+    const row = document.createElement('tr');
+
+    const nameCell = document.createElement('td');
+    nameCell.style.cssText = 'font-family:monospace;font-size:12px';
+    nameCell.textContent = policyName;
+    row.appendChild(nameCell);
+
+    const acceptCell = document.createElement('td');
+    acceptCell.style.cssText = 'text-align:right;color:var(--color-success)';
+    acceptCell.textContent = String(counts.accept);
+    row.appendChild(acceptCell);
+
+    const rejectCell = document.createElement('td');
+    rejectCell.style.cssText = 'text-align:right;color:var(--color-danger)';
+    rejectCell.textContent = String(counts.reject);
+    row.appendChild(rejectCell);
+
+    const nextCell = document.createElement('td');
+    nextCell.style.cssText = 'text-align:right;color:var(--color-text-muted)';
+    nextCell.textContent = String(counts.next);
+    row.appendChild(nextCell);
+
+    const totalCell = document.createElement('td');
+    totalCell.style.cssText = 'text-align:right;font-weight:600';
+    totalCell.textContent = String(total);
+    row.appendChild(totalCell);
+
+    tbody.appendChild(row);
+  }
+  table.appendChild(tbody);
+  container.appendChild(table);
+}
+
+function applyRawMetricsFilter() {
+  const searchInput = document.getElementById('raw-metrics-search');
+  const pre = document.getElementById('raw-metrics-pre');
+  if (!pre) return;
+
+  const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+  if (!query) {
+    pre.textContent = rawMetricsText || '# No metrics data';
+    return;
+  }
+
+  const filtered = rawMetricsText
+    .split('\n')
+    .filter((line) => line.toLowerCase().includes(query))
+    .join('\n');
+  pre.textContent = filtered || '# No matching lines';
+}
+
+function updateRawMetrics(text) {
+  rawMetricsText = text;
+  applyRawMetricsFilter();
+}
+
+async function fetchMetricsThroughputForPage() {
+  try {
+    const response = await fetch('/admin/api/metrics/throughput', {
+      credentials: 'same-origin',
+    });
+    if (!response.ok) return;
+    const data = await response.json();
+    const buckets = Array.isArray(data) ? data : [];
+    renderMetricsThroughputChart(buckets);
+    renderMetricsConnectionChart(buckets);
+  } catch {
+    // Ignore polling errors; the next refresh can recover the page.
+  }
+}
+
+async function fetchPrometheusMetricsForPage() {
+  try {
+    const response = await fetch('/admin/api/metrics/prometheus', {
+      credentials: 'same-origin',
+    });
+    if (!response.ok) return;
+    const text = await response.text();
+    updateRawMetrics(text);
+    renderMetricsPolicyTable(text);
+  } catch {
+    // Ignore polling errors; the next refresh can recover the page.
+  }
+}
+
+async function refreshMetricsPage() {
+  await Promise.all([
+    fetchMetricsThroughputForPage(),
+    fetchPrometheusMetricsForPage(),
+  ]);
+}
+
+function initializeMetricsPage() {
+  if (!document.getElementById('throughput-chart-body') || !document.getElementById('policy-decisions-body')) {
+    stopMetricsPoller();
+    return;
+  }
+
+  stopMetricsPoller();
+  metricsSelectedRange = 5;
+  rawMetricsText = '';
+  rawMetricsExpanded = false;
+
+  document.querySelectorAll('.time-range-btn').forEach((button) => {
+    bindOnce(button, 'metrics-range', (event) => {
+      const range = parseInt(event.currentTarget.dataset.range || '5', 10);
+      metricsSelectedRange = range;
+      document.querySelectorAll('.time-range-btn').forEach((rangeButton) => {
+        rangeButton.className = parseInt(rangeButton.dataset.range || '5', 10) === range
+          ? 'btn btn-primary time-range-btn'
+          : 'btn btn-ghost time-range-btn';
+      });
+      fetchMetricsThroughputForPage();
+    });
+  });
+
+  const toggle = document.getElementById('raw-metrics-toggle');
+  const content = document.getElementById('raw-metrics-content');
+  const chevron = document.getElementById('raw-metrics-chevron');
+  if (toggle && content && chevron) {
+    bindOnce(toggle, 'metrics-raw-toggle', () => {
+      rawMetricsExpanded = !rawMetricsExpanded;
+      content.style.display = rawMetricsExpanded ? 'block' : 'none';
+      chevron.textContent = rawMetricsExpanded ? '\u25bc Collapse' : '\u25b6 Expand';
+    });
+  }
+
+  const searchInput = document.getElementById('raw-metrics-search');
+  if (searchInput) {
+    bindOnce(searchInput, 'metrics-raw-search', applyRawMetricsFilter, 'input');
+  }
+
+  const copyButton = document.getElementById('btn-copy-metrics');
+  if (copyButton) {
+    bindOnce(copyButton, 'metrics-copy', async () => {
+      try {
+        await navigator.clipboard.writeText(rawMetricsText);
+        copyButton.textContent = 'Copied!';
+        setTimeout(() => {
+          copyButton.textContent = 'Copy';
+        }, 2000);
+      } catch {
+        const pre = document.getElementById('raw-metrics-pre');
+        if (!pre || typeof document.createRange !== 'function') return;
+        const range = document.createRange();
+        range.selectNodeContents(pre);
+        const selection = globalThis.getSelection?.();
+        if (selection) {
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
+      }
+    });
+  }
+
+  metricsPoller = createPagePoller({
+    intervalMs: METRICS_POLL_INTERVAL_MS,
+    run: refreshMetricsPage,
+  });
+  metricsPoller.start();
+  const activePoller = metricsPoller;
+
+  const refreshButton = document.getElementById('btn-refresh-metrics');
+  if (refreshButton) {
+    bindOnce(refreshButton, 'metrics-refresh', () => {
+      activePoller.refresh();
+    });
+  }
+}
+
 function showConfigStatus(message, isError) {
   const element = document.getElementById('config-status');
   if (!element) return;
@@ -894,6 +1296,7 @@ function initializeBlocklistPage() {
 function initializeClientEntryPageBehaviors() {
   initializeDashboardPage();
   initializeConnectionsPage();
+  initializeMetricsPage();
   initializeConfigPage();
   initializeBlocklistPage();
 }
