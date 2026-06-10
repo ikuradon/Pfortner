@@ -926,8 +926,8 @@ Deno.test('fresh nav boot stores Fresh island boot arguments and mounts islands'
     const mountCalls = [];
     const islands = {
       AdminIslandSmoke: {
-        mount(root) {
-          mountCalls.push(root);
+        mount(root, props) {
+          mountCalls.push({ root, props });
         },
       },
     };
@@ -936,7 +936,8 @@ Deno.test('fresh nav boot stores Fresh island boot arguments and mounts islands'
 
     boot(islands, initialProps);
     assertEquals(mountCalls.length, 1);
-    assertStrictEquals(mountCalls[0], document);
+    assertStrictEquals(mountCalls[0].root, document);
+    assertStrictEquals(mountCalls[0].props, initialProps);
 
     boot({}, nextProps);
 

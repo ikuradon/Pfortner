@@ -277,6 +277,7 @@
     - Added `admin/islands/PipelineWorkbench.browser.tsx` as the browser mount adapter source.
     - Added `scripts/build_admin_islands.ts` and `deno task build:admin-islands`; esbuild requires `--allow-run` to start its native service.
     - Added `scripts/build_admin_islands.test.ts` to prove the generated adapter can be bundled without importing static helper copies or static controller behavior.
+    - Updated `admin/static/fresh_nav.js` so initial Fresh boot props are forwarded to island mount adapters.
   - [ ] The adapter may call Preact hydration/mounting, but it must not contain Workbench graph/controller behavior; that behavior must remain in `admin/islands/PipelineWorkbench.tsx` and `admin/islands/pipeline/*`.
   - [ ] Move remaining `PipelineWorkbench static chunk ...` tests from `admin/static/fresh_nav.test.js` to Fresh island component/reducer/action tests, keeping only a smoke test that the compatibility chunk exports a mountable adapter and partial navigation calls it.
   - [ ] Remove `admin/static/pipeline_{graph,workbench_state,config_editor}.js` after the generated adapter no longer imports static helper copies.

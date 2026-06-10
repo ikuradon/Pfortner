@@ -1658,10 +1658,10 @@ function installNavigation() {
   });
 }
 
-function mountAdminIslands(islands) {
+function mountAdminIslands(islands, props) {
   for (const island of Object.values(islands ?? {})) {
     if (typeof island?.mount !== 'function') continue;
-    island.mount(document);
+    island.mount(document, props);
   }
 }
 
@@ -1717,7 +1717,7 @@ export function boot(islands = {}, props = []) {
   globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__ = { islands, props };
   mountLayoutBehaviors();
   initializeClientEntryPageBehaviors();
-  mountAdminIslands(islands);
+  mountAdminIslands(islands, props);
 }
 
 function shouldHandleAnchor(event, anchor) {
