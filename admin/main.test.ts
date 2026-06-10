@@ -93,7 +93,8 @@ Deno.test('admin app page routes render Fresh SSR pages with partial navigation'
   assertEquals(html.includes('/admin/static/fresh_nav.js'), true);
   assertEquals(html.includes('/admin/static/client.js'), false);
   assertEquals(html.includes('Blocklist'), true);
-  assertEquals(html.includes('/admin/static/blocklist.js'), true);
+  assertEquals(html.includes('/admin/static/blocklist.js'), false);
+  assertEquals(html.includes('/admin/static/utils.js'), false);
   const removedSpaBootScript = '/admin/static/' + 'app.js';
   assertEquals(html.includes(removedSpaBootScript), false);
   assertEquals(html.includes('id="admin-app"'), false);

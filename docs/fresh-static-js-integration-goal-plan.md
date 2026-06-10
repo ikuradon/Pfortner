@@ -308,6 +308,7 @@
 
   - [x] Moved the layout theme toggle from `admin/static/client.js` into the existing Fresh client entry `admin/static/fresh_nav.js`, then removed the separate `client.js` URL script.
   - [x] Moved Config page read/reload behavior from `admin/static/config.js` into `admin/static/fresh_nav.js`, then removed the separate `config.js` URL script.
+  - [x] Moved Blocklist page add/delete/list behavior from `admin/static/blocklist.js` into `admin/static/fresh_nav.js`, then removed the separate `blocklist.js` URL script.
 
 - [ ] **Step 2: Migrate one page at a time**
 
@@ -322,6 +323,7 @@
   Progress:
 
   - [x] Config page no longer renders `/admin/static/config.js` or `/admin/static/utils.js`; `fresh_nav` initializes the page on initial boot and after Fresh partial replacement.
+  - [x] Blocklist page no longer renders `/admin/static/blocklist.js` or `/admin/static/utils.js`; `fresh_nav` initializes the page on initial boot and after Fresh partial replacement.
 
 - [ ] **Step 3: Commit each page separately**
 

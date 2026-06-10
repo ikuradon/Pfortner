@@ -383,7 +383,7 @@ class FakeElement {
     const clone = new FakeElement(
       this.tagName,
       Object.fromEntries(this.attributes),
-      this.textContent,
+      this._textContent,
       this.childNodes.map((node) => node.clone()),
     );
     clone.dataset = { ...this.dataset };
@@ -655,6 +655,56 @@ function pipelineWorkbenchFixture({ standalonePolicy = null, extraNodes = [] } =
   };
 }
 
+function blocklistFixture() {
+  const loadingRow = () =>
+    new FakeElement(
+      'tr',
+      {},
+      '',
+      [new FakeElement('td', { colspan: '2' }, 'Loading...')],
+    );
+  const refreshButton = new FakeElement('button', { id: 'btn-refresh' }, 'Refresh');
+  const ipInput = new FakeElement('input', { id: 'ip-input', value: '' });
+  const addIpButton = new FakeElement('button', { id: 'btn-add-ip' }, 'Add IP');
+  const pubkeyInput = new FakeElement('input', { id: 'pubkey-input', value: '' });
+  const addPubkeyButton = new FakeElement('button', { id: 'btn-add-pubkey' }, 'Add Pubkey');
+  const ipTbody = new FakeElement('tbody', { id: 'ip-tbody' }, '', [loadingRow()]);
+  const pubkeyTbody = new FakeElement('tbody', { id: 'pubkey-tbody' }, '', [loadingRow()]);
+  const ipListContainer = new FakeElement(
+    'div',
+    { id: 'ip-list-container' },
+    '',
+    [new FakeElement('table', {}, '', [ipTbody])],
+  );
+  const pubkeyListContainer = new FakeElement(
+    'div',
+    { id: 'pubkey-list-container' },
+    '',
+    [new FakeElement('table', {}, '', [pubkeyTbody])],
+  );
+
+  return {
+    addIpButton,
+    addPubkeyButton,
+    ipInput,
+    ipListContainer,
+    ipTbody,
+    pubkeyInput,
+    pubkeyListContainer,
+    pubkeyTbody,
+    refreshButton,
+    nodes: [
+      refreshButton,
+      ipInput,
+      addIpButton,
+      pubkeyInput,
+      addPubkeyButton,
+      ipListContainer,
+      pubkeyListContainer,
+    ],
+  };
+}
+
 Deno.test('fresh nav boot stores Fresh island boot arguments and mounts islands', async () => {
   const document = new FakeDocument();
   const window = new FakeWindow();
@@ -794,6 +844,74 @@ Deno.test('fresh nav boot initializes config page behavior from the client entry
   } finally {
     restoreBootArgs();
     restoreFetch();
+    restoreWindow();
+    restoreDocument();
+  }
+});
+
+Deno.test('fresh nav boot initializes blocklist page behavior from the client entry', async () => {
+  const fixture = blocklistFixture();
+  const document = new FakeDocument({ childNodes: fixture.nodes });
+  const window = new FakeWindow();
+  const state = {
+    ips: ['203.0.113.10'],
+    pubkeys: ['pk-blocked'],
+  };
+  const fetchCalls = [];
+  const alerts = [];
+  const restoreDocument = setGlobal('document', document);
+  const restoreWindow = setGlobal('window', window);
+  const restoreAlert = setGlobal('alert', (message) => alerts.push(message));
+  const restoreConfirm = setGlobal('confirm', () => true);
+  const restoreFetch = setGlobal('fetch', (url, init = {}) => {
+    fetchCalls.push([url, init.method ?? 'GET', init.body ?? null]);
+    if (url === '/admin/api/blocklist/ip' && init.method === 'POST') {
+      state.ips.push(JSON.parse(init.body).ip);
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
+    }
+    if (url === '/admin/api/blocklist/pubkey/pk-blocked' && init.method === 'DELETE') {
+      state.pubkeys = state.pubkeys.filter((value) => value !== 'pk-blocked');
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
+    }
+    return Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ ips: state.ips, pubkeys: state.pubkeys }),
+    });
+  });
+  const restoreBootArgs = setGlobal(
+    '__PFORTNER_FRESH_ISLAND_BOOT_ARGS__',
+    undefined,
+  );
+  delete globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__;
+
+  try {
+    const { boot } = await importFreshNav();
+
+    boot({}, []);
+    await waitFor(() => fixture.ipTbody.textContent.includes('203.0.113.10'));
+
+    fixture.ipInput.value = '198.51.100.7';
+    fixture.addIpButton.click();
+    await waitFor(() => fixture.ipTbody.textContent.includes('198.51.100.7'));
+
+    const removePubkeyButton = fixture.pubkeyTbody.querySelector('.btn-danger');
+    removePubkeyButton.click();
+    await waitFor(() => fixture.pubkeyTbody.textContent.includes('No entries'));
+
+    assertEquals(fetchCalls.map(([url, method]) => [url, method]), [
+      ['/admin/api/blocklist', 'GET'],
+      ['/admin/api/blocklist/ip', 'POST'],
+      ['/admin/api/blocklist', 'GET'],
+      ['/admin/api/blocklist/pubkey/pk-blocked', 'DELETE'],
+      ['/admin/api/blocklist', 'GET'],
+    ]);
+    assertEquals(fixture.ipInput.value, '');
+    assertEquals(alerts, []);
+  } finally {
+    restoreBootArgs();
+    restoreFetch();
+    restoreConfirm();
+    restoreAlert();
     restoreWindow();
     restoreDocument();
   }
@@ -1138,6 +1256,122 @@ Deno.test('fresh nav initializes config behavior after partial navigation withou
     ]);
     assertEquals(location.assignCalls, []);
     assertEquals(currentDocument.querySelector('#config-status') !== null, true);
+  } finally {
+    restoreBootArgs();
+    restoreParser();
+    restoreFetch();
+    restoreHistory();
+    restoreLocation();
+    restoreNodeFilter();
+    restoreNode();
+    restoreWindow();
+    restoreDocument();
+  }
+});
+
+Deno.test('fresh nav initializes blocklist behavior after partial navigation without a page script', async () => {
+  const currentDocument = new FakeDocument({
+    title: 'Config',
+    childNodes: [
+      new FakeComment('frsh:partial:admin-content'),
+      new FakeElement('div'),
+      new FakeComment('/frsh:partial'),
+    ],
+  });
+  const fixture = blocklistFixture();
+  const nextDocument = new FakeDocument({
+    title: 'Blocklist',
+    childNodes: [
+      new FakeComment('frsh:partial:admin-content'),
+      ...fixture.nodes,
+      new FakeComment('/frsh:partial'),
+    ],
+  });
+  const window = new FakeWindow();
+  const location = {
+    href: 'http://localhost/admin/config',
+    origin: 'http://localhost',
+    assignCalls: [],
+    assign(url) {
+      this.assignCalls.push(url);
+    },
+  };
+  const fetchCalls = [];
+  const restoreDocument = setGlobal('document', currentDocument);
+  const restoreWindow = setGlobal('window', window);
+  const restoreNode = setGlobal('Node', { ELEMENT_NODE: 1, COMMENT_NODE: 8 });
+  const restoreNodeFilter = setGlobal('NodeFilter', { SHOW_COMMENT: 128 });
+  const restoreLocation = setGlobal('location', location);
+  const restoreHistory = setGlobal('history', {
+    pushState(_state, _title, url) {
+      location.href = new URL(url, location.href).href;
+    },
+    replaceState(_state, _title, url) {
+      location.href = new URL(url, location.href).href;
+    },
+  });
+  const restoreFetch = setGlobal('fetch', (url) => {
+    fetchCalls.push(url);
+    if (url === '/admin/api/blocklist') {
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ips: ['203.0.113.42'],
+            pubkeys: ['pk-from-partial'],
+          }),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      url: 'http://localhost/admin/blocklist',
+      headers: { get: () => null },
+      text: () => Promise.resolve('<html></html>'),
+    });
+  });
+  const restoreParser = setGlobal(
+    'DOMParser',
+    class {
+      parseFromString() {
+        return nextDocument;
+      }
+    },
+  );
+  const restoreBootArgs = setGlobal(
+    '__PFORTNER_FRESH_ISLAND_BOOT_ARGS__',
+    undefined,
+  );
+  delete globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__;
+
+  try {
+    const { boot } = await importFreshNav();
+
+    boot({}, []);
+    const clickListener = currentDocument.listeners.find((entry) => entry.type === 'click')?.listener;
+    const anchor = new FakeElement('a', {
+      href: 'http://localhost/admin/blocklist',
+      'f-client-nav': 'true',
+    });
+
+    clickListener({
+      target: anchor,
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault() {},
+    });
+
+    await waitFor(() => currentDocument.querySelector('#ip-tbody')?.textContent.includes('203.0.113.42'));
+
+    assertEquals(fetchCalls, [
+      'http://localhost/admin/blocklist',
+      '/admin/api/blocklist',
+    ]);
+    assertEquals(location.assignCalls, []);
+    assertEquals(currentDocument.querySelector('#pubkey-tbody')?.textContent.includes('pk-from-partial'), true);
   } finally {
     restoreBootArgs();
     restoreParser();

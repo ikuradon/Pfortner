@@ -4,7 +4,6 @@ const PAGE_INITIALIZERS = {
   '/admin/static/dashboard.js': 'initDashboardPage',
   '/admin/static/connections.js': 'initConnectionsPage',
   '/admin/static/metrics.js': 'initMetricsPage',
-  '/admin/static/blocklist.js': 'initBlocklistPage',
   '/admin/static/logs.js': 'initLogsPage',
 };
 
@@ -55,11 +54,11 @@ function getErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function bindOnce(element, key, listener) {
-  const attribute = `data-pfortner-${key}-bound`;
+function bindOnce(element, key, listener, type = 'click') {
+  const attribute = `data-pfortner-${key}-${type}-bound`;
   if (element.getAttribute(attribute) === 'true') return;
   element.setAttribute(attribute, 'true');
-  element.addEventListener('click', listener);
+  element.addEventListener(type, listener);
 }
 
 function showConfigStatus(message, isError) {
@@ -154,8 +153,172 @@ function initializeConfigPage() {
   }
 }
 
+function makeBlocklistDeleteButton(type, value) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'btn btn-danger';
+  button.style.padding = '4px 10px';
+  button.style.fontSize = '12px';
+  button.textContent = 'Remove';
+  button.addEventListener('click', () => {
+    deleteBlocklistEntry(type, value);
+  });
+  return button;
+}
+
+function renderBlocklistTable(tbodyId, entries, type) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+
+  while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+
+  if (!Array.isArray(entries) || entries.length === 0) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 2;
+    cell.style.textAlign = 'center';
+    cell.style.padding = '24px';
+    cell.style.color = 'var(--color-text-muted)';
+    cell.textContent = 'No entries';
+    row.appendChild(cell);
+    tbody.appendChild(row);
+    return;
+  }
+
+  for (const entry of entries) {
+    const row = document.createElement('tr');
+    const valueCell = document.createElement('td');
+    valueCell.style.fontFamily = 'monospace';
+    valueCell.style.fontSize = '13px';
+    valueCell.textContent = entry;
+    row.appendChild(valueCell);
+
+    const actionCell = document.createElement('td');
+    actionCell.appendChild(makeBlocklistDeleteButton(type, entry));
+    row.appendChild(actionCell);
+
+    tbody.appendChild(row);
+  }
+}
+
+function showBlocklistError(containerId, message) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  while (container.firstChild) container.removeChild(container.firstChild);
+
+  const paragraph = document.createElement('p');
+  paragraph.style.color = 'var(--color-danger)';
+  paragraph.style.padding = '12px 0';
+  paragraph.textContent = `Error: ${message}`;
+  container.appendChild(paragraph);
+}
+
+async function fetchBlocklistForPage() {
+  try {
+    const response = await fetch('/admin/api/blocklist', {
+      credentials: 'same-origin',
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    renderBlocklistTable('ip-tbody', data.ips ?? [], 'ip');
+    renderBlocklistTable('pubkey-tbody', data.pubkeys ?? [], 'pubkey');
+  } catch (error) {
+    const message = getErrorMessage(error);
+    showBlocklistError('ip-list-container', message);
+    showBlocklistError('pubkey-list-container', message);
+  }
+}
+
+async function addBlocklistEntry(type, value) {
+  if (!value) return;
+  const body = type === 'ip' ? { ip: value } : { pubkey: value };
+
+  try {
+    const response = await fetch(`/admin/api/blocklist/${type}`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(payload.error || 'Request failed');
+    }
+    await fetchBlocklistForPage();
+  } catch (error) {
+    alert(`Error adding entry: ${getErrorMessage(error)}`);
+  }
+}
+
+async function deleteBlocklistEntry(type, value) {
+  if (!confirm(`Remove ${value} from blocklist?`)) return;
+
+  try {
+    const response = await fetch(
+      `/admin/api/blocklist/${type}/${encodeURIComponent(value)}`,
+      {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      },
+    );
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    await fetchBlocklistForPage();
+  } catch (error) {
+    alert(`Error removing entry: ${getErrorMessage(error)}`);
+  }
+}
+
+function addBlocklistInputHandlers(inputId, buttonId, emptyMessage, type) {
+  const input = document.getElementById(inputId);
+  const button = document.getElementById(buttonId);
+  if (!input || !button) return;
+
+  bindOnce(button, `blocklist-${type}-add`, () => {
+    const value = input.value.trim();
+    if (!value) {
+      alert(emptyMessage);
+      return;
+    }
+    addBlocklistEntry(type, value).then(() => {
+      input.value = '';
+    });
+  });
+
+  bindOnce(input, `blocklist-${type}-enter`, (event) => {
+    if (event.key === 'Enter') button.click();
+  }, 'keydown');
+}
+
+function initializeBlocklistPage() {
+  if (!document.getElementById('ip-tbody') || !document.getElementById('pubkey-tbody')) return;
+
+  fetchBlocklistForPage();
+
+  const refreshButton = document.getElementById('btn-refresh');
+  if (refreshButton) {
+    bindOnce(refreshButton, 'blocklist-refresh', () => {
+      fetchBlocklistForPage();
+    });
+  }
+
+  addBlocklistInputHandlers(
+    'ip-input',
+    'btn-add-ip',
+    'Please enter an IP address.',
+    'ip',
+  );
+  addBlocklistInputHandlers(
+    'pubkey-input',
+    'btn-add-pubkey',
+    'Please enter a pubkey.',
+    'pubkey',
+  );
+}
+
 function initializeClientEntryPageBehaviors() {
   initializeConfigPage();
+  initializeBlocklistPage();
 }
 
 function installNavigation() {

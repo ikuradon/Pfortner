@@ -96,9 +96,6 @@ export function BlocklistPage({ currentPath }: BlocklistPageProps) {
           </table>
         </div>
       </div>
-
-      <script src='/admin/static/utils.js'></script>
-      <script src='/admin/static/blocklist.js' type='module'></script>
     </Layout>
   );
 }
