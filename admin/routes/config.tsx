@@ -33,9 +33,6 @@ export function ConfigPage({ currentPath }: ConfigPageProps) {
           Loading…
         </pre>
       </div>
-
-      <script src='/admin/static/utils.js'></script>
-      <script src='/admin/static/config.js' type='module'></script>
     </Layout>
   );
 }

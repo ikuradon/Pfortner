@@ -100,6 +100,19 @@ Deno.test('admin app page routes render Fresh SSR pages with partial navigation'
   assertEquals(html.includes(`/admin/static/${legacyDenyListTerm}.js`), false);
 });
 
+Deno.test('admin config page uses the Fresh client entry without a page-local static script', async () => {
+  const handler = createAdminApp(makeState());
+  const res = await handler(makeRequest('/admin/config', 'test-token'));
+
+  assertEquals(res.status, 200);
+  const html = await res.text();
+  assertEquals(html.includes('/admin/static/fresh_nav.js'), true);
+  assertEquals(html.includes('/admin/static/config.js'), false);
+  assertEquals(html.includes('/admin/static/utils.js'), false);
+  assertEquals(html.includes('id="config-json"'), true);
+  assertEquals(html.includes('id="btn-reload-config"'), true);
+});
+
 Deno.test('admin app installs Fresh island build cache for admin islands', async () => {
   const handler = createAdminApp(makeState());
   const res = await handler(makeRequest('/admin/pipelines', 'test-token'));

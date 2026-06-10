@@ -740,6 +740,65 @@ Deno.test('fresh nav boot mounts the layout theme toggle', async () => {
   }
 });
 
+Deno.test('fresh nav boot initializes config page behavior from the client entry', async () => {
+  const refreshButton = new FakeElement('button', { id: 'btn-refresh-config' }, 'Refresh');
+  const reloadButton = new FakeElement('button', { id: 'btn-reload-config' }, 'Reload Config');
+  const status = new FakeElement('div', { id: 'config-status' });
+  const configJson = new FakeElement('pre', { id: 'config-json' }, 'Loading...');
+  const document = new FakeDocument({
+    childNodes: [refreshButton, reloadButton, status, configJson],
+  });
+  const window = new FakeWindow();
+  const fetchCalls = [];
+  const restoreDocument = setGlobal('document', document);
+  const restoreWindow = setGlobal('window', window);
+  const restoreFetch = setGlobal('fetch', (url, init = {}) => {
+    fetchCalls.push([url, init.method ?? 'GET']);
+    if (url === '/admin/api/reload') {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        type: 'basic',
+        json: () => Promise.resolve({ ok: true }),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ server: { port: 3000 } }),
+    });
+  });
+  const restoreBootArgs = setGlobal(
+    '__PFORTNER_FRESH_ISLAND_BOOT_ARGS__',
+    undefined,
+  );
+  delete globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__;
+
+  try {
+    const { boot } = await importFreshNav();
+
+    boot({}, []);
+    await waitFor(() => configJson.textContent.includes('"server"'));
+    refreshButton.click();
+    await waitFor(() => fetchCalls.length >= 2);
+    reloadButton.click();
+    await waitFor(() => reloadButton.textContent === '\u21bb Reload Config');
+
+    assertEquals(fetchCalls, [
+      ['/admin/api/config', 'GET'],
+      ['/admin/api/config', 'GET'],
+      ['/admin/api/reload', 'POST'],
+      ['/admin/api/config', 'GET'],
+    ]);
+    assertEquals(status.querySelector('.badge-success')?.textContent.includes('Config reloaded successfully'), true);
+    assertEquals(configJson.textContent.includes('"port": 3000'), true);
+  } finally {
+    restoreBootArgs();
+    restoreFetch();
+    restoreWindow();
+    restoreDocument();
+  }
+});
+
 Deno.test('fresh nav mounts island modules introduced by partial navigation', async () => {
   const currentDocument = new FakeDocument({
     title: 'Blocklist',
@@ -965,6 +1024,120 @@ Deno.test('fresh nav mounts island modules from partial navigation Link header',
     assertEquals(location.assignCalls, []);
     assertEquals(mountedButton.dataset.count, '1');
     assertEquals(mountedButton.textContent, 'Island smoke 1');
+  } finally {
+    restoreBootArgs();
+    restoreParser();
+    restoreFetch();
+    restoreHistory();
+    restoreLocation();
+    restoreNodeFilter();
+    restoreNode();
+    restoreWindow();
+    restoreDocument();
+  }
+});
+
+Deno.test('fresh nav initializes config behavior after partial navigation without a page script', async () => {
+  const currentDocument = new FakeDocument({
+    title: 'Blocklist',
+    childNodes: [
+      new FakeComment('frsh:partial:admin-content'),
+      new FakeElement('div'),
+      new FakeComment('/frsh:partial'),
+    ],
+  });
+  const nextDocument = new FakeDocument({
+    title: 'Config',
+    childNodes: [
+      new FakeComment('frsh:partial:admin-content'),
+      new FakeElement('button', { id: 'btn-refresh-config' }, 'Refresh'),
+      new FakeElement('button', { id: 'btn-reload-config' }, 'Reload Config'),
+      new FakeElement('div', { id: 'config-status' }),
+      new FakeElement('pre', { id: 'config-json' }, 'Loading...'),
+      new FakeComment('/frsh:partial'),
+    ],
+  });
+  const window = new FakeWindow();
+  const location = {
+    href: 'http://localhost/admin/blocklist',
+    origin: 'http://localhost',
+    assignCalls: [],
+    assign(url) {
+      this.assignCalls.push(url);
+    },
+  };
+  const fetchCalls = [];
+  const restoreDocument = setGlobal('document', currentDocument);
+  const restoreWindow = setGlobal('window', window);
+  const restoreNode = setGlobal('Node', { ELEMENT_NODE: 1, COMMENT_NODE: 8 });
+  const restoreNodeFilter = setGlobal('NodeFilter', { SHOW_COMMENT: 128 });
+  const restoreLocation = setGlobal('location', location);
+  const restoreHistory = setGlobal('history', {
+    pushState(_state, _title, url) {
+      location.href = new URL(url, location.href).href;
+    },
+    replaceState(_state, _title, url) {
+      location.href = new URL(url, location.href).href;
+    },
+  });
+  const restoreFetch = setGlobal('fetch', (url) => {
+    fetchCalls.push(url);
+    if (url === '/admin/api/config') {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ admin: { enabled: true } }),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      url: 'http://localhost/admin/config',
+      headers: { get: () => null },
+      text: () => Promise.resolve('<html></html>'),
+    });
+  });
+  const restoreParser = setGlobal(
+    'DOMParser',
+    class {
+      parseFromString() {
+        return nextDocument;
+      }
+    },
+  );
+  const restoreBootArgs = setGlobal(
+    '__PFORTNER_FRESH_ISLAND_BOOT_ARGS__',
+    undefined,
+  );
+  delete globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__;
+
+  try {
+    const { boot } = await importFreshNav();
+
+    boot({}, []);
+    const clickListener = currentDocument.listeners.find((entry) => entry.type === 'click')?.listener;
+    const anchor = new FakeElement('a', {
+      href: 'http://localhost/admin/config',
+      'f-client-nav': 'true',
+    });
+
+    clickListener({
+      target: anchor,
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault() {},
+    });
+
+    await waitFor(() => currentDocument.querySelector('#config-json')?.textContent.includes('"admin"'));
+
+    assertEquals(fetchCalls, [
+      'http://localhost/admin/config',
+      '/admin/api/config',
+    ]);
+    assertEquals(location.assignCalls, []);
+    assertEquals(currentDocument.querySelector('#config-status') !== null, true);
   } finally {
     restoreBootArgs();
     restoreParser();

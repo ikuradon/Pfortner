@@ -5,7 +5,6 @@ const PAGE_INITIALIZERS = {
   '/admin/static/connections.js': 'initConnectionsPage',
   '/admin/static/metrics.js': 'initMetricsPage',
   '/admin/static/blocklist.js': 'initBlocklistPage',
-  '/admin/static/config.js': 'initConfigPage',
   '/admin/static/logs.js': 'initLogsPage',
 };
 
@@ -50,6 +49,113 @@ function mountThemeToggle() {
 
 function mountLayoutBehaviors() {
   mountThemeToggle();
+}
+
+function getErrorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function bindOnce(element, key, listener) {
+  const attribute = `data-pfortner-${key}-bound`;
+  if (element.getAttribute(attribute) === 'true') return;
+  element.setAttribute(attribute, 'true');
+  element.addEventListener('click', listener);
+}
+
+function showConfigStatus(message, isError) {
+  const element = document.getElementById('config-status');
+  if (!element) return;
+
+  while (element.firstChild) element.removeChild(element.firstChild);
+
+  const badge = document.createElement('span');
+  badge.className = `badge ${isError ? 'badge-danger' : 'badge-success'}`;
+  badge.style.fontSize = '13px';
+  badge.style.padding = '4px 12px';
+  badge.textContent = message;
+  element.appendChild(badge);
+
+  setTimeout(() => {
+    if (badge.parentNode === element) element.removeChild(badge);
+  }, 5000);
+}
+
+async function fetchConfigForPage() {
+  const output = document.getElementById('config-json');
+  if (!output) return;
+
+  try {
+    const response = await fetch('/admin/api/config', {
+      credentials: 'same-origin',
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    output.style.color = '';
+    output.textContent = JSON.stringify(data, null, 2);
+  } catch (error) {
+    output.style.color = 'var(--color-danger)';
+    output.textContent = `Error loading config: ${getErrorMessage(error)}`;
+  }
+}
+
+async function reloadConfigForPage() {
+  const button = document.getElementById('btn-reload-config');
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Reloading...';
+  }
+
+  try {
+    const response = await fetch('/admin/api/reload', {
+      method: 'POST',
+      credentials: 'same-origin',
+      redirect: 'manual',
+    });
+    if (
+      response.ok || response.type === 'opaqueredirect' ||
+      response.status === 0 || response.status === 302
+    ) {
+      showConfigStatus(
+        `Config reloaded successfully at ${new Date().toLocaleTimeString()}`,
+        false,
+      );
+      await fetchConfigForPage();
+    } else {
+      const body = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(body.error || 'Reload failed');
+    }
+  } catch (error) {
+    showConfigStatus(`Reload failed: ${getErrorMessage(error)}`, true);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = '\u21bb Reload Config';
+    }
+  }
+}
+
+function initializeConfigPage() {
+  if (!document.getElementById('config-json')) return;
+
+  fetchConfigForPage();
+
+  const refreshButton = document.getElementById('btn-refresh-config');
+  if (refreshButton) {
+    bindOnce(refreshButton, 'config-refresh', () => {
+      fetchConfigForPage();
+    });
+  }
+
+  const reloadButton = document.getElementById('btn-reload-config');
+  if (reloadButton) {
+    bindOnce(reloadButton, 'config-reload', () => {
+      reloadConfigForPage();
+    });
+  }
+}
+
+function initializeClientEntryPageBehaviors() {
+  initializeConfigPage();
 }
 
 function installNavigation() {
@@ -127,6 +233,7 @@ export function boot(islands = {}, props = []) {
   installNavigation();
   globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__ = { islands, props };
   mountLayoutBehaviors();
+  initializeClientEntryPageBehaviors();
   mountAdminIslands(islands);
 }
 
@@ -193,6 +300,7 @@ async function navigate(url, historyMode) {
 
     mountLayoutBehaviors();
     await initializePageModules();
+    initializeClientEntryPageBehaviors();
     await mountAdminIslandsForDocument(nextDocument, response.headers.get('Link'), responseUrl);
   } catch {
     location.assign(url);
