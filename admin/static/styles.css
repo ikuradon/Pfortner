@@ -1675,7 +1675,8 @@ body {
 
   .canvas-first-grid .workbench-panel-header span,
   .canvas-first-grid .policy-palette-name,
-  .canvas-first-grid .policy-palette-add {
+  .canvas-first-grid .policy-palette-add,
+  .canvas-first-grid #canvas-zoom-label {
     display: none;
   }
 
@@ -1700,6 +1701,12 @@ body {
   .canvas-shell,
   .pipeline-canvas {
     min-height: 420px;
+  }
+
+  .pipeline-edge-layer,
+  .pipeline-node-layer {
+    transform: scale(0.58);
+    transform-origin: 0 0;
   }
 
   .canvas-minimap {
