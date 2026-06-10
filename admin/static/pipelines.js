@@ -670,8 +670,11 @@ function graphPointFromEvent(event) {
   };
 }
 
-function replaceEdge(graph, from, fromPort, to) {
+export function replaceEdge(graph, from, fromPort, to) {
   if (from === to) return false;
+  if ((graph.edges ?? []).some((edge) => edge.from === from && edge.fromPort === fromPort && edge.to === to)) {
+    return false;
+  }
   const target = findNode(graph, to);
   if (!target || isStartNode(target)) return false;
   graph.edges = (graph.edges ?? []).filter((edge) =>

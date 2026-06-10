@@ -38,7 +38,7 @@ const pipelineEditor = await import(
   '../../admin/static/pipelines.js'
 ) as unknown as Record<
   string,
-  (node: unknown) => boolean
+  (...args: any[]) => any
 >;
 
 Deno.test('pipeline editor defaults protected-event to require authentication', () => {
@@ -657,4 +657,36 @@ Deno.test('pipeline match case edge reconciliation prunes and renumbers removed 
       { id: 'other', from: 'other-node', fromPort: 'case:1', to: 'e' },
     ],
   );
+});
+
+Deno.test('pipeline edge replacement leaves identical connections unchanged', () => {
+  const graph = {
+    direction: 'client',
+    nodes: [
+      { id: 'client-start', type: 'start', policy: 'start' },
+      { id: 'client-node-1', type: 'policy', policy: 'accept' },
+    ],
+    edges: [
+      {
+        id: 'client-edge-1',
+        from: 'client-start',
+        fromPort: 'next',
+        to: 'client-node-1',
+        toPort: 'in',
+      },
+    ],
+  };
+
+  const changed = pipelineEditor.replaceEdge?.(graph, 'client-start', 'next', 'client-node-1');
+
+  assertEquals(changed, false);
+  assertEquals(graph.edges, [
+    {
+      id: 'client-edge-1',
+      from: 'client-start',
+      fromPort: 'next',
+      to: 'client-node-1',
+      toPort: 'in',
+    },
+  ]);
 });
