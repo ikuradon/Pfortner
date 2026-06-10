@@ -9,6 +9,7 @@ export interface AdminServiceState {
   connections: Map<string, ManagedConnection>;
   blocklist: { pubkeys: Set<string>; ips: Set<string> };
   configPath?: string;
+  pipelineDraftPath?: string;
   reloadFn?: (yamlString: string) => Promise<void>;
   shutdownManager?: { isDraining(): boolean; initiateShutdown(): Promise<void> };
   connectionManager?: { getStats(): unknown };

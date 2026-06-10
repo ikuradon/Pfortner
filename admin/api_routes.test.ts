@@ -2,6 +2,7 @@ import { assertEquals, assertExists } from '@std/assert';
 import { parse as parseYaml } from '@std/yaml';
 import { registerAdminApiRoutes } from './api_routes.ts';
 import type { AdminRouteApp, AdminRouteContext, AdminRouteHandler } from './route_types.ts';
+import { pipelineDraftPathForConfig } from '../src/admin/pipeline_draft.ts';
 import type { AdminState } from '../src/admin/server.ts';
 
 class RecordedRoutes implements AdminRouteApp {
@@ -170,4 +171,67 @@ Deno.test('pipeline save route persists posted pipelines and reloads runtime', a
   assertEquals(body.pipelines.client[0].policy, 'kind-filter');
 
   await Deno.remove(configPath);
+});
+
+Deno.test('pipeline draft API returns null when draft storage is not configured', async () => {
+  const app = new RecordedRoutes();
+  const state = makeState();
+  registerAdminApiRoutes(app, '/admin', state);
+
+  const handler = app.getRoutes.get('/admin/api/pipeline-draft');
+  assertExists(handler);
+  const res = await handler(makeContext('/admin/api/pipeline-draft', { method: 'GET' }));
+
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), { draft: null });
+});
+
+Deno.test('pipeline draft API saves and reads workbench draft sidecar', async () => {
+  const configPath = await Deno.makeTempFile({ suffix: '.yaml' });
+  const draftPath = pipelineDraftPathForConfig(configPath);
+  const state = makeState();
+  state.pipelineDraftPath = draftPath;
+  const app = new RecordedRoutes();
+  registerAdminApiRoutes(app, '/admin', state);
+
+  const draft = {
+    version: 1,
+    graphs: {
+      client: {
+        direction: 'client',
+        nodes: [{ id: 'client-start', type: 'start', policy: 'start' }],
+        edges: [],
+      },
+      server: {
+        direction: 'server',
+        nodes: [{ id: 'server-start', type: 'start', policy: 'start' }],
+        edges: [],
+      },
+    },
+    viewports: {
+      client: { zoom: 1, pan: { x: 0, y: 0 } },
+      server: { zoom: 1, pan: { x: 0, y: 0 } },
+    },
+    updatedAt: '2026-06-10T00:00:00.000Z',
+    lastPublishedFingerprint: '{"client":[],"server":[]}',
+  };
+
+  const postHandler = app.postRoutes.get('/admin/api/pipeline-draft');
+  assertExists(postHandler);
+  const saveRes = await postHandler(makeContext('/admin/api/pipeline-draft', {
+    method: 'POST',
+    body: JSON.stringify({ draft }),
+    headers: { 'Content-Type': 'application/json' },
+  }));
+  assertEquals(saveRes.status, 200);
+  assertEquals((await saveRes.json()).status, 'saved');
+
+  const getHandler = app.getRoutes.get('/admin/api/pipeline-draft');
+  assertExists(getHandler);
+  const getRes = await getHandler(makeContext('/admin/api/pipeline-draft', { method: 'GET' }));
+  assertEquals(getRes.status, 200);
+  assertEquals(await getRes.json(), { draft });
+
+  await Deno.remove(configPath);
+  await Deno.remove(draftPath);
 });

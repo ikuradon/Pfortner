@@ -13,6 +13,7 @@ import { ShutdownManager } from '../src/shutdown/manager.ts';
 import { UpstreamProbe } from '../src/connections/upstream-probe.ts';
 import { remoteHostnameFromConn, selectClientIp } from '../src/net/client-ip.ts';
 import { redactUrlCredentials } from '../src/infra/redaction.ts';
+import { pipelineDraftPathForConfig } from '../src/admin/pipeline_draft.ts';
 import { dotenv, log, nostrTools } from './deps.ts';
 dotenv.loadSync({ export: true });
 
@@ -140,6 +141,7 @@ if (configPath) {
   );
 
   adminState.configPath = configPath;
+  adminState.pipelineDraftPath = pipelineDraftPathForConfig(configPath);
   adminState.reloadFn = async (yaml: string) => {
     if (shutdownManager.isDraining()) return;
     adminState.config = await manager.reload(yaml);

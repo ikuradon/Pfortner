@@ -3,6 +3,11 @@ import { json } from '$admin/server.ts';
 import type { AdminState } from '$admin/server.ts';
 import type { PfortnerConfig, PipelineEntry } from '../src/config/loader.ts';
 import {
+  normalizePipelineWorkbenchDraft,
+  readPipelineWorkbenchDraft,
+  writePipelineWorkbenchDraft,
+} from '../src/admin/pipeline_draft.ts';
+import {
   closeConnectionBatch,
   createLogStreamResponse,
   getConnections,
@@ -76,6 +81,31 @@ export function registerAdminApiRoutes(
 
   app.get(`${adminPath}/api/plugins`, (_ctx) => {
     return json({ plugins: state.pluginNames });
+  });
+
+  app.get(`${adminPath}/api/pipeline-draft`, async (_ctx) => {
+    if (!state.pipelineDraftPath) return json({ draft: null });
+    try {
+      const draft = await readPipelineWorkbenchDraft(state.pipelineDraftPath);
+      return json({ draft });
+    } catch (e) {
+      return json({ error: `pipeline draft read failed: ${(e as Error).message}` }, 500);
+    }
+  });
+
+  app.post(`${adminPath}/api/pipeline-draft`, async (ctx) => {
+    if (!state.pipelineDraftPath) {
+      return json({ error: 'pipeline draft save not configured' }, 500);
+    }
+    try {
+      const body = await ctx.req.json();
+      const normalized = normalizePipelineWorkbenchDraft(body.draft);
+      if ('error' in normalized) return json({ error: normalized.error }, 400);
+      await writePipelineWorkbenchDraft(state.pipelineDraftPath, normalized.draft);
+      return json({ status: 'saved', draft: normalized.draft });
+    } catch (e) {
+      return json({ error: `pipeline draft save failed: ${(e as Error).message}` }, 500);
+    }
   });
 
   app.post(`${adminPath}/api/pipelines`, async (ctx) => {
