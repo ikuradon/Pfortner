@@ -1,7 +1,5 @@
 // Lightweight Fresh-compatible partial navigation for the programmatic admin app.
 
-const PAGE_INITIALIZERS = {};
-
 const DASHBOARD_POLL_INTERVAL_MS = 5000;
 const CONNECTIONS_POLL_INTERVAL_MS = 10000;
 const METRICS_POLL_INTERVAL_MS = 10000;
@@ -1784,7 +1782,6 @@ async function navigate(url, historyMode) {
     }
 
     mountLayoutBehaviors();
-    await initializePageModules();
     initializeClientEntryPageBehaviors();
     await mountAdminIslandsForDocument(nextDocument, response.headers.get('Link'), responseUrl);
   } catch {
@@ -1851,18 +1848,4 @@ function nodesBetween(start, end) {
     node = node.nextSibling;
   }
   return nodes;
-}
-
-async function initializePageModules() {
-  const modulePaths = new Set();
-  document.querySelectorAll('main script[type="module"][src]').forEach((script) => {
-    const url = new URL(script.getAttribute('src'), location.href);
-    if (PAGE_INITIALIZERS[url.pathname]) modulePaths.add(url.pathname);
-  });
-
-  for (const pathname of modulePaths) {
-    const initializer = PAGE_INITIALIZERS[pathname];
-    const mod = await import(pathname);
-    if (typeof mod[initializer] === 'function') mod[initializer]();
-  }
 }

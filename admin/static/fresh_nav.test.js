@@ -3632,11 +3632,13 @@ Deno.test('PipelineWorkbench static chunk rejects non-array playground messages 
   }
 });
 
-Deno.test('fresh nav does not keep legacy pipelines page initializer', async () => {
+Deno.test('fresh nav does not keep page-local static script initializer registry', async () => {
   const source = await Deno.readTextFile(new URL('./fresh_nav.js', import.meta.url));
   const removedPipelinesScript = '/admin/static/' + 'pipelines.js';
   const removedPipelinesInitializer = 'init' + 'PipelinesPage';
 
   assertEquals(source.includes(removedPipelinesScript), false);
   assertEquals(source.includes(removedPipelinesInitializer), false);
+  assertEquals(source.includes('PAGE_INITIALIZERS'), false);
+  assertEquals(source.includes('initializePageModules'), false);
 });
