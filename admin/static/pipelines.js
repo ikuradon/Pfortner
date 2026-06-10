@@ -7,6 +7,19 @@ import {
   shouldRenderSettingsAction,
   updateConfigFromEditorRows,
 } from './pipeline_config_editor.js';
+import {
+  applyHistoryChange,
+  buildPipelineDraft,
+  fingerprintPipelines,
+  initialHistoryState,
+  isRedoAvailable,
+  isUndoAvailable,
+  LAST_DIRECTION_KEY,
+  LOCAL_DRAFT_KEY,
+  normalizeWorkbenchDraft,
+  PALETTE_COLLAPSED_KEY,
+  recordHistorySnapshot,
+} from './pipeline_workbench_state.js';
 
 export {
   shouldOpenPlaygroundForNode,
@@ -36,6 +49,9 @@ const DEFAULT_PLUGINS = [
 let currentDirection = 'client';
 const pipelines = { client: [], server: [] };
 let graphs = pipelinesToGraph(pipelines);
+let historyState = initialHistoryState(graphs);
+let publishedFingerprint = fingerprintPipelines(pipelines);
+let viewports = defaultViewports();
 let availablePlugins = [];
 let selectedNodeIds = new Set();
 let executionNodeIds = new Set();
@@ -118,6 +134,138 @@ function cloneValue(value) {
   if (value === undefined) return undefined;
   if (typeof structuredClone === 'function') return structuredClone(value);
   return JSON.parse(JSON.stringify(value));
+}
+
+function sameValue(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function defaultViewport() {
+  return { zoom: 1, pan: { x: 56, y: 80 } };
+}
+
+function defaultViewports() {
+  return {
+    client: defaultViewport(),
+    server: defaultViewport(),
+  };
+}
+
+function isPipelineDirection(value) {
+  return value === 'client' || value === 'server';
+}
+
+function localStorageRef() {
+  try {
+    return globalThis.localStorage ?? null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function readStorageItem(key) {
+  try {
+    return localStorageRef()?.getItem(key) ?? null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function writeStorageItem(key, value) {
+  try {
+    localStorageRef()?.setItem(key, value);
+  } catch (_) {
+    // localStorage が使えない環境では永続化だけ諦める。
+  }
+}
+
+function readStoredDirection() {
+  const stored = readStorageItem(LAST_DIRECTION_KEY);
+  return isPipelineDirection(stored) ? stored : 'client';
+}
+
+function persistDirection(direction) {
+  if (isPipelineDirection(direction)) {
+    writeStorageItem(LAST_DIRECTION_KEY, direction);
+  }
+}
+
+function normalizeViewport(value) {
+  const fallback = defaultViewport();
+  const nextZoom = Number(value?.zoom);
+  const nextX = Number(value?.pan?.x);
+  const nextY = Number(value?.pan?.y);
+  return {
+    zoom: Number.isFinite(nextZoom) ? Math.max(0.35, Math.min(1.8, nextZoom)) : fallback.zoom,
+    pan: {
+      x: Number.isFinite(nextX) ? nextX : fallback.pan.x,
+      y: Number.isFinite(nextY) ? nextY : fallback.pan.y,
+    },
+  };
+}
+
+function normalizeViewports(value) {
+  return {
+    client: normalizeViewport(value?.client),
+    server: normalizeViewport(value?.server),
+  };
+}
+
+function saveCurrentViewport() {
+  viewports[currentDirection] = {
+    zoom,
+    pan: { x: pan.x, y: pan.y },
+  };
+}
+
+function applyViewport(direction) {
+  const viewport = normalizeViewport(viewports[direction]);
+  viewports[direction] = viewport;
+  zoom = viewport.zoom;
+  pan = { x: viewport.pan.x, y: viewport.pan.y };
+}
+
+function readLocalDraft() {
+  const raw = readStorageItem(LOCAL_DRAFT_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (_) {
+    return null;
+  }
+}
+
+function writeLocalDraft(draft) {
+  writeStorageItem(LOCAL_DRAFT_KEY, JSON.stringify(draft));
+}
+
+function normalizeCompatibleDraft(rawDraft, currentPublishedFingerprint) {
+  if (!rawDraft) return null;
+  const normalized = normalizeWorkbenchDraft(rawDraft);
+  if ('error' in normalized) return null;
+  if (normalized.draft.lastPublishedFingerprint !== currentPublishedFingerprint) {
+    return null;
+  }
+  return normalized.draft;
+}
+
+function draftTimestamp(draft) {
+  const time = Date.parse(draft?.updatedAt ?? '');
+  return Number.isFinite(time) ? time : 0;
+}
+
+function newestDraft(drafts) {
+  return drafts.filter(Boolean).sort((a, b) => draftTimestamp(b) - draftTimestamp(a))[0] ?? null;
+}
+
+function recordGraphMutation() {
+  return cloneValue(graphs);
+}
+
+function commitGraphMutation(beforeGraphs) {
+  if (!beforeGraphs || sameValue(beforeGraphs, graphs)) return;
+  historyState = recordHistorySnapshot({ ...historyState, present: beforeGraphs }, graphs);
+  updateHistoryButtons();
 }
 
 function toYamlValue(val, indent) {
@@ -430,6 +578,14 @@ function setStatus(msg, isError = false) {
   }, 5000);
 }
 
+function currentPipelinesFingerprint() {
+  try {
+    return fingerprintPipelines(graphToPipelines(graphs));
+  } catch (_) {
+    return '';
+  }
+}
+
 function setPersistentSummary() {
   const summary = document.getElementById('workbench-status-summary');
   if (!summary) return;
@@ -437,8 +593,18 @@ function setPersistentSummary() {
   const result = validatePipelineGraph(graph);
   const count = policyNodes(graph).length;
   const label = currentDirection === 'client' ? 'Client' : 'Server';
-  summary.textContent = result.valid ? `${label}: ${count} nodes` : `${label}: ${result.errors.length} issue(s)`;
+  const draftLabel = currentPipelinesFingerprint() !== publishedFingerprint ? ' · draft' : '';
+  summary.textContent = result.valid
+    ? `${label}: ${count} nodes${draftLabel}`
+    : `${label}: ${result.errors.length} issue(s)${draftLabel}`;
   summary.classList.toggle('text-danger', !result.valid);
+}
+
+function updateHistoryButtons() {
+  const undo = document.getElementById('btn-undo-pipeline');
+  const redo = document.getElementById('btn-redo-pipeline');
+  if (undo) undo.disabled = !isUndoAvailable(historyState);
+  if (redo) redo.disabled = !isRedoAvailable(historyState);
 }
 
 function setModeTabs() {
@@ -523,7 +689,10 @@ function replaceEdge(graph, from, fromPort, to) {
 
 function removeEdge(edgeId) {
   const graph = currentGraph();
+  if (!(graph.edges ?? []).some((edge) => edge.id === edgeId)) return;
+  const beforeGraphs = recordGraphMutation();
   graph.edges = (graph.edges ?? []).filter((edge) => edge.id !== edgeId);
+  commitGraphMutation(beforeGraphs);
   executionNodeIds.clear();
   render();
 }
@@ -588,7 +757,9 @@ function addPolicyNode(policyName, position = null) {
     path: [],
   };
 
+  const beforeGraphs = recordGraphMutation();
   insertAfterSource(graph, source.id, source.port, node);
+  commitGraphMutation(beforeGraphs);
   selectedNodeIds = new Set([node.id]);
   executionNodeIds.clear();
   render();
@@ -602,6 +773,7 @@ function deleteSelectedNodes() {
   );
   if (deleting.size === 0) return;
 
+  const beforeGraphs = recordGraphMutation();
   for (const nodeId of deleting) {
     const incoming = incomingEdge(graph, nodeId);
     const outgoing = firstEdgeFromPort(graph, nodeId, 'next');
@@ -618,6 +790,7 @@ function deleteSelectedNodes() {
 
   graph.nodes = graph.nodes.filter((node) => !deleting.has(node.id));
   graph.edges = graph.edges.filter((edge) => !deleting.has(edge.from) && !deleting.has(edge.to));
+  commitGraphMutation(beforeGraphs);
   selectedNodeIds.clear();
   executionNodeIds.clear();
   render();
@@ -701,6 +874,7 @@ function startNodeDrag(event, nodeId) {
   dragState = {
     type: 'node',
     start,
+    beforeGraphs: recordGraphMutation(),
     nodeStarts: [...selectedNodeIds].map((id) => {
       const node = findNode(graph, id);
       return { id, x: node.x, y: node.y };
@@ -831,6 +1005,7 @@ function handlePointerUp(event) {
       ?.closest?.('[data-port-role="input"]');
     if (target?.dataset.nodeId) {
       const graph = currentGraph();
+      const beforeGraphs = recordGraphMutation();
       if (
         replaceEdge(
           graph,
@@ -839,6 +1014,7 @@ function handlePointerUp(event) {
           target.dataset.nodeId,
         )
       ) {
+        commitGraphMutation(beforeGraphs);
         executionNodeIds.clear();
         setStatus('Connected ' + wireState.fromPort);
       }
@@ -851,6 +1027,18 @@ function handlePointerUp(event) {
   if (marqueeState) {
     finishMarquee();
     return;
+  }
+
+  if (dragState?.type === 'node') {
+    const beforeGraphs = dragState.beforeGraphs;
+    dragState = null;
+    commitGraphMutation(beforeGraphs);
+    render();
+    return;
+  }
+
+  if (dragState?.type === 'pan') {
+    saveCurrentViewport();
   }
 
   dragState = null;
@@ -1081,6 +1269,7 @@ function fitCanvas() {
     y: 40 - bounds.y * zoom +
       Math.max(0, (rect.height - bounds.height * zoom) / 2 - 40),
   };
+  saveCurrentViewport();
   renderCanvas();
   renderMinimap();
 }
@@ -1099,6 +1288,7 @@ function setZoom(nextZoom, pivotEvent = null) {
       y: y - ((y - pan.y) / oldZoom) * zoom,
     };
   }
+  saveCurrentViewport();
   renderCanvas();
   renderMinimap();
 }
@@ -1409,6 +1599,7 @@ function openNodeSettingsModal(node) {
       return;
     }
 
+    const beforeGraphs = recordGraphMutation();
     node.config = cloneValue(result.config);
     if (node.policy === 'match') {
       const graph = currentGraph();
@@ -1419,6 +1610,7 @@ function openNodeSettingsModal(node) {
         matchCaseCount(node.config),
       );
     }
+    commitGraphMutation(beforeGraphs);
     executionNodeIds.clear();
     closeNodeSettingsModal();
     render();
@@ -1961,14 +2153,83 @@ async function fetchPlugins() {
   return res.json();
 }
 
-async function applyConfig() {
-  const btn = document.getElementById('btn-apply-pipeline');
+async function fetchPipelineDraft() {
+  try {
+    const res = await fetch('/admin/api/pipeline-draft', { credentials: 'same-origin' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(err.error || 'HTTP ' + res.status);
+    }
+    const data = await res.json().catch(() => ({}));
+    return data.draft ?? null;
+  } catch (e) {
+    setStatus('Draft load warning: ' + e.message, true);
+    return null;
+  }
+}
+
+async function postPipelineDraft(draft) {
+  const res = await fetch('/admin/api/pipeline-draft', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ draft }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(err.error || 'HTTP ' + res.status);
+  }
+  return res.json().catch(() => ({}));
+}
+
+async function saveDag(options = {}) {
+  const btn = document.getElementById('btn-save-dag');
+  const updateButton = options.updateButton !== false;
+  if (btn && updateButton) {
+    btn.disabled = true;
+    btn.textContent = 'Saving DAG...';
+  }
+
+  try {
+    saveCurrentViewport();
+    const draft = buildPipelineDraft({
+      graphs,
+      viewports,
+      publishedFingerprint,
+      now: Date.now(),
+    });
+    writeLocalDraft(draft);
+
+    try {
+      await postPipelineDraft(draft);
+    } catch (serverError) {
+      if (!options.quietSuccess) {
+        setStatus('DAG saved locally; server draft failed: ' + serverError.message, true);
+      }
+      return { ok: false, draft, serverError };
+    }
+
+    if (!options.quietSuccess) setStatus('DAG saved');
+    return { ok: true, draft };
+  } catch (e) {
+    setStatus('DAG save failed: ' + e.message, true);
+    return { ok: false, error: e };
+  } finally {
+    if (btn && updateButton) {
+      btn.disabled = false;
+      btn.textContent = 'Save DAG';
+    }
+  }
+}
+
+async function publishConfig() {
+  const btn = document.getElementById('btn-publish-pipeline');
   if (btn) {
     btn.disabled = true;
-    btn.textContent = 'Saving...';
+    btn.textContent = 'Publishing...';
   }
   try {
-    const serialized = serializeCurrentPipelines();
+    saveCurrentViewport();
     const clientValidation = validatePipelineGraph(graphs.client);
     const serverValidation = validatePipelineGraph(graphs.server);
     const errors = [
@@ -1976,9 +2237,10 @@ async function applyConfig() {
       ...serverValidation.errors.map((error) => 'server: ' + error.message),
     ];
     if (errors.length > 0) {
-      throw new Error('Fix pipeline wiring before saving: ' + errors[0]);
+      throw new Error('Fix pipeline wiring before publishing: ' + errors[0]);
     }
 
+    const serialized = serializeCurrentPipelines();
     const res = await fetch('/admin/api/pipelines', {
       method: 'POST',
       credentials: 'same-origin',
@@ -1992,40 +2254,122 @@ async function applyConfig() {
     const data = await res.json().catch(() => ({}));
     pipelines.client = cloneValue(data.pipelines?.client ?? serialized.client);
     pipelines.server = cloneValue(data.pipelines?.server ?? serialized.server);
+    publishedFingerprint = fingerprintPipelines(serialized);
+    const dagResult = await saveDag({ updateButton: false, quietSuccess: true });
     renderYaml();
     setPersistentSummary();
-    setStatus(
-      'Pipeline saved and applied at ' + new Date().toLocaleTimeString(),
-    );
+    if (dagResult.serverError) {
+      setStatus('Pipeline published; DAG saved locally; server draft failed: ' + dagResult.serverError.message, true);
+    } else if (dagResult.error) {
+      setStatus('Pipeline published; DAG save failed: ' + dagResult.error.message, true);
+    } else {
+      setStatus('Pipeline published at ' + new Date().toLocaleTimeString());
+    }
   } catch (e) {
     setStatus('Error: ' + e.message, true);
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = '✓ Save & Apply';
+      btn.textContent = 'Publish';
     }
   }
 }
 
 async function loadPipelinesPage() {
   try {
-    const [configData, pluginsData] = await Promise.all([
+    const [configData, pluginsData, serverDraft] = await Promise.all([
       fetchConfig(),
       fetchPlugins(),
+      fetchPipelineDraft(),
     ]);
     pipelines.client = cloneValue(configData.pipelines?.client ?? []);
     pipelines.server = cloneValue(configData.pipelines?.server ?? []);
-    graphs = pipelinesToGraph(pipelines);
+    publishedFingerprint = fingerprintPipelines(pipelines);
+
+    const localDraft = readLocalDraft();
+    const selectedDraft = newestDraft([
+      normalizeCompatibleDraft(serverDraft, publishedFingerprint),
+      normalizeCompatibleDraft(localDraft, publishedFingerprint),
+    ]);
+    if (selectedDraft) {
+      graphs = cloneValue(selectedDraft.graphs);
+      viewports = normalizeViewports(selectedDraft.viewports);
+    } else {
+      graphs = pipelinesToGraph(pipelines);
+      viewports = defaultViewports();
+    }
+    historyState = initialHistoryState(graphs);
+    applyViewport(currentDirection);
     selectedNodeIds.clear();
     executionNodeIds.clear();
     availablePlugins = Array.isArray(pluginsData.plugins) && pluginsData.plugins.length > 0
       ? pluginsData.plugins
       : DEFAULT_PLUGINS;
     render();
-    fitCanvas();
   } catch (e) {
     setStatus('Error loading config: ' + e.message, true);
   }
+}
+
+function setPaletteCollapsed(collapsed, persist = true) {
+  const workbench = document.getElementById('pipeline-workbench');
+  workbench?.classList.toggle('palette-collapsed', collapsed);
+  const toggle = document.getElementById('btn-toggle-palette');
+  if (toggle) {
+    toggle.textContent = collapsed ? '›' : '‹';
+    toggle.title = collapsed ? 'Expand palette' : 'Collapse palette';
+  }
+  if (persist) writeStorageItem(PALETTE_COLLAPSED_KEY, collapsed ? 'true' : 'false');
+}
+
+function restorePaletteCollapsed() {
+  setPaletteCollapsed(readStorageItem(PALETTE_COLLAPSED_KEY) === 'true', false);
+}
+
+function togglePaletteCollapsed() {
+  const collapsed = document.getElementById('pipeline-workbench')?.classList.contains('palette-collapsed') ?? false;
+  setPaletteCollapsed(!collapsed);
+}
+
+function switchDirection(direction) {
+  if (!isPipelineDirection(direction) || direction === currentDirection) return;
+  saveCurrentViewport();
+  currentDirection = direction;
+  persistDirection(direction);
+  applyViewport(direction);
+  selectedNodeIds.clear();
+  executionNodeIds.clear();
+  render();
+}
+
+function isEditableTarget(target) {
+  return target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    Boolean(target?.isContentEditable);
+}
+
+function applyGraphHistory(direction) {
+  if (direction === 'undo' && !isUndoAvailable(historyState)) return;
+  if (direction === 'redo' && !isRedoAvailable(historyState)) return;
+  historyState = applyHistoryChange(historyState, direction);
+  graphs = cloneValue(historyState.present);
+  syncPipelinesFromGraphs();
+  selectedNodeIds.clear();
+  executionNodeIds.clear();
+  dragState = null;
+  wireState = null;
+  marqueeState = null;
+  updateMarquee();
+  render();
+}
+
+function undoGraphChange() {
+  applyGraphHistory('undo');
+}
+
+function redoGraphChange() {
+  applyGraphHistory('redo');
 }
 
 function bindControls() {
@@ -2035,13 +2379,7 @@ function bindControls() {
 
   document.querySelectorAll('.pipeline-mode-tab').forEach((tab) => {
     tab.addEventListener('click', (event) => {
-      const dir = event.currentTarget.dataset.pipeline;
-      if (!dir || dir === currentDirection) return;
-      currentDirection = dir;
-      selectedNodeIds.clear();
-      executionNodeIds.clear();
-      render();
-      fitCanvas();
+      switchDirection(event.currentTarget.dataset.pipeline);
     }, { signal });
   });
 
@@ -2050,9 +2388,29 @@ function bindControls() {
     loadPipelinesPage,
     { signal },
   );
-  document.getElementById('btn-apply-pipeline')?.addEventListener(
+  document.getElementById('btn-save-dag')?.addEventListener(
     'click',
-    applyConfig,
+    () => saveDag(),
+    { signal },
+  );
+  document.getElementById('btn-publish-pipeline')?.addEventListener(
+    'click',
+    publishConfig,
+    { signal },
+  );
+  document.getElementById('btn-undo-pipeline')?.addEventListener(
+    'click',
+    undoGraphChange,
+    { signal },
+  );
+  document.getElementById('btn-redo-pipeline')?.addEventListener(
+    'click',
+    redoGraphChange,
+    { signal },
+  );
+  document.getElementById('btn-toggle-palette')?.addEventListener(
+    'click',
+    togglePaletteCollapsed,
     { signal },
   );
   document.getElementById('btn-fit-canvas')?.addEventListener(
@@ -2100,10 +2458,19 @@ function bindControls() {
       return;
     }
     const target = event.target;
-    if (
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement
-    ) return;
+    if (isEditableTarget(target)) return;
+    const key = event.key.toLowerCase();
+    if ((event.metaKey || event.ctrlKey) && key === 'z') {
+      event.preventDefault();
+      if (event.shiftKey) redoGraphChange();
+      else undoGraphChange();
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && key === 'y') {
+      event.preventDefault();
+      redoGraphChange();
+      return;
+    }
     if (event.key === 'Delete' || event.key === 'Backspace') {
       event.preventDefault();
       deleteSelectedNodes();
@@ -2124,23 +2491,27 @@ function render() {
   renderPresets();
   renderMinimap();
   setPersistentSummary();
+  updateHistoryButtons();
 }
 
 export function initPipelinesPage() {
-  currentDirection = 'client';
+  currentDirection = readStoredDirection();
   pipelines.client = [];
   pipelines.server = [];
   graphs = pipelinesToGraph(pipelines);
+  historyState = initialHistoryState(graphs);
+  publishedFingerprint = fingerprintPipelines(pipelines);
+  viewports = defaultViewports();
+  applyViewport(currentDirection);
   availablePlugins = [];
   selectedNodeIds = new Set();
   executionNodeIds = new Set();
-  zoom = 1;
-  pan = { x: 56, y: 80 };
   dragState = null;
   wireState = null;
   marqueeState = null;
 
   bindControls();
+  restorePaletteCollapsed();
   render();
   loadPipelinesPage();
 }

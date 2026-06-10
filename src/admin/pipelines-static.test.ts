@@ -20,7 +20,10 @@ import {
   hasUnpublishedChanges,
   initialHistoryState,
   isUndoAvailable,
+  LAST_DIRECTION_KEY,
+  LOCAL_DRAFT_KEY,
   normalizeWorkbenchDraft,
+  PALETTE_COLLAPSED_KEY,
   recordHistorySnapshot,
 } from '../../admin/static/pipeline_workbench_state.js';
 import {
@@ -553,6 +556,12 @@ Deno.test('pipeline workbench detects unpublished changes', () => {
 
   assertEquals(hasUnpublishedChanges(changed, published), true);
   assertEquals(hasUnpublishedChanges(published, published), false);
+});
+
+Deno.test('pipeline workbench local preference keys are stable', () => {
+  assertEquals(PALETTE_COLLAPSED_KEY, 'pfortner.pipelinePaletteCollapsed.v1');
+  assertEquals(LOCAL_DRAFT_KEY, 'pfortner.pipelineWorkbenchDraft.v1');
+  assertEquals(LAST_DIRECTION_KEY, 'pfortner.pipelineDirection.v1');
 });
 
 Deno.test('pipeline node actions separate start run from policy settings', () => {
