@@ -12,7 +12,7 @@ import {
   buildPipelineDraft,
   fingerprintPipelines,
   getWorkbenchChangeState,
-  initialHistoryState,
+  initialDirectionHistoryState,
   isRedoAvailable,
   isUndoAvailable,
   LAST_DIRECTION_KEY,
@@ -50,13 +50,16 @@ const DEFAULT_PLUGINS = [
 let currentDirection = 'client';
 const pipelines = { client: [], server: [] };
 let graphs = pipelinesToGraph(pipelines);
-let historyState = initialHistoryState(graphs);
+let historyStates = initialDirectionHistoryState(graphs);
+let historyState = historyStates[currentDirection];
 let publishedFingerprint = fingerprintPipelines(pipelines);
 let viewports = defaultViewports();
 let lastSavedDraftFingerprint = '';
 let availablePlugins = [];
-let selectedNodeIds = new Set();
-let executionNodeIds = new Set();
+let selectedNodeIdsByDirection = emptyDirectionSets();
+let executionNodeIdsByDirection = emptyDirectionSets();
+let selectedNodeIds = selectedNodeIdsByDirection[currentDirection];
+let executionNodeIds = executionNodeIdsByDirection[currentDirection];
 let zoom = 1;
 let pan = { x: 56, y: 80 };
 let dragState = null;
@@ -151,6 +154,40 @@ function defaultViewports() {
     client: defaultViewport(),
     server: defaultViewport(),
   };
+}
+
+function emptyDirectionSets() {
+  return {
+    client: new Set(),
+    server: new Set(),
+  };
+}
+
+function setHistoryState(nextHistory) {
+  historyState = nextHistory;
+  historyStates[currentDirection] = nextHistory;
+}
+
+function setSelectedNodeIds(nextSelection) {
+  selectedNodeIds = nextSelection;
+  selectedNodeIdsByDirection[currentDirection] = nextSelection;
+}
+
+function setExecutionNodeIds(nextExecution) {
+  executionNodeIds = nextExecution;
+  executionNodeIdsByDirection[currentDirection] = nextExecution;
+}
+
+function activateDirectionState(direction) {
+  historyState = historyStates[direction];
+  selectedNodeIds = selectedNodeIdsByDirection[direction];
+  executionNodeIds = executionNodeIdsByDirection[direction];
+}
+
+function resetDirectionalInteractionState() {
+  selectedNodeIdsByDirection = emptyDirectionSets();
+  executionNodeIdsByDirection = emptyDirectionSets();
+  activateDirectionState(currentDirection);
 }
 
 function isPipelineDirection(value) {
@@ -275,12 +312,12 @@ function newestDraft(drafts) {
 }
 
 function recordGraphMutation() {
-  return cloneValue(graphs);
+  return cloneValue(currentGraph());
 }
 
-function commitGraphMutation(beforeGraphs) {
-  if (!beforeGraphs || sameValue(beforeGraphs, graphs)) return;
-  historyState = recordHistorySnapshot({ ...historyState, present: beforeGraphs }, graphs);
+function commitGraphMutation(beforeGraph) {
+  if (!beforeGraph || sameValue(beforeGraph, currentGraph())) return;
+  setHistoryState(recordHistorySnapshot({ ...historyState, present: beforeGraph }, currentGraph()));
   updateHistoryButtons();
 }
 
@@ -806,7 +843,7 @@ function addPolicyNode(policyName, position = null) {
   const beforeGraphs = recordGraphMutation();
   insertAfterSource(graph, source.id, source.port, node);
   commitGraphMutation(beforeGraphs);
-  selectedNodeIds = new Set([node.id]);
+  setSelectedNodeIds(new Set([node.id]));
   executionNodeIds.clear();
   render();
   setStatus('Added ' + policyName);
@@ -901,9 +938,9 @@ function selectNode(nodeId, additive = false) {
     const next = new Set(selectedNodeIds);
     if (next.has(nodeId)) next.delete(nodeId);
     else next.add(nodeId);
-    selectedNodeIds = next;
+    setSelectedNodeIds(next);
   } else {
-    selectedNodeIds = new Set([nodeId]);
+    setSelectedNodeIds(new Set([nodeId]));
   }
   render();
 }
@@ -1001,7 +1038,7 @@ function finishMarquee() {
       selected.add(node.id);
     }
   }
-  selectedNodeIds = selected;
+  setSelectedNodeIds(selected);
   marqueeState = null;
   updateMarquee();
   render();
@@ -1600,7 +1637,7 @@ function openNodeSettingsModal(node) {
   if (!root) return;
 
   closePlaygroundModal();
-  selectedNodeIds = new Set([node.id]);
+  setSelectedNodeIds(new Set([node.id]));
   render();
 
   let mode = 'interactive';
@@ -1775,7 +1812,7 @@ function openNodeSettingsModal(node) {
           text: 'Delete Node',
           events: {
             click: () => {
-              selectedNodeIds = new Set([node.id]);
+              setSelectedNodeIds(new Set([node.id]));
               closeNodeSettingsModal();
               deleteSelectedNodes();
             },
@@ -2170,8 +2207,10 @@ async function runEvaluation() {
 
     const data = await res.json();
     const matches = matchExecutionSteps(currentGraph(), data.steps);
-    executionNodeIds = new Set(
-      matches.map((match) => match.nodeId).filter(Boolean),
+    setExecutionNodeIds(
+      new Set(
+        matches.map((match) => match.nodeId).filter(Boolean),
+      ),
     );
     renderCanvas();
     renderMinimap();
@@ -2236,7 +2275,7 @@ async function saveDag(options = {}) {
   const updateButton = options.updateButton !== false;
   if (btn && updateButton) {
     btn.disabled = true;
-    btn.textContent = 'Saving DAG...';
+    btn.textContent = 'Saving...';
   }
 
   try {
@@ -2268,7 +2307,7 @@ async function saveDag(options = {}) {
   } finally {
     if (btn && updateButton) {
       btn.disabled = false;
-      btn.textContent = 'Save DAG';
+      btn.textContent = 'Save';
     }
   }
 }
@@ -2330,7 +2369,12 @@ async function publishConfig() {
   }
 }
 
-async function loadPipelinesPage() {
+async function loadPipelinesPage(options = {}) {
+  const btn = options.updateButton === true ? document.getElementById('btn-load-dag') : null;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Loading...';
+  }
   try {
     const [configData, pluginsData, serverDraft] = await Promise.all([
       fetchConfig(),
@@ -2353,17 +2397,25 @@ async function loadPipelinesPage() {
       graphs = pipelinesToGraph(pipelines);
       viewports = defaultViewports();
     }
-    historyState = initialHistoryState(graphs);
+    historyStates = initialDirectionHistoryState(graphs);
+    activateDirectionState(currentDirection);
     applyViewport(currentDirection);
     lastSavedDraftFingerprint = currentDraftFingerprint();
-    selectedNodeIds.clear();
-    executionNodeIds.clear();
+    resetDirectionalInteractionState();
     availablePlugins = Array.isArray(pluginsData.plugins) && pluginsData.plugins.length > 0
       ? pluginsData.plugins
       : DEFAULT_PLUGINS;
     render();
+    if (options.userInitiated) {
+      setStatus(selectedDraft ? 'Loaded saved DAG' : 'Loaded active config');
+    }
   } catch (e) {
     setStatus('Error loading config: ' + e.message, true);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Load';
+    }
   }
 }
 
@@ -2392,9 +2444,12 @@ function switchDirection(direction) {
   saveCurrentViewport();
   currentDirection = direction;
   persistDirection(direction);
+  activateDirectionState(direction);
   applyViewport(direction);
-  selectedNodeIds.clear();
-  executionNodeIds.clear();
+  dragState = null;
+  wireState = null;
+  marqueeState = null;
+  updateMarquee();
   render();
 }
 
@@ -2408,8 +2463,8 @@ function isEditableTarget(target) {
 function applyGraphHistory(direction) {
   if (direction === 'undo' && !isUndoAvailable(historyState)) return;
   if (direction === 'redo' && !isRedoAvailable(historyState)) return;
-  historyState = applyHistoryChange(historyState, direction);
-  graphs = cloneValue(historyState.present);
+  setHistoryState(applyHistoryChange(historyState, direction));
+  graphs[currentDirection] = cloneValue(historyState.present);
   syncPipelinesFromGraphs();
   selectedNodeIds.clear();
   executionNodeIds.clear();
@@ -2439,9 +2494,9 @@ function bindControls() {
     }, { signal });
   });
 
-  document.getElementById('btn-refresh-pipelines')?.addEventListener(
+  document.getElementById('btn-load-dag')?.addEventListener(
     'click',
-    loadPipelinesPage,
+    () => loadPipelinesPage({ userInitiated: true, updateButton: true }),
     { signal },
   );
   document.getElementById('btn-save-dag')?.addEventListener(
@@ -2560,14 +2615,14 @@ export function initPipelinesPage() {
   pipelines.client = [];
   pipelines.server = [];
   graphs = pipelinesToGraph(pipelines);
-  historyState = initialHistoryState(graphs);
+  historyStates = initialDirectionHistoryState(graphs);
+  activateDirectionState(currentDirection);
   publishedFingerprint = fingerprintPipelines(pipelines);
   viewports = defaultViewports();
   applyViewport(currentDirection);
   lastSavedDraftFingerprint = currentDraftFingerprint();
   availablePlugins = [];
-  selectedNodeIds = new Set();
-  executionNodeIds = new Set();
+  resetDirectionalInteractionState();
   dragState = null;
   wireState = null;
   marqueeState = null;

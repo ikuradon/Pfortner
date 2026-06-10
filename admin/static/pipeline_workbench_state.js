@@ -30,6 +30,13 @@ export function initialHistoryState(initialGraphs) {
   return { past: [], present: cloneValue(initialGraphs), future: [] };
 }
 
+export function initialDirectionHistoryState(graphs) {
+  return {
+    client: initialHistoryState(graphs?.client ?? { direction: 'client', nodes: [], edges: [] }),
+    server: initialHistoryState(graphs?.server ?? { direction: 'server', nodes: [], edges: [] }),
+  };
+}
+
 export function recordHistorySnapshot(history, nextGraphs) {
   const next = cloneValue(nextGraphs);
   if (
@@ -42,6 +49,14 @@ export function recordHistorySnapshot(history, nextGraphs) {
     past: history.past.concat([cloneValue(history.present)]).slice(-100),
     present: next,
     future: [],
+  };
+}
+
+export function recordDirectionHistorySnapshot(histories, direction, nextGraph) {
+  if (direction !== 'client' && direction !== 'server') return histories;
+  return {
+    ...histories,
+    [direction]: recordHistorySnapshot(histories[direction], nextGraph),
   };
 }
 

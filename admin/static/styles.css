@@ -166,12 +166,13 @@ body {
     padding: 16px;
   }
 
-  .pipeline-workbench .page-header > .flex {
+  .pipeline-toolbar {
     max-width: 100%;
     flex-wrap: wrap;
   }
 
-  .pipeline-workbench .page-header > .flex .btn {
+  .pipeline-toolbar .btn,
+  .pipeline-mode-tabs .btn {
     flex: 0 0 auto;
   }
 }
@@ -1042,8 +1043,27 @@ body {
 }
 
 .pipeline-workbench .page-header {
+  align-items: stretch;
+  flex-direction: column;
   gap: 12px;
   margin-bottom: 0;
+  flex-wrap: wrap;
+}
+
+.pipeline-header-top,
+.pipeline-toolbar,
+.pipeline-mode-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pipeline-header-top {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.pipeline-toolbar {
   flex-wrap: wrap;
 }
 

@@ -18,12 +18,14 @@ import {
   buildPipelineDraft,
   fingerprintPipelines,
   hasUnpublishedChanges,
+  initialDirectionHistoryState,
   initialHistoryState,
   isUndoAvailable,
   LAST_DIRECTION_KEY,
   LOCAL_DRAFT_KEY,
   normalizeWorkbenchDraft,
   PALETTE_COLLAPSED_KEY,
+  recordDirectionHistorySnapshot,
   recordHistorySnapshot,
 } from '../../admin/static/pipeline_workbench_state.js';
 import {
@@ -498,6 +500,28 @@ Deno.test('pipeline workbench history records undo and redo snapshots', () => {
   const redone = applyHistoryChange(undone, 'redo');
   assertEquals(redone.present.client.nodes[0].x, 80);
   assertEquals(redone.future.length, 0);
+});
+
+Deno.test('pipeline workbench history is scoped per direction', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'accept', config: {} }],
+    server: [{ policy: 'write-guard', config: { require_auth: true } }],
+  });
+  const histories = initialDirectionHistoryState(graphs);
+  const changedClient = {
+    ...graphs.client,
+    nodes: graphs.client.nodes.map((node) => node.id === 'client-node-1' ? { ...node, x: node.x + 32 } : node),
+  };
+
+  const nextHistories = recordDirectionHistorySnapshot(histories, 'client', changedClient);
+
+  assertEquals(nextHistories.client.past.length, 1);
+  assertEquals(nextHistories.server.past.length, 0);
+  assertEquals(
+    nextHistories.client.present.nodes.find((node: any) => node.id === 'client-node-1')?.x,
+    changedClient.nodes[1].x,
+  );
+  assertEquals(nextHistories.server.present, graphs.server);
 });
 
 Deno.test('pipeline workbench fingerprints are stable for equivalent pipelines', () => {

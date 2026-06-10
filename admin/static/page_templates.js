@@ -167,16 +167,20 @@ export function renderPipelinesPage(root) {
   root.replaceChildren(
     el('div', { className: 'pipeline-workbench', id: 'pipeline-workbench' }, [
       el('div', { className: 'page-header' }, [
-        el('h1', { className: 'page-title' }, ['Pipelines']),
-        el('div', { className: 'flex gap-2 items-center' }, [
-          button('Client', 'btn btn-primary pipeline-mode-tab', {
-            id: 'tab-client',
-            dataset: { pipeline: 'client' },
-          }),
-          button('Server', 'btn btn-ghost pipeline-mode-tab', {
-            id: 'tab-server',
-            dataset: { pipeline: 'server' },
-          }),
+        el('div', { className: 'pipeline-header-top' }, [
+          el('h1', { className: 'page-title' }, ['Pipelines']),
+          el('div', { className: 'pipeline-mode-tabs' }, [
+            button('Client', 'btn btn-primary pipeline-mode-tab', {
+              id: 'tab-client',
+              dataset: { pipeline: 'client' },
+            }),
+            button('Server', 'btn btn-ghost pipeline-mode-tab', {
+              id: 'tab-server',
+              dataset: { pipeline: 'server' },
+            }),
+          ]),
+        ]),
+        el('div', { className: 'pipeline-toolbar' }, [
           button('↶ Undo', 'btn btn-ghost', {
             id: 'btn-undo-pipeline',
             disabled: true,
@@ -186,14 +190,14 @@ export function renderPipelinesPage(root) {
             disabled: true,
           }),
           button('▷ Run', 'btn btn-ghost', { id: 'btn-run-pipeline' }),
-          button('↺ Refresh', 'btn btn-ghost', { id: 'btn-refresh-pipelines' }),
+          button('Load', 'btn btn-ghost', { id: 'btn-load-dag' }),
           button('⛶ Fit', 'btn btn-ghost', { id: 'btn-fit-canvas' }),
           button('−', 'btn btn-ghost', {
             id: 'btn-zoom-out',
             title: 'Zoom out',
           }),
           button('+', 'btn btn-ghost', { id: 'btn-zoom-in', title: 'Zoom in' }),
-          button('Save DAG', 'btn btn-ghost', { id: 'btn-save-dag' }),
+          button('Save', 'btn btn-ghost', { id: 'btn-save-dag' }),
           button('Publish', 'btn btn-primary', { id: 'btn-publish-pipeline' }),
         ]),
         el(

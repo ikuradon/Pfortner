@@ -31,6 +31,7 @@ Deno.test('pipelines template exposes canvas-first modal workbench ids', () => {
       'btn-undo-pipeline',
       'btn-redo-pipeline',
       'btn-run-pipeline',
+      'btn-load-dag',
       'btn-save-dag',
       'btn-publish-pipeline',
       'workbench-save-state',
@@ -47,6 +48,10 @@ Deno.test('pipelines template exposes canvas-first modal workbench ids', () => {
       true,
     );
   }
+  assertEquals(source.includes('btn-refresh-pipelines'), false);
+  assertEquals(source.includes("button('Load'"), true);
+  assertEquals(source.includes("button('Save'"), true);
+  assertEquals(source.includes('Save DAG'), false);
   assertEquals(source.includes('node-inspector'), false);
   assertEquals(source.includes('test-run-drawer'), false);
 });

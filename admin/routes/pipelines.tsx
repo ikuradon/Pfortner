@@ -10,24 +10,28 @@ export function PipelinesPage({ currentPath }: PipelinesPageProps) {
     <Layout currentPath={currentPath} title='Pipelines'>
       <div class='pipeline-workbench' id='pipeline-workbench'>
         <div class='page-header'>
-          <h1 class='page-title'>Pipelines</h1>
-          <div class='flex gap-2 items-center'>
-            <button
-              type='button'
-              id='tab-client'
-              class='btn btn-primary pipeline-mode-tab'
-              data-pipeline='client'
-            >
-              Client
-            </button>
-            <button
-              type='button'
-              id='tab-server'
-              class='btn btn-ghost pipeline-mode-tab'
-              data-pipeline='server'
-            >
-              Server
-            </button>
+          <div class='pipeline-header-top'>
+            <h1 class='page-title'>Pipelines</h1>
+            <div class='pipeline-mode-tabs'>
+              <button
+                type='button'
+                id='tab-client'
+                class='btn btn-primary pipeline-mode-tab'
+                data-pipeline='client'
+              >
+                Client
+              </button>
+              <button
+                type='button'
+                id='tab-server'
+                class='btn btn-ghost pipeline-mode-tab'
+                data-pipeline='server'
+              >
+                Server
+              </button>
+            </div>
+          </div>
+          <div class='pipeline-toolbar'>
             <button
               type='button'
               id='btn-undo-pipeline'
@@ -53,10 +57,10 @@ export function PipelinesPage({ currentPath }: PipelinesPageProps) {
             </button>
             <button
               type='button'
-              id='btn-refresh-pipelines'
+              id='btn-load-dag'
               class='btn btn-ghost'
             >
-              ↺ Refresh
+              Load
             </button>
             <button type='button' id='btn-fit-canvas' class='btn btn-ghost'>
               ⛶ Fit
@@ -78,7 +82,7 @@ export function PipelinesPage({ currentPath }: PipelinesPageProps) {
               +
             </button>
             <button type='button' id='btn-save-dag' class='btn btn-ghost'>
-              Save DAG
+              Save
             </button>
             <button
               type='button'
