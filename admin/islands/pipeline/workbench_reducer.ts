@@ -19,6 +19,7 @@ import type {
   PipelineGraphs,
   PipelineNode,
   Point,
+  Rect,
   WorkbenchStatus,
 } from './types.ts';
 
@@ -34,6 +35,7 @@ type WorkbenchModal = Exclude<ActiveModal, { type: 'playground' }> | {
 interface WorkbenchUiState {
   activeModal: WorkbenchModal;
   paletteCollapsed: boolean;
+  marquee: Rect | null;
 }
 
 type DirectionHistoryState = ReturnType<typeof initialDirectionHistoryState>['client'];
@@ -67,6 +69,9 @@ export interface WorkbenchState {
 export type WorkbenchAction =
   | { type: 'directionChanged'; direction: PipelineDirection }
   | { type: 'viewportChanged'; zoom: number; pan: Point }
+  | { type: 'nodeSelected'; nodeId: string; additive?: boolean }
+  | { type: 'selectionReplaced'; nodeIds: string[] }
+  | { type: 'marqueeChanged'; rect: Rect | null }
   | { type: 'nodeMoved'; nodeId: string; x: number; y: number }
   | { type: 'policyNodeAdded'; policy: string; position: Point }
   | { type: 'nodeDeleted'; nodeId: string }
@@ -465,6 +470,7 @@ export function createInitialWorkbenchState(input: {
     ui: {
       activeModal: { type: 'none' },
       paletteCollapsed: false,
+      marquee: null,
     },
   });
 }
@@ -481,6 +487,50 @@ function reduceWorkbenchInner(
       ui: {
         ...state.ui,
         activeModal: { type: 'none' },
+        marquee: null,
+      },
+    };
+  }
+
+  if (action.type === 'nodeSelected') {
+    const graph = state.graphs[state.direction];
+    if (!findNode(graph, action.nodeId)) return state;
+
+    const current = new Set(state.selectedNodeIds);
+    const next = action.additive
+      ? current.has(action.nodeId)
+        ? [...current].filter((nodeId) => nodeId !== action.nodeId)
+        : [...current, action.nodeId]
+      : [action.nodeId];
+
+    return {
+      ...state,
+      ...updateSelection(state, next),
+    };
+  }
+
+  if (action.type === 'selectionReplaced') {
+    const nodeIds = new Set(state.graphs[state.direction].nodes.map((node) => node.id));
+    return {
+      ...state,
+      ...updateSelection(
+        state,
+        action.nodeIds.filter((nodeId) => nodeIds.has(nodeId)),
+      ),
+    };
+  }
+
+  if (action.type === 'marqueeChanged') {
+    return {
+      ...state,
+      ui: {
+        ...state.ui,
+        marquee: action.rect === null ? null : {
+          x: action.rect.x,
+          y: action.rect.y,
+          width: action.rect.width,
+          height: action.rect.height,
+        },
       },
     };
   }
@@ -584,6 +634,7 @@ function reduceWorkbenchInner(
       ui: {
         ...state.ui,
         activeModal: { type: 'none' },
+        marquee: null,
       },
     };
   }
@@ -710,6 +761,7 @@ function reduceWorkbenchInner(
       ui: {
         ...state.ui,
         activeModal: { type: 'none' },
+        marquee: null,
       },
     };
   }
@@ -765,6 +817,7 @@ function reduceWorkbenchInner(
       ui: {
         ...state.ui,
         activeModal: { type: 'none' },
+        marquee: null,
       },
     };
   }

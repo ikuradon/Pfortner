@@ -2,11 +2,13 @@ import { assertAlmostEquals, assertEquals } from '@std/assert';
 import {
   graphPointFromClientPoint,
   inputPortNodeIdFromTarget,
+  marqueeRectFromClientPoints,
+  nodeIdsInMarquee,
   nodePositionFromDrag,
   panViewportWithWheel,
   zoomViewportAtPoint,
 } from './use_canvas_interactions.ts';
-import type { Viewport } from './types.ts';
+import type { PipelineGraph, Viewport } from './types.ts';
 
 const viewport: Viewport = {
   zoom: 1.25,
@@ -116,4 +118,32 @@ Deno.test('canvas interactions read input port targets for wire replacement', ()
   assertEquals(inputPortNodeIdFromTarget(child), 'client-node-2');
   assertEquals(inputPortNodeIdFromTarget(outputPort), null);
   assertEquals(inputPortNodeIdFromTarget(null), null);
+});
+
+Deno.test('canvas interactions calculate marquee rect and selected node ids', () => {
+  const graph: PipelineGraph = {
+    direction: 'client',
+    nodes: [
+      { id: 'client-start', type: 'start', policy: 'start', x: 0, y: 0 },
+      { id: 'client-node-1', type: 'policy', policy: 'accept', x: 240, y: 80 },
+      { id: 'client-node-2', type: 'policy', policy: 'rate-limit', x: 560, y: 240 },
+    ],
+    edges: [],
+  };
+  const marquee = marqueeRectFromClientPoints(
+    { clientX: 30, clientY: 40 },
+    { clientX: 390, clientY: 220 },
+    { left: 10, top: 20, width: 800, height: 480 },
+  );
+
+  assertEquals(marquee, { x: 20, y: 20, width: 360, height: 180 });
+  assertEquals(
+    nodeIdsInMarquee(
+      graph,
+      viewport,
+      { left: 10, top: 20, width: 800, height: 480 },
+      marquee,
+    ),
+    ['client-start', 'client-node-1'],
+  );
 });

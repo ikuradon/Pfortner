@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'preact/hooks';
 import { type MinimapModel, panForMinimapViewportPoint, type Size } from './minimap.ts';
-import type { PipelineGraph, PipelineNode, Point, Viewport } from './types.ts';
+import { nodeHeight, nodeWidth } from './minimap.ts';
+import type { PipelineGraph, PipelineNode, Point, Rect, Viewport } from './types.ts';
 
 interface ElementRef<T extends Element> {
   current: T | null;
@@ -41,10 +42,15 @@ type DragState =
     type: 'wire';
     from: string;
     fromPort: string;
+  }
+  | {
+    type: 'marquee';
+    start: ClientPoint;
   };
 
 export interface CanvasInteractions {
   onWheel(event: WheelEvent): void;
+  onCanvasPointerDown(event: PointerEvent): void;
   onNodePointerDown(event: PointerEvent, node: PipelineNode): void;
   onOutputPointerDown(event: PointerEvent, nodeId: string, portName: string): void;
   onMinimapPointerDown(event: PointerEvent, preserveViewportOffset: boolean): void;
@@ -139,6 +145,48 @@ export function minimapPointFromClientPoint(
   };
 }
 
+export function marqueeRectFromClientPoints(
+  start: ClientPoint,
+  current: ClientPoint,
+  containerRect: CanvasRect,
+): Rect {
+  const x1 = Math.min(start.clientX, current.clientX) - containerRect.left;
+  const y1 = Math.min(start.clientY, current.clientY) - containerRect.top;
+  const x2 = Math.max(start.clientX, current.clientX) - containerRect.left;
+  const y2 = Math.max(start.clientY, current.clientY) - containerRect.top;
+  return {
+    x: x1,
+    y: y1,
+    width: Math.max(0, x2 - x1),
+    height: Math.max(0, y2 - y1),
+  };
+}
+
+export function nodeIdsInMarquee(
+  graph: PipelineGraph,
+  viewport: Viewport,
+  _containerRect: CanvasRect,
+  marquee: Rect,
+): string[] {
+  const left = marquee.x;
+  const top = marquee.y;
+  const right = marquee.x + marquee.width;
+  const bottom = marquee.y + marquee.height;
+  return (graph.nodes ?? [])
+    .filter((node) => {
+      const sx = viewport.pan.x + (node.x ?? 0) * viewport.zoom;
+      const sy = viewport.pan.y + (node.y ?? 0) * viewport.zoom;
+      const ex = sx + nodeWidth(node) * viewport.zoom;
+      const ey = sy + nodeHeight(node) * viewport.zoom;
+      return ex >= left && sx <= right && ey >= top && sy <= bottom;
+    })
+    .map((node) => node.id);
+}
+
+function isPrimaryButton(event: PointerEvent): boolean {
+  return event.button === undefined || event.button === 0;
+}
+
 interface PortTargetLike {
   getAttribute?(name: string): string | null;
   closest?(selector: string): PortTargetLike | null;
@@ -161,11 +209,15 @@ export function inputPortNodeIdFromTarget(target: unknown): string | null {
 
 export function useCanvasInteractions(options: {
   graph: PipelineGraph;
+  selectedNodeIds: string[];
   viewport: Viewport;
   minimap: MinimapModel;
   svgRef: ElementRef<SVGSVGElement>;
   minimapRef: ElementRef<SVGSVGElement>;
   onViewportChange?(viewport: Viewport): void;
+  onNodeSelect?(nodeId: string, additive: boolean): void;
+  onSelectionReplace?(nodeIds: string[]): void;
+  onMarqueeChange?(rect: Rect | null): void;
   onNodeMove?(nodeId: string, position: Point): void;
   onEdgeReplace?(from: string, fromPort: string, to: string): void;
 }): CanvasInteractions {
@@ -201,6 +253,15 @@ export function useCanvasInteractions(options: {
         return;
       }
 
+      if (state.type === 'marquee') {
+        const rect = options.svgRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        options.onMarqueeChange?.(
+          marqueeRectFromClientPoints(state.start, event, rect),
+        );
+        return;
+      }
+
       const rect = options.minimapRef.current?.getBoundingClientRect();
       if (!rect) return;
       const point = minimapPointFromClientPoint(event, rect, {
@@ -223,6 +284,16 @@ export function useCanvasInteractions(options: {
       if (state?.type === 'wire') {
         const to = inputPortNodeIdFromTarget(event.target);
         if (to) options.onEdgeReplace?.(state.from, state.fromPort, to);
+      }
+      if (state?.type === 'marquee') {
+        const rect = options.svgRef.current?.getBoundingClientRect();
+        if (rect) {
+          const marquee = marqueeRectFromClientPoints(state.start, event, rect);
+          options.onSelectionReplace?.(
+            nodeIdsInMarquee(options.graph, options.viewport, rect, marquee),
+          );
+        }
+        options.onMarqueeChange?.(null);
       }
       dragState.current = null;
     }
@@ -250,11 +321,31 @@ export function useCanvasInteractions(options: {
       options.onViewportChange(panViewportWithWheel(options.viewport, event));
     },
 
+    onCanvasPointerDown(event) {
+      if (!options.onSelectionReplace && !options.onMarqueeChange) return;
+      if (!isPrimaryButton(event)) return;
+      const svg = options.svgRef.current;
+      if (!svg || event.target !== svg) return;
+      event.preventDefault();
+      options.onSelectionReplace?.([]);
+      const rect = svg.getBoundingClientRect();
+      const start = { clientX: event.clientX, clientY: event.clientY };
+      dragState.current = {
+        type: 'marquee',
+        start,
+      };
+      options.onMarqueeChange?.(marqueeRectFromClientPoints(start, start, rect));
+    },
+
     onNodePointerDown(event, node) {
       if (!options.onNodeMove) return;
-      if (event.button !== undefined && event.button !== 0) return;
+      if (!isPrimaryButton(event)) return;
       event.preventDefault();
       event.stopPropagation();
+      const additive = event.shiftKey || event.metaKey;
+      if (additive || !options.selectedNodeIds.includes(node.id)) {
+        options.onNodeSelect?.(node.id, additive);
+      }
       const rect = options.svgRef.current?.getBoundingClientRect();
       if (!rect) return;
       dragState.current = {
@@ -271,7 +362,7 @@ export function useCanvasInteractions(options: {
 
     onOutputPointerDown(event, nodeId, portName) {
       if (!options.onEdgeReplace) return;
-      if (event.button !== undefined && event.button !== 0) return;
+      if (!isPrimaryButton(event)) return;
       event.preventDefault();
       event.stopPropagation();
       dragState.current = {
@@ -283,7 +374,7 @@ export function useCanvasInteractions(options: {
 
     onMinimapPointerDown(event, preserveViewportOffset) {
       if (!options.onViewportChange) return;
-      if (event.button !== undefined && event.button !== 0) return;
+      if (!isPrimaryButton(event)) return;
       event.preventDefault();
       event.stopPropagation();
       const rect = options.minimapRef.current?.getBoundingClientRect();

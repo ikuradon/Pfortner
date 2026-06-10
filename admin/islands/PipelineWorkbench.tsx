@@ -28,7 +28,7 @@ import {
   selectWorkbenchDraft,
   validateWorkbenchGraphsForPublish,
 } from './pipeline/workbench_reducer.ts';
-import type { PipelineGraph, Point, Viewport } from './pipeline/types.ts';
+import type { PipelineGraph, Point, Rect, Viewport } from './pipeline/types.ts';
 
 const EMPTY_PIPELINES = { client: [], server: [] };
 const NODE_GAP = 240;
@@ -319,6 +319,28 @@ export default function PipelineWorkbench() {
     });
   }
 
+  function handleNodeSelect(nodeId: string, additive: boolean): void {
+    dispatch({
+      type: 'nodeSelected',
+      nodeId,
+      additive,
+    });
+  }
+
+  function handleSelectionReplace(nodeIds: string[]): void {
+    dispatch({
+      type: 'selectionReplaced',
+      nodeIds,
+    });
+  }
+
+  function handleMarqueeChange(rect: Rect | null): void {
+    dispatch({
+      type: 'marqueeChanged',
+      rect,
+    });
+  }
+
   function handleNodeMove(nodeId: string, position: Point): void {
     dispatch({
       type: 'nodeMoved',
@@ -409,8 +431,12 @@ export default function PipelineWorkbench() {
           <Canvas
             graph={state.graphs[state.direction]}
             selectedNodeIds={state.selectedNodeIds}
+            marquee={state.ui.marquee}
             viewport={activeViewport}
             onViewportChange={handleViewportChange}
+            onNodeSelect={handleNodeSelect}
+            onSelectionReplace={handleSelectionReplace}
+            onMarqueeChange={handleMarqueeChange}
             onNodeMove={handleNodeMove}
             onEdgeReplace={handleEdgeReplace}
             onNodeDoubleClick={(nodeId) => dispatch({ type: 'nodeDoubleClicked', nodeId })}

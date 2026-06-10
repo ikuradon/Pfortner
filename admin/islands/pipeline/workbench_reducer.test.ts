@@ -172,6 +172,60 @@ Deno.test('workbench reducer switches selected nodes with direction', () => {
   assertEquals(next.selectedNodeIdsByDirection.client, ['client-node-1']);
 });
 
+Deno.test('workbench reducer selects nodes in the active direction', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'accept' }, { policy: 'rate-limit' }],
+    server: [{ policy: 'write-guard' }],
+  });
+  let state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept'],
+    publishedFingerprint: 'fp',
+  });
+  const accept = policyNode(state, 'client', 'accept');
+  const rateLimit = policyNode(state, 'client', 'rate-limit');
+
+  state = reduceWorkbench(state, {
+    type: 'nodeSelected',
+    nodeId: accept.id,
+    additive: false,
+  });
+  state = reduceWorkbench(state, {
+    type: 'nodeSelected',
+    nodeId: rateLimit.id,
+    additive: true,
+  });
+  state = reduceWorkbench(state, {
+    type: 'selectionReplaced',
+    nodeIds: [rateLimit.id],
+  });
+  state = reduceWorkbench(state, {
+    type: 'directionChanged',
+    direction: 'server',
+  });
+
+  assertEquals(state.selectedNodeIdsByDirection.client, [rateLimit.id]);
+  assertEquals(state.selectedNodeIds, []);
+});
+
+Deno.test('workbench reducer tracks marquee rectangle in UI state', () => {
+  const graphs = pipelinesToGraph({ client: [], server: [] });
+  let state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept'],
+    publishedFingerprint: 'fp',
+  });
+
+  state = reduceWorkbench(state, {
+    type: 'marqueeChanged',
+    rect: { x: 10, y: 20, width: 120, height: 80 },
+  });
+  assertEquals(state.ui.marquee, { x: 10, y: 20, width: 120, height: 80 });
+
+  state = reduceWorkbench(state, { type: 'marqueeChanged', rect: null });
+  assertEquals(state.ui.marquee, null);
+});
+
 Deno.test('workbench reducer closes modal when direction changes', () => {
   const graphs = pipelinesToGraph({
     client: [{ policy: 'accept' }],

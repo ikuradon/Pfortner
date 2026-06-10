@@ -9,16 +9,20 @@ import {
   type Size,
 } from './minimap.ts';
 import { useCanvasInteractions } from './use_canvas_interactions.ts';
-import type { PipelineEdge, PipelineGraph, PipelineNode, Viewport } from './types.ts';
+import type { PipelineEdge, PipelineGraph, PipelineNode, Rect, Viewport } from './types.ts';
 
 const DEFAULT_VIEWPORT: Viewport = { zoom: 1, pan: { x: 56, y: 80 } };
 
 export function Canvas(props: {
   graph: PipelineGraph;
   selectedNodeIds: string[];
+  marquee?: Rect | null;
   viewport?: Viewport;
   canvasSize?: Size;
   onViewportChange?(viewport: Viewport): void;
+  onNodeSelect?(nodeId: string, additive: boolean): void;
+  onSelectionReplace?(nodeIds: string[]): void;
+  onMarqueeChange?(rect: Rect | null): void;
   onNodeMove?(nodeId: string, position: { x: number; y: number }): void;
   onEdgeReplace?(from: string, fromPort: string, to: string): void;
   onNodeDoubleClick(nodeId: string): void;
@@ -27,15 +31,28 @@ export function Canvas(props: {
   const canvasSize = props.canvasSize ?? DEFAULT_CANVAS_SIZE;
   const minimap = buildMinimapModel(props.graph, viewport, canvasSize);
   const selectedNodeIds = new Set(props.selectedNodeIds);
+  const marqueeStyle = props.marquee
+    ? {
+      display: 'block',
+      left: `${props.marquee.x}px`,
+      top: `${props.marquee.y}px`,
+      width: `${props.marquee.width}px`,
+      height: `${props.marquee.height}px`,
+    }
+    : { display: 'none' };
   const svgRef = useRef<SVGSVGElement>(null);
   const minimapRef = useRef<SVGSVGElement>(null);
   const interactions = useCanvasInteractions({
     graph: props.graph,
+    selectedNodeIds: props.selectedNodeIds,
     viewport,
     minimap,
     svgRef,
     minimapRef,
     onViewportChange: props.onViewportChange,
+    onNodeSelect: props.onNodeSelect,
+    onSelectionReplace: props.onSelectionReplace,
+    onMarqueeChange: props.onMarqueeChange,
     onNodeMove: props.onNodeMove,
     onEdgeReplace: props.onEdgeReplace,
   });
@@ -47,12 +64,18 @@ export function Canvas(props: {
       role='region'
       aria-label='Pipeline canvas'
     >
-      <div class='selection-marquee' id='selection-marquee'></div>
+      <div
+        class='selection-marquee'
+        id='selection-marquee'
+        style={marqueeStyle}
+      >
+      </div>
       <svg
         ref={svgRef}
         class='pipeline-svg'
         id='pipeline-svg'
         aria-label='Pipeline graph'
+        onPointerDown={(event) => interactions.onCanvasPointerDown(event)}
         onWheel={(event) => interactions.onWheel(event)}
       >
         <g
