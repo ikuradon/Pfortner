@@ -87,7 +87,6 @@ export function Layout({ currentPath, title, children }: LayoutProps) {
             </Partial>
           </main>
         </div>
-        <script src='/admin/static/client.js' type='module'></script>
       </body>
     </html>
   );

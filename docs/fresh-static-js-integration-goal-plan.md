@@ -304,6 +304,10 @@
   - `logs.js`: island because it owns streaming/log filtering behavior.
   - `client.js`: layout-level client entry or island only for global UI behavior.
 
+  Progress:
+
+  - [x] Moved the layout theme toggle from `admin/static/client.js` into the existing Fresh client entry `admin/static/fresh_nav.js`, then removed the separate `client.js` URL script.
+
 - [ ] **Step 2: Migrate one page at a time**
 
   For each page:

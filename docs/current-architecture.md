@@ -74,7 +74,7 @@ Authenticated `/admin/*` page route は Fresh-rendered page を返す。`/admin/
 - `admin/page_routes.ts`: `/admin/`, `/admin/connections`, `/admin/pipelines`, `/admin/metrics`, `/admin/blocklist`, `/admin/config`, `/admin/logs` を page renderer map に登録する。
 - `admin/routes/*.tsx`: page DOM の source of truth。
 - `admin/static/dom.js`: shared DOM helper。
-- `admin/static/fresh_nav.js`: programmatic Fresh App で空の client entry が出ることを避ける admin-local partial navigation runtime。Fresh の partial marker を使い、page-local module の `init*Page()` と admin island static chunk mount を navigation 後に呼び直す。
+- `admin/static/fresh_nav.js`: programmatic Fresh App で空の client entry が出ることを避ける admin-local partial navigation runtime。Fresh の partial marker を使い、page-local module の `init*Page()` と admin island static chunk mount を navigation 後に呼び直す。layout-level behavior として theme toggle もここで mount する。
 - `admin/islands/PipelineWorkbench.tsx`: Pipeline Workbench の Fresh island composition root。
 - `admin/islands/pipeline/*`: graph canvas、toolbar、palette、modals、API client、reducer。
 - `admin/islands/pipeline/{graph.js,workbench_state.js,config_editor.js}`: Pipeline Workbench の pure helper 実体。Fresh island/reducer code は `admin/static` の helper 実装を import しない。

@@ -17,6 +17,41 @@ const ADMIN_ISLAND_MODULES = {
 let booted = false;
 let navigating = false;
 
+function mountThemeToggle() {
+  const mount = document.getElementById('theme-toggle-mount');
+  if (!mount || mount.querySelector('.theme-toggle')) return;
+
+  const button = document.createElement('button');
+  button.className = 'theme-toggle';
+  button.title = 'Toggle dark/light theme';
+  button.setAttribute('aria-label', 'Toggle theme');
+
+  function getCurrentTheme() {
+    return document.documentElement?.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+  }
+
+  function updateButton(theme) {
+    button.textContent = theme === 'dark' ? '☀' : '☽';
+  }
+
+  updateButton(getCurrentTheme());
+  button.addEventListener('click', () => {
+    const next = getCurrentTheme() === 'dark' ? 'light' : 'dark';
+    document.documentElement?.setAttribute('data-theme', next);
+    try {
+      localStorage.setItem('pfortner-theme', next);
+    } catch {
+      // Ignore storage failures; the current page theme still updates.
+    }
+    updateButton(next);
+  });
+  mount.appendChild(button);
+}
+
+function mountLayoutBehaviors() {
+  mountThemeToggle();
+}
+
 function installNavigation() {
   if (booted) return;
   booted = true;
@@ -91,6 +126,7 @@ async function mountAdminIslandsForDocument(doc, linkHeader, baseUrl) {
 export function boot(islands = {}, props = []) {
   installNavigation();
   globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__ = { islands, props };
+  mountLayoutBehaviors();
   mountAdminIslands(islands);
 }
 
@@ -155,6 +191,7 @@ async function navigate(url, historyMode) {
       history.replaceState(null, '', responseUrl);
     }
 
+    mountLayoutBehaviors();
     await initializePageModules();
     await mountAdminIslandsForDocument(nextDocument, response.headers.get('Link'), responseUrl);
   } catch {

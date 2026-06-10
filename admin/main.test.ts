@@ -91,6 +91,7 @@ Deno.test('admin app page routes render Fresh SSR pages with partial navigation'
   const removedEmptyFreshBootImport = 'import { boot } from ' + '"";';
   assertEquals(html.includes(removedEmptyFreshBootImport), false);
   assertEquals(html.includes('/admin/static/fresh_nav.js'), true);
+  assertEquals(html.includes('/admin/static/client.js'), false);
   assertEquals(html.includes('Blocklist'), true);
   assertEquals(html.includes('/admin/static/blocklist.js'), true);
   const removedSpaBootScript = '/admin/static/' + 'app.js';

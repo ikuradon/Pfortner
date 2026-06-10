@@ -697,6 +697,49 @@ Deno.test('fresh nav boot stores Fresh island boot arguments and mounts islands'
   }
 });
 
+Deno.test('fresh nav boot mounts the layout theme toggle', async () => {
+  const themeMount = new FakeElement('div', { id: 'theme-toggle-mount' });
+  const document = new FakeDocument({ childNodes: [themeMount] });
+  document.documentElement = new FakeElement('html');
+  const window = new FakeWindow();
+  const stored = [];
+  const restoreDocument = setGlobal('document', document);
+  const restoreWindow = setGlobal('window', window);
+  const restoreLocalStorage = setGlobal('localStorage', {
+    getItem() {
+      return null;
+    },
+    setItem(key, value) {
+      stored.push([key, value]);
+    },
+  });
+  const restoreBootArgs = setGlobal(
+    '__PFORTNER_FRESH_ISLAND_BOOT_ARGS__',
+    undefined,
+  );
+  delete globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__;
+
+  try {
+    const { boot } = await importFreshNav();
+
+    boot({}, []);
+    const button = themeMount.querySelector('.theme-toggle');
+    assertEquals(button?.getAttribute('aria-label'), 'Toggle theme');
+    assertEquals(button?.textContent, '☽');
+
+    button.click();
+
+    assertEquals(document.documentElement.getAttribute('data-theme'), 'dark');
+    assertEquals(button.textContent, '☀');
+    assertEquals(stored, [['pfortner-theme', 'dark']]);
+  } finally {
+    restoreBootArgs();
+    restoreLocalStorage();
+    restoreWindow();
+    restoreDocument();
+  }
+});
+
 Deno.test('fresh nav mounts island modules introduced by partial navigation', async () => {
   const currentDocument = new FakeDocument({
     title: 'Blocklist',
