@@ -15,6 +15,7 @@ Deno.test('buildAdminIslandBundle writes the PipelineWorkbench mount adapter wit
     const source = await Deno.readTextFile(outputPath);
 
     assertEquals(result.outputPath, outputPath);
+    assertEquals(source.startsWith('// deno-fmt-ignore-file\n'), true);
     assertStringIncludes(source, 'mountPipelineWorkbench');
     assertStringIncludes(source, 'PipelineWorkbenchBrowser');
     assertEquals(source.includes('../pipeline_graph.js'), false);

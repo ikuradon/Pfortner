@@ -90,9 +90,16 @@ export function mountPipelineWorkbench(root: ParentNode, rawProps: unknown = {})
   const placeholder = root.querySelector?.('#pipeline-workbench') as HTMLElement | null;
   if (!placeholder || placeholder.dataset.pfortnerPreactMounted === 'true') return;
 
-  const mountPoint = placeholder.ownerDocument.createElement('div');
+  const ownerDocument = placeholder.ownerDocument ??
+    ('createElement' in root ? root : globalThis.document);
+  const mountPoint = ownerDocument.createElement('div');
   mountPoint.setAttribute('data-pipeline-workbench-mount', 'true');
-  placeholder.replaceWith(mountPoint);
+  if (typeof placeholder.replaceWith === 'function') {
+    placeholder.replaceWith(mountPoint);
+  } else {
+    placeholder.parentNode?.insertBefore(mountPoint, placeholder);
+    placeholder.parentNode?.removeChild(placeholder);
+  }
 
   render(<PipelineWorkbench {...propsFromFreshBootValue(rawProps)} />, mountPoint);
 

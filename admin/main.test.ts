@@ -199,6 +199,11 @@ Deno.test('admin app installs Fresh island build cache for admin islands', async
   );
   const chunkText = await chunkRes.text();
   assertEquals(chunkText.includes('mountPipelineWorkbench'), true);
+  assertEquals(chunkText.includes('initPipelinesPage'), false);
+  assertEquals(chunkText.includes('graphFromRenderedDom'), false);
+  assertEquals(chunkText.includes('../pipeline_graph.js'), false);
+  assertEquals(chunkText.includes('../pipeline_workbench_state.js'), false);
+  assertEquals(chunkText.includes('../pipeline_config_editor.js'), false);
 });
 
 Deno.test('admin pipelines page renders legacy workbench canvas controls', async () => {

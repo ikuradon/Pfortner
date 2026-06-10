@@ -60,6 +60,9 @@ export async function buildAdminIslandBundle(
     jsxImportSource: 'preact',
     minify: options.minify ?? true,
     sourcemap: options.sourcemap ?? false,
+    banner: {
+      js: '// deno-fmt-ignore-file',
+    },
     plugins: [denoResolvedBrowserImportsPlugin()],
   });
 

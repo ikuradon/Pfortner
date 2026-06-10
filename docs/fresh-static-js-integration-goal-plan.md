@@ -23,8 +23,8 @@
 
 - `admin/islands/PipelineWorkbench.tsx` is the Fresh island composition root, and `admin/islands/pipeline/*` now owns reducer-backed canvas render, viewport state, node drag, selection, minimap drag, edge rewiring, keyboard shortcuts, settings/playground/save/load/publish actions, and SSR initial graph props.
 - `admin/islands/pipeline/{graph.js,workbench_state.js,config_editor.js}` are the Fresh-side pure helper modules. Fresh island/reducer/component code must not import implementation from `admin/static`.
-- `admin/static/islands/PipelineWorkbench.js` remains the largest static script and still owns browser runtime behavior in production because the programmatic Fresh app currently registers a hand-written island chunk URL instead of a generated Fresh/Vite client bundle.
-- `admin/static/pipeline_graph.js`, `admin/static/pipeline_workbench_state.js`, and `admin/static/pipeline_config_editor.js` remain temporary browser compatibility copies only while `admin/static/islands/PipelineWorkbench.js` imports them.
+- `admin/static/islands/PipelineWorkbench.js` is now a generated browser bundle from `admin/islands/PipelineWorkbench.browser.tsx`; it remains URL-addressed static output only because the programmatic Fresh app still needs an island chunk URL during the transition.
+- `admin/static/pipeline_graph.js`, `admin/static/pipeline_workbench_state.js`, and `admin/static/pipeline_config_editor.js` remain stale temporary browser compatibility copies and should be removed after static file expectations are updated.
 - `admin/static/fresh_nav.js` is the admin-local client entry for the programmatic Fresh app. It handles `f-client-nav` / `Partial` replacement, layout behavior, page-local behavior that was moved out of deleted URL scripts, and hand-written admin island chunk mounting.
 - `admin/static/{client,dashboard,connections,metrics,blocklist,config,logs,utils}.js` are removed. Their behavior is currently initialized from `admin/static/fresh_nav.js`.
 - `admin/fresh_islands.ts` uses `@fresh/core/internal` to install a hand-written `ProdBuildCache` that points Fresh SSR at `/admin/static/fresh_nav.js` and the admin island chunk URLs, including `/admin/static/islands/PipelineWorkbench.js`.
@@ -281,7 +281,10 @@
     - Added `admin/islands/PipelineWorkbench.browser.test.ts` to prove the adapter decodes Fresh serialized boot props before mounting `PipelineWorkbench`.
   - [x] The adapter may call Preact hydration/mounting, but it must not contain Workbench graph/controller behavior; that behavior must remain in `admin/islands/PipelineWorkbench.tsx` and `admin/islands/pipeline/*`.
     - `PipelineWorkbench.browser.tsx` only decodes props, replaces the existing SSR placeholder, and mounts the Fresh island component; Workbench behavior remains in `PipelineWorkbench.tsx` and `admin/islands/pipeline/*`.
-  - [ ] Move remaining `PipelineWorkbench static chunk ...` tests from `admin/static/fresh_nav.test.js` to Fresh island component/reducer/action tests, keeping only a smoke test that the compatibility chunk exports a mountable adapter and partial navigation calls it.
+  - [x] Move remaining `PipelineWorkbench static chunk ...` tests from `admin/static/fresh_nav.test.js` to Fresh island component/reducer/action tests, keeping only a smoke test that the compatibility chunk exports a mountable adapter and partial navigation calls it.
+    - Removed the old static controller behavior test block from `admin/static/fresh_nav.test.js`; the file now keeps partial navigation mount coverage plus a mountable module smoke test for the generated chunk.
+    - Added `admin/main.test.ts` assertions that the registered chunk no longer contains old static controller entry points or static helper imports.
+    - Existing Fresh island reducer/action/interaction tests remain the behavior source of truth while the generated bundle is only a deployable artifact.
   - [ ] Remove `admin/static/pipeline_{graph,workbench_state,config_editor}.js` after the generated adapter no longer imports static helper copies.
 
 - [ ] **Step 6: Browser QA**
