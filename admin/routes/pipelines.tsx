@@ -11,9 +11,6 @@ interface PipelinesPageProps {
 export function PipelinesPage({ currentPath, pipelines, plugins }: PipelinesPageProps) {
   return (
     <Layout currentPath={currentPath} title='Pipelines'>
-      <div class='page-header'>
-        <h1 class='page-title'>Pipelines</h1>
-      </div>
       <PipelineWorkbench initialPipelines={pipelines} initialPlugins={plugins} />
     </Layout>
   );

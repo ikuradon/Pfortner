@@ -16,6 +16,7 @@ import { Palette } from './pipeline/Palette.tsx';
 import { PlaygroundModal } from './pipeline/PlaygroundModal.tsx';
 import { PublishModal } from './pipeline/PublishModal.tsx';
 import { Toolbar } from './pipeline/Toolbar.tsx';
+import { ViewportControls } from './pipeline/ViewportControls.tsx';
 import { DEFAULT_CANVAS_SIZE } from './pipeline/minimap.ts';
 import { fitViewportToGraph, zoomViewportByStep } from './pipeline/use_canvas_interactions.ts';
 import { useWorkbenchKeyboard } from './pipeline/use_workbench_keyboard.ts';
@@ -249,69 +250,73 @@ export default function PipelineWorkbench(props: PipelineWorkbenchProps = {}) {
 
   return (
     <div class={workbenchClass} id='pipeline-workbench'>
-      <div class='pipeline-mode-bar' aria-label='Pipeline direction'>
-        <button
-          type='button'
-          id='tab-client'
-          class={state.direction === 'client' ? 'btn btn-primary pipeline-mode-tab' : 'btn btn-ghost pipeline-mode-tab'}
-          data-pipeline='client'
-          aria-pressed={state.direction === 'client'}
-          onClick={() => dispatch({ type: 'directionChanged', direction: 'client' })}
-        >
-          Client
-        </button>
-        <button
-          type='button'
-          id='tab-server'
-          class={state.direction === 'server' ? 'btn btn-primary pipeline-mode-tab' : 'btn btn-ghost pipeline-mode-tab'}
-          data-pipeline='server'
-          aria-pressed={state.direction === 'server'}
-          onClick={() => dispatch({ type: 'directionChanged', direction: 'server' })}
-        >
-          Server
-        </button>
+      <div class='page-header pipeline-page-header'>
+        <h1 class='page-title'>Pipelines</h1>
+        <div class='pipeline-mode-bar' aria-label='Pipeline direction'>
+          <button
+            type='button'
+            id='tab-client'
+            class={state.direction === 'client'
+              ? 'btn btn-primary pipeline-mode-tab'
+              : 'btn btn-ghost pipeline-mode-tab'}
+            data-pipeline='client'
+            aria-pressed={state.direction === 'client'}
+            onClick={() => dispatch({ type: 'directionChanged', direction: 'client' })}
+          >
+            Client
+          </button>
+          <button
+            type='button'
+            id='tab-server'
+            class={state.direction === 'server'
+              ? 'btn btn-primary pipeline-mode-tab'
+              : 'btn btn-ghost pipeline-mode-tab'}
+            data-pipeline='server'
+            aria-pressed={state.direction === 'server'}
+            onClick={() => dispatch({ type: 'directionChanged', direction: 'server' })}
+          >
+            Server
+          </button>
+        </div>
       </div>
-      <Toolbar
-        onLoad={handleLoad}
-        onSave={handleSave}
-        onPublish={() => dispatch({ type: 'publishModalOpened' })}
-        onUndo={() => dispatch({ type: 'undo' })}
-        onRedo={() => dispatch({ type: 'redo' })}
-        onFit={handleFitCanvas}
-        onZoomOut={() => handleZoomStep(-0.1)}
-        onZoomIn={() => handleZoomStep(0.1)}
-        canUndo={state.history[state.direction].past.length > 0}
-        canRedo={state.history[state.direction].future.length > 0}
-      />
-      <span class='workbench-state-badges'>
-        <span class='text-muted' id='workbench-status-summary'>
-          {state.status.message}
+      <div class='workbench-command-bar'>
+        <Toolbar
+          onLoad={handleLoad}
+          onSave={handleSave}
+          onPublish={() => dispatch({ type: 'publishModalOpened' })}
+          onUndo={() => dispatch({ type: 'undo' })}
+          onRedo={() => dispatch({ type: 'redo' })}
+          canUndo={state.history[state.direction].past.length > 0}
+          canRedo={state.history[state.direction].future.length > 0}
+        />
+        <span class='workbench-state-badges'>
+          <span class='text-muted' id='workbench-status-summary'>
+            {state.status.message}
+          </span>
+          <span
+            class={changeState.hasUnsavedDagChanges ? 'badge badge-warning' : 'badge badge-success'}
+            id='workbench-save-state'
+          >
+            {changeState.dagLabel}
+          </span>
+          <span
+            class={changeState.hasUnpublishedChanges ? 'badge badge-warning' : 'badge badge-success'}
+            id='workbench-publish-state'
+          >
+            {changeState.publishLabel}
+          </span>
         </span>
-        <span
-          class={changeState.hasUnsavedDagChanges ? 'badge badge-warning' : 'badge badge-success'}
-          id='workbench-save-state'
-        >
-          {changeState.dagLabel}
-        </span>
-        <span
-          class={changeState.hasUnpublishedChanges ? 'badge badge-warning' : 'badge badge-success'}
-          id='workbench-publish-state'
-        >
-          {changeState.publishLabel}
-        </span>
-      </span>
-      <div id='pipeline-status' class='workbench-status'></div>
+      </div>
       <div class='workbench-grid canvas-first-grid' id='canvas-first-grid'>
         <Palette
           plugins={state.plugins}
           collapsed={state.ui.paletteCollapsed}
           onToggle={() => dispatch({ type: 'paletteToggled' })}
-          onAdd={(policy) =>
-            dispatch({
-              type: 'policyNodeAdded',
-              policy,
-              position: nextPalettePosition(state.graphs[state.direction]),
-            })}
+          onAdd={(policy) => dispatch({
+            type: 'policyNodeAdded',
+            policy,
+            position: nextPalettePosition(state.graphs[state.direction]),
+          })}
         />
         <section class='canvas-shell canvas-shell-expanded'>
           <div class='canvas-toolbar'>
@@ -320,6 +325,11 @@ export default function PipelineWorkbench(props: PipelineWorkbenchProps = {}) {
               {Math.round(activeViewport.zoom * 100)}%
             </span>
           </div>
+          <ViewportControls
+            onFit={handleFitCanvas}
+            onZoomOut={() => handleZoomStep(-0.1)}
+            onZoomIn={() => handleZoomStep(0.1)}
+          />
           <Canvas
             graph={state.graphs[state.direction]}
             selectedNodeIds={state.selectedNodeIds}

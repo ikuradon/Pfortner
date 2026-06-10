@@ -6,9 +6,6 @@ export function Toolbar(props: {
   onPublish(): void;
   onUndo(): void;
   onRedo(): void;
-  onFit(): void;
-  onZoomOut(): void;
-  onZoomIn(): void;
   canUndo?: boolean;
   canRedo?: boolean;
 }) {
@@ -31,32 +28,6 @@ export function Toolbar(props: {
         onClick={props.onRedo}
       >
         ↷ Redo
-      </button>
-      <button
-        type='button'
-        id='btn-fit-canvas'
-        class='btn btn-ghost'
-        onClick={props.onFit}
-      >
-        Fit
-      </button>
-      <button
-        type='button'
-        id='btn-zoom-out'
-        class='btn btn-ghost'
-        aria-label='Zoom out'
-        onClick={props.onZoomOut}
-      >
-        -
-      </button>
-      <button
-        type='button'
-        id='btn-zoom-in'
-        class='btn btn-ghost'
-        aria-label='Zoom in'
-        onClick={props.onZoomIn}
-      >
-        +
       </button>
       <button
         type='button'

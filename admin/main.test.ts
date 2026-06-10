@@ -252,18 +252,27 @@ Deno.test('admin pipelines page SSR renders active config graph', async () => {
   assertEquals(html.includes('data-policy="rate-limit"'), true);
 });
 
-Deno.test('admin pipelines page renders direction selector above action toolbar', async () => {
+Deno.test('admin pipelines page renders direction selector in the page header', async () => {
   const handler = createAdminApp(makeState());
   const res = await handler(makeRequest('/admin/pipelines', 'test-token'));
 
   assertEquals(res.status, 200);
   const html = await res.text();
+  const headerIndex = html.indexOf('class="page-header pipeline-page-header"');
+  const titleIndex = html.indexOf('class="page-title"');
   const modeBarIndex = html.indexOf('class="pipeline-mode-bar"');
   const toolbarIndex = html.indexOf('class="pipeline-toolbar"');
+  const commandBarIndex = html.indexOf('class="workbench-command-bar"');
 
+  assertEquals(headerIndex >= 0, true);
+  assertEquals(titleIndex >= 0, true);
   assertEquals(modeBarIndex >= 0, true);
   assertEquals(toolbarIndex >= 0, true);
-  assertEquals(modeBarIndex < toolbarIndex, true);
+  assertEquals(commandBarIndex >= 0, true);
+  assertEquals(headerIndex < modeBarIndex, true);
+  assertEquals(titleIndex < modeBarIndex, true);
+  assertEquals(modeBarIndex < commandBarIndex, true);
+  assertEquals(commandBarIndex < toolbarIndex, true);
   assertEquals(
     /class="pipeline-toolbar"[\s\S]*id="tab-client"/.test(html),
     false,

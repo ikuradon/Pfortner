@@ -166,6 +166,7 @@ body {
     padding: 16px;
   }
 
+  .workbench-command-bar,
   .pipeline-toolbar {
     max-width: 100%;
     flex-wrap: wrap;
@@ -1043,16 +1044,16 @@ body {
   min-height: calc(100vh - 48px);
 }
 
-.pipeline-workbench .page-header {
-  align-items: stretch;
-  flex-direction: column;
+.pipeline-workbench .pipeline-page-header {
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
   margin-bottom: 0;
   flex-wrap: wrap;
 }
 
-.pipeline-header-top,
 .pipeline-mode-bar,
+.workbench-command-bar,
 .pipeline-toolbar,
 .pipeline-mode-tabs {
   display: flex;
@@ -1064,17 +1065,18 @@ body {
   flex-wrap: wrap;
 }
 
-.pipeline-header-top {
-  justify-content: space-between;
-  flex-wrap: wrap;
-}
-
 .pipeline-toolbar {
   flex-wrap: wrap;
 }
 
-.workbench-status {
-  min-height: 28px;
+.workbench-command-bar {
+  justify-content: space-between;
+  min-height: 46px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-2);
+  flex-wrap: wrap;
 }
 
 .workbench-state-badges {
@@ -1130,9 +1132,13 @@ body {
 
 .palette-header {
   justify-content: space-between;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
 }
 
 .btn-icon {
+  box-sizing: border-box;
   width: 28px;
   min-width: 28px;
   height: 28px;
@@ -1152,7 +1158,7 @@ body {
 
 .pipeline-workbench.palette-collapsed .palette-header {
   justify-content: center;
-  padding: 10px 7px;
+  padding: 6px;
 }
 
 .pipeline-workbench.palette-collapsed .workbench-panel-header span,
@@ -1223,10 +1229,40 @@ body {
 }
 
 .canvas-shell {
+  position: relative;
   display: flex;
   min-width: 0;
   min-height: 460px;
   flex-direction: column;
+}
+
+.canvas-viewport-controls {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 3;
+  display: inline-flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+}
+
+.canvas-control-btn {
+  justify-content: center;
+  width: 42px;
+  min-width: 42px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--color-surface);
+}
+
+.canvas-control-btn + .canvas-control-btn {
+  border-top: 1px solid var(--color-border);
 }
 
 .pipeline-canvas {
@@ -1695,7 +1731,7 @@ body {
 
   .canvas-first-grid .palette-header {
     justify-content: center;
-    padding: 10px 7px;
+    padding: 6px;
   }
 
   .canvas-first-grid .workbench-panel-header span,

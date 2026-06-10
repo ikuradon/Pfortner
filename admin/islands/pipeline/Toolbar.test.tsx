@@ -1,6 +1,7 @@
 /** @jsxImportSource preact */
 import { assertEquals, assertStrictEquals } from '@std/assert';
 import { Toolbar } from './Toolbar.tsx';
+import { ViewportControls } from './ViewportControls.tsx';
 
 type VNodeLike = {
   type?: unknown;
@@ -29,7 +30,7 @@ function click(node: VNodeLike | null): void {
   if (typeof onClick === 'function') onClick();
 }
 
-Deno.test('Toolbar wires viewport control buttons to callbacks', () => {
+Deno.test('Toolbar wires workbench action buttons to callbacks', () => {
   const calls: string[] = [];
   const toolbar = Toolbar({
     onLoad: () => calls.push('load'),
@@ -37,18 +38,34 @@ Deno.test('Toolbar wires viewport control buttons to callbacks', () => {
     onPublish: () => calls.push('publish'),
     onUndo: () => calls.push('undo'),
     onRedo: () => calls.push('redo'),
-    onFit: () => calls.push('fit'),
-    onZoomOut: () => calls.push('zoom-out'),
-    onZoomIn: () => calls.push('zoom-in'),
     canUndo: true,
     canRedo: true,
   }) as VNodeLike;
 
-  click(findById(toolbar, 'btn-fit-canvas'));
-  click(findById(toolbar, 'btn-zoom-out'));
-  click(findById(toolbar, 'btn-zoom-in'));
+  click(findById(toolbar, 'btn-undo-pipeline'));
+  click(findById(toolbar, 'btn-redo-pipeline'));
+  click(findById(toolbar, 'btn-load-dag'));
+  click(findById(toolbar, 'btn-save-dag'));
+  click(findById(toolbar, 'btn-publish-pipeline'));
+
+  assertEquals(calls, ['undo', 'redo', 'load', 'save', 'publish']);
+  assertStrictEquals(findById(toolbar, 'btn-undo-pipeline')?.props?.disabled, false);
+  assertStrictEquals(findById(toolbar, 'btn-fit-canvas'), null);
+  assertStrictEquals(findById(toolbar, 'btn-run-pipeline'), null);
+});
+
+Deno.test('ViewportControls wires canvas viewport buttons to callbacks', () => {
+  const calls: string[] = [];
+  const controls = ViewportControls({
+    onFit: () => calls.push('fit'),
+    onZoomOut: () => calls.push('zoom-out'),
+    onZoomIn: () => calls.push('zoom-in'),
+  }) as VNodeLike;
+
+  click(findById(controls, 'btn-fit-canvas'));
+  click(findById(controls, 'btn-zoom-out'));
+  click(findById(controls, 'btn-zoom-in'));
 
   assertEquals(calls, ['fit', 'zoom-out', 'zoom-in']);
-  assertStrictEquals(findById(toolbar, 'btn-fit-canvas')?.props?.disabled, undefined);
-  assertStrictEquals(findById(toolbar, 'btn-run-pipeline'), null);
+  assertStrictEquals(findById(controls, 'btn-fit-canvas')?.props?.disabled, undefined);
 });
