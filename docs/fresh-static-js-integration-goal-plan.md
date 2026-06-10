@@ -16,7 +16,7 @@
 
 - Fresh docs: islands は `islands/` または route-local island として定義し、Fresh が client interactivity を配信する。
 - Fresh docs: code から import する JavaScript/TypeScript/CSS/assets は `static/` 外に置き、`static/` は URL 参照 asset に限定する。
-- `docs/current-architecture.md`: `/admin/*` は Fresh-rendered page、`Layout` は `f-client-nav` と `Partial` を使い、`admin/static/fresh_nav.js` は programmatic Fresh app の移行 runtime として残っている。
+- `docs/current-architecture.md`: `/admin/*` は Fresh-rendered page、`Layout` は `f-client-nav` と `Partial` を使い、`admin/client/fresh_nav.js` は programmatic Fresh app の移行 runtime source、`admin/static/fresh_nav.js` は generated URL artifact として残っている。
 - Active thread goal: helper extraction、PipelineWorkbench static bridge の Fresh island 統合、page-local behavior の island/client entry 整理、`f-client-nav` / `Partial` 整合、SSR、ブラウザ操作、Deno 検証、atomic commit を全て完了する。
 
 ## Current State Snapshot
@@ -25,8 +25,9 @@
 - `admin/islands/pipeline/{graph.js,workbench_state.js,config_editor.js}` are the Fresh-side pure helper modules. Fresh island/reducer/component code must not import implementation from `admin/static`.
 - `admin/static/islands/PipelineWorkbench.js` is now a generated browser bundle from `admin/islands/PipelineWorkbench.browser.tsx`; it remains URL-addressed static output only because the programmatic Fresh app still needs an island chunk URL during the transition.
 - `admin/static/pipeline_graph.js`, `admin/static/pipeline_workbench_state.js`, and `admin/static/pipeline_config_editor.js` are removed; helper tests import the Fresh-side modules directly.
-- `admin/static/fresh_nav.js` is the admin-local client entry for the programmatic Fresh app. It handles `f-client-nav` / `Partial` replacement, layout behavior, page-local behavior that was moved out of deleted URL scripts, and hand-written admin island chunk mounting.
-- `admin/static/{client,dashboard,connections,metrics,blocklist,config,logs,utils}.js` are removed. Their behavior is currently initialized from `admin/static/fresh_nav.js`.
+- `admin/client/fresh_nav.js` is the admin-local client entry source for the programmatic Fresh app. It handles `f-client-nav` / `Partial` replacement, layout behavior, page-local behavior that was moved out of deleted URL scripts, and minimal admin island chunk mounting.
+- `admin/static/fresh_nav.js` is generated from `admin/client/fresh_nav.js` by `deno task build:admin-assets`; it remains URL-addressed output only because the programmatic Fresh app still needs a client entry URL during the transition.
+- `admin/static/{client,dashboard,connections,metrics,blocklist,config,logs,utils}.js` are removed. Their behavior is currently initialized from `admin/client/fresh_nav.js`.
 - `admin/fresh_islands.ts` uses `@fresh/core/internal` to install a hand-written `ProdBuildCache` that points Fresh SSR at `/admin/static/fresh_nav.js` and the admin island chunk URLs, including `/admin/static/islands/PipelineWorkbench.js`.
 
 ## Final Completion Gates
@@ -391,9 +392,12 @@
 
 - Modify: `admin/main.ts`
 - Modify: `admin/fresh_islands.ts`
+- Create/modify: `admin/client/fresh_nav.js`
 - Modify: `admin/static/fresh_nav.js`
-- Modify: `admin/static_fresh_nav.test.js` if split later
-- Modify: `deno.json` only if a standard Fresh/Vite client build is introduced
+- Modify: `admin/static/fresh_nav.test.js` if split later
+- Modify: `scripts/build_admin_islands.ts`
+- Modify: `scripts/build_admin_islands.test.ts`
+- Modify: `deno.json` if a generated admin client asset task is introduced
 - Create: `vite.config.ts` only if the programmatic `/admin` app can be moved to a standard Fresh build path without breaking the server integration
 
 - [x] **Step 1: Decide Fresh runtime strategy from evidence**
@@ -402,7 +406,7 @@
 
   Decision from 2026-06-10 evidence: keep the current programmatic Fresh runtime bridge for now. Standard Fresh build removal is not a safe drop-in because this repo assembles `/admin` as a sub-app with a hand-written `ProdBuildCache`, and Fresh SSR only receives chunk URLs from that cache. The next safe reduction is to replace the hand-written `PipelineWorkbench` controller chunk with a generated/buildable Preact mount adapter, then keep only `f-client-nav` / `Partial` replacement and minimal island adapter loading in `fresh_nav.js`.
 
-- [ ] **Step 2: Remove `@fresh/core/internal` dependency if feasible**
+- [x] **Step 2: Remove `@fresh/core/internal` dependency if feasible**
 
   If standard Fresh build is feasible:
 
@@ -419,6 +423,8 @@
   Progress:
 
   - [x] Made `admin/static/fresh_nav.js` pass direct `deno lint admin/static/fresh_nav.js` by removing bare `window` references while preserving fake-window test compatibility. This prepares the client entry source to move outside `admin/static`.
+  - [x] Kept `@fresh/core/internal` for this iteration because the programmatic `/admin` sub-app still needs a `ProdBuildCache` client entry URL and island chunk URLs; documented this as a retained compatibility bridge rather than introducing Vite.
+  - [x] Moved the Fresh nav client entry source to `admin/client/fresh_nav.js`, generated `/admin/static/fresh_nav.js` via `deno task build:admin-assets`, and updated tests to exercise the source while asserting the static URL artifact is generated.
 
 - [ ] **Step 3: Commit runtime bridge reduction**
 
@@ -452,7 +458,7 @@
   ```bash
   deno fmt --check --config deno.json
   deno lint
-  deno check mod.ts admin/main.ts admin/islands/PipelineWorkbench.tsx admin/static/fresh_nav.js
+  deno check mod.ts admin/main.ts admin/islands/PipelineWorkbench.tsx admin/client/fresh_nav.js admin/static/fresh_nav.js
   deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --unstable-kv admin/ src/
   ```
 

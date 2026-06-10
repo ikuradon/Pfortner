@@ -443,7 +443,7 @@ setGlobal('localStorage', {
 });
 
 async function importFreshNav() {
-  return await import(`./fresh_nav.js?test=${crypto.randomUUID()}`);
+  return await import(`../client/fresh_nav.js?test=${crypto.randomUUID()}`);
 }
 
 async function waitFor(predicate) {
@@ -2573,7 +2573,7 @@ Deno.test('PipelineWorkbench static chunk exports a mountable module', async () 
 });
 
 Deno.test('fresh nav does not keep page-local static script initializer registry', async () => {
-  const source = await Deno.readTextFile(new URL('./fresh_nav.js', import.meta.url));
+  const source = await Deno.readTextFile(new URL('../client/fresh_nav.js', import.meta.url));
   const removedPipelinesScript = '/admin/static/' + 'pipelines.js';
   const removedPipelinesInitializer = 'init' + 'PipelinesPage';
 

@@ -1,5 +1,32 @@
 import { assertEquals, assertStringIncludes } from '@std/assert';
-import { buildAdminIslandBundle } from './build_admin_islands.ts';
+import { buildAdminClientEntry, buildAdminIslandBundle } from './build_admin_islands.ts';
+
+Deno.test('buildAdminClientEntry writes generated Fresh nav client entry from source', async () => {
+  const outDir = await Deno.makeTempDir();
+  const outputPath = `${outDir}/fresh_nav.js`;
+
+  try {
+    const result = await buildAdminClientEntry({
+      entryPoint: new URL('../admin/client/fresh_nav.js', import.meta.url),
+      outputPath,
+    });
+    const source = await Deno.readTextFile(outputPath);
+
+    assertEquals(result.outputPath, outputPath);
+    assertEquals(
+      source.startsWith(
+        '// Generated from admin/client/fresh_nav.js by scripts/build_admin_islands.ts.\n',
+      ),
+      true,
+    );
+    assertStringIncludes(source, 'export function boot');
+    assertStringIncludes(source, '../static/islands/PipelineWorkbench.js');
+    assertEquals(source.includes('/admin/static/pipelines.js'), false);
+    assertEquals(source.includes('PAGE_INITIALIZERS'), false);
+  } finally {
+    await Deno.remove(outDir, { recursive: true });
+  }
+});
 
 Deno.test('buildAdminIslandBundle writes the PipelineWorkbench mount adapter without static controller behavior', async () => {
   const outDir = await Deno.makeTempDir();

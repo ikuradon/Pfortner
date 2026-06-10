@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { createAdminApp } from './main.ts';
 import type { AdminState } from '../src/admin/server.ts';
 import type { ManagedConnection } from '../src/connections/types.ts';
@@ -298,6 +298,9 @@ Deno.test('admin app static JavaScript requires revalidation', async () => {
 
   assertEquals(res.status, 200);
   assertEquals(res.headers.get('Cache-Control'), 'no-cache');
+  const source = await res.text();
+  assertEquals(source.includes('Generated from admin/client/fresh_nav.js'), true);
+  assertEquals(source.includes('export function boot'), true);
 });
 
 Deno.test('admin app GET /admin/api/connections returns connection DTOs', async () => {

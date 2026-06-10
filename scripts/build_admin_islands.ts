@@ -1,8 +1,12 @@
 import * as esbuild from 'esbuild';
 import { dirname, fromFileUrl } from '@std/path';
 
+const DEFAULT_ADMIN_CLIENT_ENTRY_SOURCE = new URL('../admin/client/fresh_nav.js', import.meta.url);
+const DEFAULT_ADMIN_CLIENT_ENTRY_OUTPUT = new URL('../admin/static/fresh_nav.js', import.meta.url);
 const DEFAULT_PIPELINE_WORKBENCH_ENTRY = new URL('../admin/islands/PipelineWorkbench.browser.tsx', import.meta.url);
 const DEFAULT_PIPELINE_WORKBENCH_OUTPUT = new URL('../admin/static/islands/PipelineWorkbench.js', import.meta.url);
+const GENERATED_ADMIN_CLIENT_ENTRY_BANNER =
+  '// Generated from admin/client/fresh_nav.js by scripts/build_admin_islands.ts.\n';
 
 const DENO_RESOLVED_BROWSER_IMPORTS = new Set([
   'preact',
@@ -20,6 +24,21 @@ export interface AdminIslandBundleOptions {
 export interface AdminIslandBundleResult {
   entryPoint: string;
   outputPath: string;
+}
+
+export interface AdminClientEntryBuildOptions {
+  entryPoint?: string | URL;
+  outputPath?: string | URL;
+}
+
+export interface AdminClientEntryBuildResult {
+  entryPoint: string;
+  outputPath: string;
+}
+
+export interface AdminBrowserAssetsBuildResult {
+  clientEntry: AdminClientEntryBuildResult;
+  pipelineWorkbench: AdminIslandBundleResult;
 }
 
 function pathFromFile(value: string | URL): string {
@@ -40,6 +59,19 @@ function denoResolvedBrowserImportsPlugin(): esbuild.Plugin {
       });
     },
   };
+}
+
+export async function buildAdminClientEntry(
+  options: AdminClientEntryBuildOptions = {},
+): Promise<AdminClientEntryBuildResult> {
+  const entryPoint = pathFromFile(options.entryPoint ?? DEFAULT_ADMIN_CLIENT_ENTRY_SOURCE);
+  const outputPath = pathFromFile(options.outputPath ?? DEFAULT_ADMIN_CLIENT_ENTRY_OUTPUT);
+  const source = await Deno.readTextFile(entryPoint);
+
+  await Deno.mkdir(dirname(outputPath), { recursive: true });
+  await Deno.writeTextFile(outputPath, GENERATED_ADMIN_CLIENT_ENTRY_BANNER + source);
+
+  return { entryPoint, outputPath };
 }
 
 export async function buildAdminIslandBundle(
@@ -69,7 +101,14 @@ export async function buildAdminIslandBundle(
   return { entryPoint, outputPath };
 }
 
+export async function buildAdminBrowserAssets(): Promise<AdminBrowserAssetsBuildResult> {
+  const clientEntry = await buildAdminClientEntry();
+  const pipelineWorkbench = await buildAdminIslandBundle();
+  return { clientEntry, pipelineWorkbench };
+}
+
 if (import.meta.main) {
-  const result = await buildAdminIslandBundle();
-  console.log(`Built ${result.outputPath}`);
+  const result = await buildAdminBrowserAssets();
+  console.log(`Built ${result.clientEntry.outputPath}`);
+  console.log(`Built ${result.pipelineWorkbench.outputPath}`);
 }
