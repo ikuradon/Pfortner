@@ -119,3 +119,48 @@ Deno.test('Canvas renders branch output ports for when and match nodes', () => {
   assertStringIncludes(html, 'data-port-name="case:0"');
   assertStringIncludes(html, 'height="96"');
 });
+
+Deno.test('Canvas restores legacy edge hit paths, wire preview, execution state, and config subtitles', () => {
+  const html = render(
+    <Canvas
+      graph={{
+        direction: 'client',
+        nodes: [
+          { id: 'client-start', type: 'start', policy: 'start', x: 0, y: 0 },
+          {
+            id: 'client-node-1',
+            type: 'policy',
+            policy: 'write-guard',
+            x: 240,
+            y: 80,
+            config: { require_auth: true },
+          },
+        ],
+        edges: [
+          {
+            id: 'client-edge-1',
+            from: 'client-start',
+            fromPort: 'next',
+            to: 'client-node-1',
+            toPort: 'in',
+          },
+        ],
+      }}
+      selectedNodeIds={[]}
+      executionNodeIds={['client-node-1']}
+      wirePreview={{
+        from: 'client-start',
+        fromPort: 'next',
+        point: { x: 180, y: 36 },
+      }}
+      viewport={{ zoom: 1, pan: { x: 56, y: 80 } }}
+      canvasSize={{ width: 800, height: 480 }}
+      onNodeDoubleClick={() => undefined}
+    />,
+  );
+
+  assertStringIncludes(html, 'class="pipeline-edge-hit"');
+  assertStringIncludes(html, 'class="pipeline-edge pipeline-edge-preview"');
+  assertStringIncludes(html, 'class="pipeline-node executed"');
+  assertStringIncludes(html, 'require_auth:true');
+});

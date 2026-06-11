@@ -1739,6 +1739,86 @@ function addAdminIslandModulePathsFromLinkHeader(paths, linkHeader, baseUrl) {
   }
 }
 
+function splitTopLevelCallArguments(sourceText, functionName) {
+  const callIndex = sourceText.indexOf(`${functionName}(`);
+  if (callIndex < 0) return [];
+  const start = callIndex + functionName.length + 1;
+  const args = [];
+  let current = '';
+  let depth = 0;
+  let quote = '';
+  let escaping = false;
+
+  for (let index = start; index < sourceText.length; index += 1) {
+    const char = sourceText[index];
+
+    if (quote) {
+      current += char;
+      if (escaping) {
+        escaping = false;
+      } else if (char === '\\') {
+        escaping = true;
+      } else if (char === quote) {
+        quote = '';
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      current += char;
+      continue;
+    }
+
+    if (char === '(' || char === '[' || char === '{') {
+      depth += 1;
+      current += char;
+      continue;
+    }
+
+    if (char === ')' && depth === 0) {
+      args.push(current.trim());
+      return args;
+    }
+
+    if (char === ')' || char === ']' || char === '}') {
+      depth = Math.max(0, depth - 1);
+      current += char;
+      continue;
+    }
+
+    if (char === ',' && depth === 0) {
+      args.push(current.trim());
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  return [];
+}
+
+function parseJsonStringLiteral(value) {
+  try {
+    if (!value.startsWith('"')) return undefined;
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+}
+
+function getFreshIslandBootProps(doc) {
+  for (const element of doc.querySelectorAll('script[type="module"], link[rel="modulepreload"]')) {
+    if (element.tagName && element.tagName.toLowerCase() !== 'script') continue;
+    const args = splitTopLevelCallArguments(element.textContent ?? '', 'boot');
+    if (args.length < 2) continue;
+    const props = parseJsonStringLiteral(args[1]);
+    if (props !== undefined) return props;
+  }
+  return undefined;
+}
+
 function getAdminIslandModulePaths(doc, linkHeader, baseUrl) {
   const paths = new Set();
   doc.querySelectorAll('script[type="module"], link[rel="modulepreload"]')
@@ -1758,7 +1838,7 @@ async function mountAdminIslandsForDocument(doc, linkHeader, baseUrl) {
     const mod = await ADMIN_ISLAND_MODULES[pathname]();
     islands[pathname] = mod.default;
   }
-  mountAdminIslands(islands);
+  mountAdminIslands(islands, getFreshIslandBootProps(doc));
 }
 
 export function boot(islands = {}, props = []) {

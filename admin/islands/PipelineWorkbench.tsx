@@ -1,7 +1,13 @@
 /** @jsxImportSource preact */
-import { useEffect, useReducer } from 'preact/hooks';
+import { useEffect, useReducer, useState } from 'preact/hooks';
 import { graphToPipelines, pipelinesToGraph } from './pipeline/graph.js';
-import { fingerprintPipelines, getWorkbenchChangeState } from './pipeline/workbench_state.js';
+import {
+  dagFingerprintFromGraphs,
+  fingerprintPipelines,
+  getWorkbenchChangeState,
+  LAST_DIRECTION_KEY,
+  PALETTE_COLLAPSED_KEY,
+} from './pipeline/workbench_state.js';
 import { Canvas } from './pipeline/Canvas.tsx';
 import {
   createBrowserWorkbenchActionServices,
@@ -26,7 +32,15 @@ import {
   selectWorkbenchDraft,
   validateWorkbenchGraphsForPublish,
 } from './pipeline/workbench_reducer.ts';
-import type { PipelineGraph, Point, Rect, Viewport } from './pipeline/types.ts';
+import type {
+  PipelineGraph,
+  PlaygroundConnectionInfo,
+  PlaygroundRunRequest,
+  Point,
+  Rect,
+  Viewport,
+  WirePreview,
+} from './pipeline/types.ts';
 
 const EMPTY_PIPELINES = { client: [], server: [] };
 const NODE_GAP = 240;
@@ -40,26 +54,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function stableValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stableValue);
-  if (value !== null && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.keys(value).sort().map((key) => [
-        key,
-        stableValue((value as Record<string, unknown>)[key]),
-      ]),
-    );
-  }
-  return value;
-}
-
-function draftFingerprintFromParts(
-  graphs: unknown,
-  viewports: unknown,
-): string {
-  return JSON.stringify(stableValue({ graphs, viewports }));
-}
-
 function pipelinesFromValue(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : EMPTY_PIPELINES;
 }
@@ -68,11 +62,6 @@ function pluginsFromValue(value: unknown): string[] {
   if (!Array.isArray(value)) return [...DEFAULT_PLUGINS];
   const plugins = value.filter((item): item is string => typeof item === 'string');
   return plugins.length > 0 ? plugins : [...DEFAULT_PLUGINS];
-}
-
-function formatPlaygroundResult(result: unknown): string {
-  if (typeof result === 'string') return result;
-  return JSON.stringify(result, null, 2);
 }
 
 function createInitialState(props: PipelineWorkbenchProps) {
@@ -94,6 +83,14 @@ function isStartGraphNode(
 function nextPalettePosition(graph: PipelineGraph) {
   const start = graph.nodes.find(isStartGraphNode);
   if (!start) return { x: NODE_GAP, y: 80 };
+  const policyNodes = graph.nodes.filter((node) => !isStartGraphNode(node));
+  if (policyNodes.length > 0) {
+    const rightMost = policyNodes.reduce((current, node) => (node.x ?? 0) > (current.x ?? 0) ? node : current);
+    return {
+      x: (rightMost.x ?? 0) + NODE_GAP,
+      y: rightMost.y ?? start.y ?? 80,
+    };
+  }
   return {
     x: (start.x ?? 0) + NODE_GAP,
     y: start.y ?? 80,
@@ -102,6 +99,12 @@ function nextPalettePosition(graph: PipelineGraph) {
 
 const WORKBENCH_ACTION_SERVICES = createBrowserWorkbenchActionServices();
 
+const DEFAULT_PLAYGROUND_CONTEXT: PlaygroundConnectionInfo = {
+  authenticated: false,
+  pubkey: '',
+  clientIp: '127.0.0.1',
+};
+
 function currentCanvasSize() {
   if (typeof document === 'undefined') return DEFAULT_CANVAS_SIZE;
   const rect = document.getElementById('pipeline-svg')?.getBoundingClientRect();
@@ -109,20 +112,39 @@ function currentCanvasSize() {
   return { width: rect.width, height: rect.height };
 }
 
+function readStorageItem(key: string): string | null {
+  try {
+    if (typeof globalThis.localStorage === 'undefined') return null;
+    return globalThis.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStorageItem(key: string, value: string): void {
+  try {
+    if (typeof globalThis.localStorage === 'undefined') return;
+    globalThis.localStorage.setItem(key, value);
+  } catch {
+    // localStorage が使えない環境では永続化だけ諦める。
+  }
+}
+
 export default function PipelineWorkbench(props: PipelineWorkbenchProps = {}) {
   const [state, dispatch] = useReducer(
     reduceWorkbench,
     createInitialState(props),
+  );
+  const [playgroundMessage, setPlaygroundMessage] = useState('');
+  const [playgroundConnectionInfo, setPlaygroundConnectionInfo] = useState(
+    DEFAULT_PLAYGROUND_CONTEXT,
   );
   const title = state.direction === 'client' ? 'Client Pipeline' : 'Server Pipeline';
   const workbenchClass = state.ui.paletteCollapsed ? 'pipeline-workbench palette-collapsed' : 'pipeline-workbench';
   const activeModal = state.ui.activeModal;
   const activeViewport = state.viewports[state.direction];
   const serializedPipelines = graphToPipelines(state.graphs);
-  const currentDraftFingerprint = draftFingerprintFromParts(
-    state.graphs,
-    state.viewports,
-  );
+  const currentDraftFingerprint = dagFingerprintFromGraphs(state.graphs);
   const changeState = getWorkbenchChangeState({
     currentDraftFingerprint,
     savedDraftFingerprint: state.savedDraftFingerprint,
@@ -136,6 +158,20 @@ export default function PipelineWorkbench(props: PipelineWorkbenchProps = {}) {
   useWorkbenchKeyboard(state, dispatch);
 
   useEffect(() => {
+    dispatch({
+      type: 'palettePreferenceLoaded',
+      collapsed: readStorageItem(PALETTE_COLLAPSED_KEY) === 'true',
+    });
+    const storedDirection = readStorageItem(LAST_DIRECTION_KEY);
+    if (storedDirection === 'client' || storedDirection === 'server') {
+      dispatch({
+        type: 'directionPreferenceLoaded',
+        direction: storedDirection,
+      });
+    }
+  }, []);
+
+  useEffect(() => {
     let active = true;
 
     (async () => {
@@ -147,17 +183,14 @@ export default function PipelineWorkbench(props: PipelineWorkbenchProps = {}) {
       const selectedDraft = selectWorkbenchDraft([
         serverDraft,
         localDraft,
-      ]);
+      ], { publishedFingerprint: state.publishedFingerprint });
       if ('error' in selectedDraft) return;
       dispatch({
         type: 'graphsLoaded',
         graphs: selectedDraft.draft.graphs,
         viewports: selectedDraft.draft.viewports,
         message: 'Loaded saved DAG',
-        savedDraftFingerprint: draftFingerprintFromParts(
-          selectedDraft.draft.graphs,
-          selectedDraft.draft.viewports,
-        ),
+        savedDraftFingerprint: dagFingerprintFromGraphs(selectedDraft.draft.graphs),
       });
     })();
 
@@ -171,17 +204,21 @@ export default function PipelineWorkbench(props: PipelineWorkbenchProps = {}) {
   }
 
   async function handleLoad(): Promise<void> {
-    await loadWorkbenchDraft(WORKBENCH_ACTION_SERVICES, dispatch);
+    await loadWorkbenchDraft(
+      WORKBENCH_ACTION_SERVICES,
+      dispatch,
+      { publishedFingerprint: state.publishedFingerprint },
+    );
   }
 
   async function handlePublishConfirm(): Promise<void> {
     await publishWorkbenchGraphs(state, WORKBENCH_ACTION_SERVICES, dispatch);
   }
 
-  async function handlePlaygroundRun(rawMessage: string): Promise<void> {
+  async function handlePlaygroundRun(request: PlaygroundRunRequest): Promise<void> {
     await runWorkbenchPlayground(
       state,
-      rawMessage,
+      request,
       WORKBENCH_ACTION_SERVICES,
       dispatch,
     );
@@ -208,6 +245,17 @@ export default function PipelineWorkbench(props: PipelineWorkbenchProps = {}) {
     handleViewportChange(zoomViewportByStep(activeViewport, step));
   }
 
+  function handleDirectionChange(direction: 'client' | 'server'): void {
+    dispatch({ type: 'directionChanged', direction });
+    writeStorageItem(LAST_DIRECTION_KEY, direction);
+  }
+
+  function handlePaletteToggle(): void {
+    const collapsed = !state.ui.paletteCollapsed;
+    dispatch({ type: 'paletteToggled' });
+    writeStorageItem(PALETTE_COLLAPSED_KEY, collapsed ? 'true' : 'false');
+  }
+
   function handleNodeSelect(nodeId: string, additive: boolean): void {
     dispatch({
       type: 'nodeSelected',
@@ -230,12 +278,24 @@ export default function PipelineWorkbench(props: PipelineWorkbenchProps = {}) {
     });
   }
 
-  function handleNodeMove(nodeId: string, position: Point): void {
+  function handleNodeMove(
+    nodeId: string,
+    position: Point,
+    transient = false,
+  ): void {
     dispatch({
       type: 'nodeMoved',
       nodeId,
       x: position.x,
       y: position.y,
+      transient,
+    });
+  }
+
+  function handleNodeDragCommit(nodeIds: string[]): void {
+    dispatch({
+      type: 'nodeDragCommitted',
+      nodeIds,
     });
   }
 
@@ -245,6 +305,13 @@ export default function PipelineWorkbench(props: PipelineWorkbenchProps = {}) {
       from,
       fromPort,
       to,
+    });
+  }
+
+  function handleWirePreviewChange(preview: WirePreview | null): void {
+    dispatch({
+      type: 'wirePreviewChanged',
+      preview,
     });
   }
 
@@ -261,7 +328,7 @@ export default function PipelineWorkbench(props: PipelineWorkbenchProps = {}) {
               : 'btn btn-ghost pipeline-mode-tab'}
             data-pipeline='client'
             aria-pressed={state.direction === 'client'}
-            onClick={() => dispatch({ type: 'directionChanged', direction: 'client' })}
+            onClick={() => handleDirectionChange('client')}
           >
             Client
           </button>
@@ -273,7 +340,7 @@ export default function PipelineWorkbench(props: PipelineWorkbenchProps = {}) {
               : 'btn btn-ghost pipeline-mode-tab'}
             data-pipeline='server'
             aria-pressed={state.direction === 'server'}
-            onClick={() => dispatch({ type: 'directionChanged', direction: 'server' })}
+            onClick={() => handleDirectionChange('server')}
           >
             Server
           </button>
@@ -311,7 +378,7 @@ export default function PipelineWorkbench(props: PipelineWorkbenchProps = {}) {
         <Palette
           plugins={state.plugins}
           collapsed={state.ui.paletteCollapsed}
-          onToggle={() => dispatch({ type: 'paletteToggled' })}
+          onToggle={handlePaletteToggle}
           onAdd={(policy) => dispatch({
             type: 'policyNodeAdded',
             policy,
@@ -333,6 +400,8 @@ export default function PipelineWorkbench(props: PipelineWorkbenchProps = {}) {
           <Canvas
             graph={state.graphs[state.direction]}
             selectedNodeIds={state.selectedNodeIds}
+            executionNodeIds={state.executionNodeIdsByDirection[state.direction]}
+            wirePreview={state.ui.wirePreview}
             marquee={state.ui.marquee}
             viewport={activeViewport}
             onViewportChange={handleViewportChange}
@@ -340,7 +409,16 @@ export default function PipelineWorkbench(props: PipelineWorkbenchProps = {}) {
             onSelectionReplace={handleSelectionReplace}
             onMarqueeChange={handleMarqueeChange}
             onNodeMove={handleNodeMove}
+            onNodeDragCommit={handleNodeDragCommit}
             onEdgeReplace={handleEdgeReplace}
+            onEdgeRemove={(edgeId) => dispatch({ type: 'edgeRemoved', edgeId })}
+            onWirePreviewChange={handleWirePreviewChange}
+            onPolicyDrop={(policy, position) =>
+              dispatch({
+                type: 'policyNodeAdded',
+                policy,
+                position,
+              })}
             onNodeDoubleClick={(nodeId) => dispatch({ type: 'nodeDoubleClicked', nodeId })}
           />
         </section>
@@ -352,8 +430,14 @@ export default function PipelineWorkbench(props: PipelineWorkbenchProps = {}) {
             mode={activeModal.mode}
             json={activeModal.json}
             error={activeModal.error}
+            caseIndexMap={activeModal.caseIndexMap}
             onModeChange={(mode) => dispatch({ type: 'settingsModeChanged', mode })}
-            onJsonChange={(value) => dispatch({ type: 'settingsJsonChanged', value })}
+            onJsonChange={(value, caseIndexMap) =>
+              dispatch({
+                type: 'settingsJsonChanged',
+                value,
+                caseIndexMap,
+              })}
             onApply={() => dispatch({ type: 'settingsApplied' })}
             onDelete={() => dispatch({ type: 'nodeDeleted', nodeId: settingsNode.id })}
             onClose={() => dispatch({ type: 'modalClosed' })}
@@ -364,8 +448,13 @@ export default function PipelineWorkbench(props: PipelineWorkbenchProps = {}) {
         ? (
           <PlaygroundModal
             nodeId={activeModal.nodeId}
-            result={activeModal.result === undefined ? undefined : formatPlaygroundResult(activeModal.result)}
+            direction={state.direction}
+            message={playgroundMessage}
+            connectionInfo={playgroundConnectionInfo}
+            result={activeModal.result}
             error={activeModal.error}
+            onMessageChange={setPlaygroundMessage}
+            onConnectionInfoChange={setPlaygroundConnectionInfo}
             onRun={handlePlaygroundRun}
             onClose={() => dispatch({ type: 'modalClosed' })}
           />

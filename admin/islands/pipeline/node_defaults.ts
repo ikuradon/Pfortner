@@ -10,7 +10,6 @@ type CaseIndexMap = Array<number | null>;
 type PipelineEdge = {
   from?: unknown;
   fromPort?: unknown;
-  [key: string]: unknown;
 };
 
 function cloneValue<T>(value: T): T {

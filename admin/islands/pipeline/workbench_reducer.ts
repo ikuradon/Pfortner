@@ -1,5 +1,6 @@
 import {
   applyHistoryChange,
+  dagFingerprintFromGraphs,
   fingerprintPipelines,
   initialDirectionHistoryState,
   normalizeWorkbenchDraft,
@@ -7,7 +8,7 @@ import {
   recordHistorySnapshot,
 } from './workbench_state.js';
 import { graphToPipelines, matchExecutionSteps, validatePipelineGraph } from './graph.js';
-import { defaultConfigForPolicy } from './node_defaults.ts';
+import { defaultConfigForPolicy, reconcileMatchCaseEdges } from './node_defaults.ts';
 import { buildYamlPreview } from './yaml_preview.ts';
 import type {
   ActiveModal,
@@ -20,22 +21,34 @@ import type {
   PipelineNode,
   Point,
   Rect,
+  WirePreview,
   WorkbenchStatus,
 } from './types.ts';
 
 type PipelineGraphsInput = PipelineGraphs | Record<string, PipelineGraph>;
 type SettingsMode = 'interactive' | 'json';
-type WorkbenchModal = Exclude<ActiveModal, { type: 'playground' }> | {
-  type: 'playground';
-  nodeId: string | null;
-  result?: unknown;
-  error?: string;
-};
+type WorkbenchModal =
+  | Exclude<ActiveModal, { type: 'playground' } | { type: 'settings' }>
+  | {
+    type: 'playground';
+    nodeId: string | null;
+    result?: unknown;
+    error?: string;
+  }
+  | {
+    type: 'settings';
+    nodeId: string;
+    mode: SettingsMode;
+    json: string;
+    error: string;
+    caseIndexMap?: Array<number | null> | null;
+  };
 
 interface WorkbenchUiState {
   activeModal: WorkbenchModal;
   paletteCollapsed: boolean;
   marquee: Rect | null;
+  wirePreview: WirePreview | null;
 }
 
 type DirectionHistoryState = ReturnType<typeof initialDirectionHistoryState>['client'];
@@ -68,18 +81,31 @@ export interface WorkbenchState {
 
 export type WorkbenchAction =
   | { type: 'directionChanged'; direction: PipelineDirection }
+  | { type: 'directionPreferenceLoaded'; direction: PipelineDirection }
   | { type: 'viewportChanged'; zoom: number; pan: Point }
   | { type: 'nodeSelected'; nodeId: string; additive?: boolean }
   | { type: 'selectionReplaced'; nodeIds: string[] }
   | { type: 'marqueeChanged'; rect: Rect | null }
-  | { type: 'nodeMoved'; nodeId: string; x: number; y: number }
+  | {
+    type: 'nodeMoved';
+    nodeId: string;
+    x: number;
+    y: number;
+    transient?: boolean;
+  }
+  | { type: 'nodeDragCommitted'; nodeIds: string[] }
   | { type: 'policyNodeAdded'; policy: string; position: Point }
   | { type: 'nodeDeleted'; nodeId: string }
   | { type: 'edgeReplaced'; from: string; fromPort: string; to: string }
+  | { type: 'edgeRemoved'; edgeId: string }
   | { type: 'nodeDoubleClicked'; nodeId: string }
   | { type: 'modalClosed' }
   | { type: 'settingsModeChanged'; mode: SettingsMode }
-  | { type: 'settingsJsonChanged'; value: string }
+  | {
+    type: 'settingsJsonChanged';
+    value: string;
+    caseIndexMap?: Array<number | null> | null;
+  }
   | { type: 'settingsApplied' }
   | { type: 'publishModalOpened' }
   | { type: 'publishConfirmed' }
@@ -101,6 +127,8 @@ export type WorkbenchAction =
   | { type: 'playgroundResultLoaded'; result: unknown }
   | { type: 'playgroundFailed'; message: string }
   | { type: 'paletteToggled' }
+  | { type: 'palettePreferenceLoaded'; collapsed: boolean }
+  | { type: 'wirePreviewChanged'; preview: WirePreview | null }
   | { type: 'undo' }
   | { type: 'redo' };
 
@@ -148,26 +176,6 @@ function setActiveModal(
       activeModal,
     },
   };
-}
-
-function stableValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stableValue);
-  if (value !== null && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.keys(value).sort().map((key) => [
-        key,
-        stableValue((value as Record<string, unknown>)[key]),
-      ]),
-    );
-  }
-  return value;
-}
-
-function draftFingerprint(
-  graphs: PipelineGraphs,
-  viewports: DirectionViewports,
-): string {
-  return JSON.stringify(stableValue({ graphs, viewports }));
 }
 
 function updateGraph(
@@ -264,6 +272,18 @@ function incomingEdge(
   return graph.edges.find((edge) => edge.to === nodeId);
 }
 
+function matchCaseCount(config: unknown): number {
+  const record = config !== null && typeof config === 'object' ? config as Record<string, unknown> : {};
+  return Array.isArray(record.cases) ? record.cases.length : 0;
+}
+
+function initialMatchCaseIndexMap(config: unknown): Array<number | null> {
+  return Array.from(
+    { length: matchCaseCount(config) },
+    (_, index) => index,
+  );
+}
+
 function nextGraphSerial(graph: PipelineGraph, prefix: string): number {
   let max = 0;
   for (const item of [...(graph.nodes ?? []), ...(graph.edges ?? [])]) {
@@ -358,13 +378,26 @@ function normalizeViewports(
 
 export function selectWorkbenchDraft(
   candidates: unknown[],
+  options: { publishedFingerprint?: string } = {},
 ): { draft: any } | { error: string } {
   const errors: string[] = [];
+  const drafts: any[] = [];
   for (const candidate of candidates) {
     if (candidate === null || candidate === undefined) continue;
     const normalized = normalizeWorkbenchDraft(candidate);
-    if (!('error' in normalized)) return { draft: normalized.draft };
+    if (!('error' in normalized)) {
+      drafts.push(normalized.draft);
+      continue;
+    }
     errors.push(normalized.error);
+  }
+  if (drafts.length > 0) {
+    const sorted = drafts.toSorted((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+    const publishedFingerprint = options.publishedFingerprint;
+    const compatible = typeof publishedFingerprint === 'string' && publishedFingerprint.length > 0
+      ? sorted.filter((draft) => draft.lastPublishedFingerprint === publishedFingerprint)
+      : [];
+    return { draft: compatible[0] ?? sorted[0] };
   }
   return {
     error: errors[0] ?? 'No saved DAG found.',
@@ -455,12 +488,13 @@ export function createInitialWorkbenchState(input: {
     executionNodeIdsByDirection: clearAllExecution(),
     plugins: [...input.plugins],
     publishedFingerprint: input.publishedFingerprint,
-    savedDraftFingerprint: draftFingerprint(graphs, viewports),
+    savedDraftFingerprint: dagFingerprintFromGraphs(graphs),
     status: { message: 'Ready', kind: 'idle' },
     ui: {
       activeModal: { type: 'none' },
       paletteCollapsed: false,
       marquee: null,
+      wirePreview: null,
     },
   });
 }
@@ -469,7 +503,10 @@ function reduceWorkbenchInner(
   state: WorkbenchState,
   action: WorkbenchAction,
 ): WorkbenchState {
-  if (action.type === 'directionChanged') {
+  if (
+    action.type === 'directionChanged' ||
+    action.type === 'directionPreferenceLoaded'
+  ) {
     return {
       ...state,
       direction: action.direction,
@@ -478,6 +515,7 @@ function reduceWorkbenchInner(
         ...state.ui,
         activeModal: { type: 'none' },
         marquee: null,
+        wirePreview: null,
       },
     };
   }
@@ -549,7 +587,7 @@ function reduceWorkbenchInner(
     return {
       ...state,
       graphs: updateGraph(state.graphs, state.direction, graph),
-      history: recordDirectionHistorySnapshot(
+      history: action.transient ? state.history : recordDirectionHistorySnapshot(
         state.history,
         state.direction,
         graph,
@@ -557,11 +595,25 @@ function reduceWorkbenchInner(
     };
   }
 
+  if (action.type === 'nodeDragCommitted') {
+    const graph = state.graphs[state.direction];
+    const ids = new Set(action.nodeIds);
+    if (!graph.nodes.some((node) => ids.has(node.id))) return state;
+
+    return {
+      ...state,
+      history: recordDirectionHistorySnapshot(
+        state.history,
+        state.direction,
+        graph,
+      ),
+      ...updateExecution(state, []),
+    };
+  }
+
   if (action.type === 'policyNodeAdded') {
     const graph = cloneValue(state.graphs[state.direction]);
     const direction = graphDirection(graph, state.direction);
-    const start = graph.nodes.find(isStartNode);
-    if (!start) return state;
 
     const node: PipelineNode = {
       id: `${direction}-node-${nextGraphSerial(graph, `${direction}-node-`)}`,
@@ -574,16 +626,8 @@ function reduceWorkbenchInner(
       height: NODE_HEIGHT,
       path: [],
     };
-    const previousEdge = firstEdgeFromPort(graph, start.id, 'next');
 
     graph.nodes.push(node);
-    graph.edges = graph.edges.filter((edge) => !(edge.from === start.id && edge.fromPort === 'next'));
-    graph.edges.push(nextEdge(graph, direction, start.id, 'next', node.id));
-    if (previousEdge?.to && previousEdge.to !== node.id) {
-      graph.edges.push(
-        nextEdge(graph, direction, node.id, 'next', previousEdge.to),
-      );
-    }
 
     return {
       ...state,
@@ -676,6 +720,26 @@ function reduceWorkbenchInner(
       ...state,
       ...recordCurrentGraph(state, graph),
       ...updateExecution(state, []),
+      ui: {
+        ...state.ui,
+        wirePreview: null,
+      },
+    };
+  }
+
+  if (action.type === 'edgeRemoved') {
+    const graph = cloneValue(state.graphs[state.direction]);
+    if (!graph.edges.some((edge) => edge.id === action.edgeId)) return state;
+    graph.edges = graph.edges.filter((edge) => edge.id !== action.edgeId);
+
+    return {
+      ...state,
+      ...recordCurrentGraph(state, graph),
+      ...updateExecution(state, []),
+      ui: {
+        ...state.ui,
+        wirePreview: null,
+      },
     };
   }
 
@@ -691,13 +755,18 @@ function reduceWorkbenchInner(
       });
     }
 
-    return setActiveModal(state, {
+    const modal: WorkbenchModal = {
       type: 'settings',
       nodeId: node.id,
       mode: 'interactive',
       json: formatSettingsJson(node.config),
       error: '',
-    });
+    };
+
+    return setActiveModal(
+      state,
+      node.policy === 'match' ? { ...modal, caseIndexMap: initialMatchCaseIndexMap(node.config) } : modal,
+    );
   }
 
   if (action.type === 'modalClosed') {
@@ -719,6 +788,7 @@ function reduceWorkbenchInner(
       ...state.ui.activeModal,
       json: action.value,
       error: parsed.ok ? '' : parsed.error,
+      caseIndexMap: action.caseIndexMap === undefined ? null : action.caseIndexMap,
     });
   }
 
@@ -743,6 +813,17 @@ function reduceWorkbenchInner(
     }
 
     node.config = parsed.value;
+    if (node.policy === 'match') {
+      const caseIndexMap = modal.caseIndexMap === undefined
+        ? initialMatchCaseIndexMap(node.config)
+        : modal.caseIndexMap;
+      graph.edges = reconcileMatchCaseEdges(
+        graph.edges,
+        node.id,
+        caseIndexMap,
+        matchCaseCount(parsed.value),
+      );
+    }
 
     return {
       ...state,
@@ -782,7 +863,7 @@ function reduceWorkbenchInner(
       selectedNodeIdsByDirection: emptyDirectionSelections(),
       executionNodeIdsByDirection: clearAllExecution(),
       savedDraftFingerprint: action.savedDraftFingerprint ??
-        draftFingerprint(graphs, viewports),
+        dagFingerprintFromGraphs(graphs),
       status: {
         message: action.message,
         kind: 'success',
@@ -790,6 +871,7 @@ function reduceWorkbenchInner(
       ui: {
         ...state.ui,
         activeModal: { type: 'none' },
+        wirePreview: null,
       },
     };
   }
@@ -798,7 +880,7 @@ function reduceWorkbenchInner(
     return {
       ...state,
       savedDraftFingerprint: action.savedDraftFingerprint ??
-        draftFingerprint(state.graphs, state.viewports),
+        dagFingerprintFromGraphs(state.graphs),
       status: {
         message: action.message,
         kind: action.kind ?? 'success',
@@ -883,6 +965,33 @@ function reduceWorkbenchInner(
       ui: {
         ...state.ui,
         paletteCollapsed: !state.ui.paletteCollapsed,
+      },
+    };
+  }
+
+  if (action.type === 'palettePreferenceLoaded') {
+    return {
+      ...state,
+      ui: {
+        ...state.ui,
+        paletteCollapsed: action.collapsed,
+      },
+    };
+  }
+
+  if (action.type === 'wirePreviewChanged') {
+    return {
+      ...state,
+      ui: {
+        ...state.ui,
+        wirePreview: action.preview === null ? null : {
+          from: action.preview.from,
+          fromPort: action.preview.fromPort,
+          point: {
+            x: action.preview.point.x,
+            y: action.preview.point.y,
+          },
+        },
       },
     };
   }

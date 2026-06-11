@@ -1,11 +1,15 @@
 import { assertAlmostEquals, assertEquals } from '@std/assert';
 import {
+  canvasPointerMode,
   fitViewportToGraph,
   graphPointFromClientPoint,
+  inputPortNodeIdFromPointerEvent,
   inputPortNodeIdFromTarget,
   marqueeRectFromClientPoints,
+  nodeDragSelection,
   nodeIdsInMarquee,
   nodePositionFromDrag,
+  panViewportFromPointerDrag,
   panViewportWithWheel,
   zoomViewportAtPoint,
   zoomViewportByStep,
@@ -120,6 +124,48 @@ Deno.test('canvas interactions convert client points and node drags through view
   );
 });
 
+Deno.test('canvas interactions snap node drags to the legacy 8px grid', () => {
+  assertEquals(
+    nodePositionFromDrag(
+      { x: 243, y: 83 },
+      { x: 100, y: 84 },
+      { x: 142, y: 127 },
+    ),
+    { x: 288, y: 128 },
+  );
+});
+
+Deno.test('canvas interactions drag the additive selection set for shift-selected nodes', () => {
+  assertEquals(
+    nodeDragSelection(['client-node-1'], 'client-node-2', true),
+    ['client-node-1', 'client-node-2'],
+  );
+  assertEquals(
+    nodeDragSelection(['client-node-1', 'client-node-2'], 'client-node-2', true),
+    ['client-node-1', 'client-node-2'],
+  );
+  assertEquals(
+    nodeDragSelection(['client-node-1', 'client-node-2'], 'client-node-3', false),
+    ['client-node-3'],
+  );
+});
+
+Deno.test('canvas interactions restore alt and middle-button viewport pan', () => {
+  assertEquals(canvasPointerMode({ button: 1, altKey: false }), 'pan');
+  assertEquals(canvasPointerMode({ button: 0, altKey: true }), 'pan');
+  assertEquals(canvasPointerMode({ button: 0, altKey: false }), 'marquee');
+  assertEquals(canvasPointerMode({ button: 2, altKey: false }), 'ignore');
+
+  assertEquals(
+    panViewportFromPointerDrag(
+      { zoom: 1.25, pan: { x: 56, y: 80 } },
+      { clientX: 100, clientY: 120 },
+      { clientX: 132, clientY: 92 },
+    ),
+    { zoom: 1.25, pan: { x: 88, y: 52 } },
+  );
+});
+
 Deno.test('canvas interactions read input port targets for wire replacement', () => {
   const inputPort = {
     getAttribute(name: string): string | null {
@@ -151,6 +197,59 @@ Deno.test('canvas interactions read input port targets for wire replacement', ()
   assertEquals(inputPortNodeIdFromTarget(child), 'client-node-2');
   assertEquals(inputPortNodeIdFromTarget(outputPort), null);
   assertEquals(inputPortNodeIdFromTarget(null), null);
+});
+
+Deno.test('canvas interactions resolve wire drop targets from pointer coordinates', () => {
+  const inputPort = {
+    getAttribute(name: string): string | null {
+      const values: Record<string, string> = {
+        'data-port-kind': 'input',
+        'data-port-name': 'in',
+        'data-node-id': 'client-node-2',
+      };
+      return values[name] ?? null;
+    },
+  };
+  const child = {
+    closest(selector: string): typeof inputPort | null {
+      return selector === '[data-port-kind="input"]' ? inputPort : null;
+    },
+  };
+  const outputPort = {
+    getAttribute(name: string): string | null {
+      const values: Record<string, string> = {
+        'data-port-kind': 'output',
+        'data-port-name': 'next',
+        'data-node-id': 'client-node-1',
+      };
+      return values[name] ?? null;
+    },
+  };
+  const previousDocument = globalThis.document;
+  Object.defineProperty(globalThis, 'document', {
+    value: {
+      elementFromPoint(x: number, y: number) {
+        return x === 120 && y === 80 ? child : null;
+      },
+    },
+    configurable: true,
+  });
+
+  try {
+    assertEquals(
+      inputPortNodeIdFromPointerEvent({
+        clientX: 120,
+        clientY: 80,
+        target: outputPort,
+      }),
+      'client-node-2',
+    );
+  } finally {
+    Object.defineProperty(globalThis, 'document', {
+      value: previousDocument,
+      configurable: true,
+    });
+  }
 });
 
 Deno.test('canvas interactions calculate marquee rect and selected node ids', () => {

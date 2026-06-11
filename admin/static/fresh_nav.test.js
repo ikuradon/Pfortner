@@ -2496,6 +2496,19 @@ Deno.test('fresh nav initializes blocklist behavior after partial navigation wit
 });
 
 Deno.test('fresh nav mounts PipelineWorkbench island introduced by partial navigation', async () => {
+  const serializedWorkbenchProps = JSON.stringify([
+    [1],
+    { slots: 2, props: 3 },
+    [],
+    { initialPipelines: 4, initialPlugins: 9 },
+    { client: 5, server: 8 },
+    [6],
+    { policy: 7 },
+    'accept',
+    [],
+    [7, 10],
+    'write-guard',
+  ]);
   const currentDocument = new FakeDocument({
     title: 'Blocklist',
     childNodes: [
@@ -2515,9 +2528,15 @@ Deno.test('fresh nav mounts PipelineWorkbench island introduced by partial navig
       new FakeComment('/frsh:partial'),
     ],
     moduleElements: [
-      new FakeElement('script', {
-        type: 'module',
-      }, 'import PipelineWorkbench from "/admin/static/islands/PipelineWorkbench.js";'),
+      new FakeElement(
+        'script',
+        {
+          type: 'module',
+        },
+        `import { boot } from "/admin/static/fresh_nav.js";
+import PipelineWorkbench from "/admin/static/islands/PipelineWorkbench.js";
+boot({PipelineWorkbench},${JSON.stringify(serializedWorkbenchProps)});`,
+      ),
     ],
   });
   const window = new FakeWindow();
@@ -2593,6 +2612,10 @@ Deno.test('fresh nav mounts PipelineWorkbench island introduced by partial navig
     assertEquals(
       currentDocument.querySelector('#pipeline-workbench')?.dataset.mounted,
       'true',
+    );
+    assertEquals(
+      currentDocument.querySelector('[data-node-policy="accept"]') !== null,
+      true,
     );
   } finally {
     restoreBootArgs();

@@ -1,5 +1,6 @@
 /** @jsxImportSource preact */
 import { configToEditorRows, parseConfigJson, updateConfigFromEditorRows } from './config_editor.js';
+import { addMatchCaseDraftConfig, removeMatchCaseDraftConfig } from './node_defaults.ts';
 import type { PipelineNode } from './types.ts';
 
 type ConfigValueType =
@@ -30,8 +31,9 @@ export function NodeSettingsModal(props: {
   mode: 'interactive' | 'json';
   json: string;
   error: string;
+  caseIndexMap?: Array<number | null> | null;
   onModeChange(mode: 'interactive' | 'json'): void;
-  onJsonChange(value: string): void;
+  onJsonChange(value: string, caseIndexMap?: Array<number | null> | null): void;
   onApply(): void;
   onDelete(): void;
   onClose(): void;
@@ -45,8 +47,13 @@ export function NodeSettingsModal(props: {
   const emitRows = (rows: ConfigEditorRow[]) => {
     const result = updateConfigFromEditorRows(rows);
     if ('config' in result) {
-      props.onJsonChange(JSON.stringify(result.config, null, 2));
+      props.onJsonChange(JSON.stringify(result.config, null, 2), null);
     }
+  };
+  const emitMatchConfig = (
+    next: { config: Record<string, unknown>; caseIndexMap: Array<number | null> },
+  ) => {
+    props.onJsonChange(JSON.stringify(next.config, null, 2), next.caseIndexMap);
   };
 
   return (
@@ -98,11 +105,24 @@ export function NodeSettingsModal(props: {
           </div>
           {props.mode === 'interactive'
             ? (
-              <InteractiveConfigEditor
-                rows={configRows}
-                disabled={Boolean(interactiveError)}
-                onRowsChange={emitRows}
-              />
+              <>
+                <InteractiveConfigEditor
+                  rows={configRows}
+                  disabled={Boolean(interactiveError)}
+                  onRowsChange={emitRows}
+                />
+                {'config' in parsedConfig
+                  ? (
+                    <MatchCaseControls
+                      node={props.node}
+                      config={parsedConfig.config as Record<string, unknown>}
+                      caseIndexMap={props.caseIndexMap}
+                      disabled={Boolean(interactiveError)}
+                      onChange={emitMatchConfig}
+                    />
+                  )
+                  : null}
+              </>
             )
             : (
               <textarea
@@ -220,6 +240,7 @@ function InteractiveConfigEditor(props: {
           </button>
         </div>
       ))}
+      {props.rows.length === 0 ? <div class='pipeline-empty compact'>No config fields.</div> : null}
       <div class='config-branch-controls'>
         <button
           type='button'
@@ -255,7 +276,7 @@ function ConfigValueField(props: {
               (event.currentTarget as HTMLInputElement).checked,
             )}
         />
-        Enabled
+        <span>{row.value ? 'true' : 'false'}</span>
       </label>
     );
   }
@@ -321,4 +342,53 @@ function nextFieldKey(rows: ConfigEditorRow[]): string {
     if (!keys.has(key)) return key;
   }
   return `field_${Date.now()}`;
+}
+
+function MatchCaseControls(props: {
+  node: PipelineNode;
+  config: Record<string, unknown>;
+  caseIndexMap?: Array<number | null> | null;
+  disabled: boolean;
+  onChange(next: { config: Record<string, unknown>; caseIndexMap: Array<number | null> }): void;
+}) {
+  if (props.node.policy !== 'match') return null;
+  const cases = Array.isArray(props.config.cases) ? props.config.cases : [];
+  const caseIndexMap = props.caseIndexMap ?? cases.map((_, index) => index);
+
+  return (
+    <div class='config-branch-controls'>
+      {cases.map((_, index) => (
+        <button
+          key={index}
+          type='button'
+          class='pipeline-entry-btn'
+          data-config-action='remove-match-case'
+          data-case-index={String(index)}
+          disabled={props.disabled}
+          onClick={() =>
+            props.onChange(
+              removeMatchCaseDraftConfig(
+                props.config,
+                index,
+                caseIndexMap,
+              ),
+            )}
+        >
+          Remove case {index + 1}
+        </button>
+      ))}
+      <button
+        type='button'
+        class='btn btn-ghost'
+        data-config-action='add-match-case'
+        disabled={props.disabled}
+        onClick={() =>
+          props.onChange(
+            addMatchCaseDraftConfig(props.config, caseIndexMap),
+          )}
+      >
+        + Case
+      </button>
+    </div>
+  );
 }

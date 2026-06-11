@@ -1,5 +1,17 @@
 export type PipelineDirection = 'client' | 'server';
 
+export type PlaygroundConnectionInfo = {
+  authenticated: boolean;
+  pubkey: string;
+  clientIp: string;
+};
+
+export type PlaygroundRunRequest = {
+  message: string;
+  direction: PipelineDirection;
+  connectionInfo: PlaygroundConnectionInfo;
+};
+
 export interface Point {
   x: number;
   y: number;
@@ -25,6 +37,12 @@ export interface DirectionViewports {
 export interface DirectionSelections {
   client: string[];
   server: string[];
+}
+
+export interface WirePreview {
+  from: string;
+  fromPort: string;
+  point: Point;
 }
 
 export interface PipelineGraph {

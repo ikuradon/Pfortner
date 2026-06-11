@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'preact/hooks';
 import { graphBounds, type MinimapModel, panForMinimapViewportPoint, type Size } from './minimap.ts';
 import { nodeHeight, nodeWidth } from './minimap.ts';
-import type { PipelineGraph, PipelineNode, Point, Rect, Viewport } from './types.ts';
+import type { PipelineGraph, PipelineNode, Point, Rect, Viewport, WirePreview } from './types.ts';
 
 interface ElementRef<T extends Element> {
   current: T | null;
@@ -29,9 +29,14 @@ interface WheelInput {
 type DragState =
   | {
     type: 'node';
-    nodeId: string;
+    nodeIds: string[];
     startGraphPoint: Point;
-    nodeStart: Point;
+    nodeStarts: Record<string, Point>;
+  }
+  | {
+    type: 'pan';
+    start: ClientPoint;
+    startPan: Point;
   }
   | {
     type: 'minimap';
@@ -164,14 +169,42 @@ export function graphPointFromClientPoint(
   };
 }
 
+function snapToGrid(value: number, grid = 8): number {
+  return Math.round(value / grid) * grid;
+}
+
 export function nodePositionFromDrag(
   nodeStart: Point,
   startGraphPoint: Point,
   currentGraphPoint: Point,
 ): Point {
   return {
-    x: nodeStart.x + currentGraphPoint.x - startGraphPoint.x,
-    y: nodeStart.y + currentGraphPoint.y - startGraphPoint.y,
+    x: snapToGrid(nodeStart.x + currentGraphPoint.x - startGraphPoint.x),
+    y: snapToGrid(nodeStart.y + currentGraphPoint.y - startGraphPoint.y),
+  };
+}
+
+export function nodeDragSelection(
+  selectedNodeIds: string[],
+  nodeId: string,
+  additive: boolean,
+): string[] {
+  if (selectedNodeIds.includes(nodeId)) return [...selectedNodeIds];
+  if (additive) return [...selectedNodeIds, nodeId];
+  return [nodeId];
+}
+
+export function panViewportFromPointerDrag(
+  viewport: Viewport,
+  start: ClientPoint,
+  current: ClientPoint,
+): Viewport {
+  return {
+    zoom: viewport.zoom,
+    pan: {
+      x: viewport.pan.x + current.clientX - start.clientX,
+      y: viewport.pan.y + current.clientY - start.clientY,
+    },
   };
 }
 
@@ -228,6 +261,17 @@ function isPrimaryButton(event: PointerEvent): boolean {
   return event.button === undefined || event.button === 0;
 }
 
+interface PointerModeInput {
+  button?: number;
+  altKey?: boolean;
+}
+
+export function canvasPointerMode(input: PointerModeInput): 'marquee' | 'pan' | 'ignore' {
+  if (input.button === 1 || input.altKey) return 'pan';
+  if (input.button === undefined || input.button === 0) return 'marquee';
+  return 'ignore';
+}
+
 interface PortTargetLike {
   getAttribute?(name: string): string | null;
   closest?(selector: string): PortTargetLike | null;
@@ -248,6 +292,16 @@ export function inputPortNodeIdFromTarget(target: unknown): string | null {
   return nodeId && nodeId.length > 0 ? nodeId : null;
 }
 
+export function inputPortNodeIdFromPointerEvent(
+  event: ClientPoint & { target?: unknown },
+): string | null {
+  const pointedElement = typeof document === 'undefined'
+    ? null
+    : document.elementFromPoint?.(event.clientX, event.clientY) ?? null;
+  return inputPortNodeIdFromTarget(pointedElement) ??
+    inputPortNodeIdFromTarget(event.target);
+}
+
 export function useCanvasInteractions(options: {
   graph: PipelineGraph;
   selectedNodeIds: string[];
@@ -259,8 +313,10 @@ export function useCanvasInteractions(options: {
   onNodeSelect?(nodeId: string, additive: boolean): void;
   onSelectionReplace?(nodeIds: string[]): void;
   onMarqueeChange?(rect: Rect | null): void;
-  onNodeMove?(nodeId: string, position: Point): void;
+  onNodeMove?(nodeId: string, position: Point, transient?: boolean): void;
+  onNodeDragCommit?(nodeIds: string[]): void;
   onEdgeReplace?(from: string, fromPort: string, to: string): void;
+  onWirePreviewChange?(preview: WirePreview | null): void;
 }): CanvasInteractions {
   const dragState = useRef<DragState | null>(null);
 
@@ -279,18 +335,41 @@ export function useCanvasInteractions(options: {
           event,
           rect,
         );
-        options.onNodeMove?.(
-          state.nodeId,
-          nodePositionFromDrag(
-            state.nodeStart,
-            state.startGraphPoint,
-            currentGraphPoint,
+        for (const nodeId of state.nodeIds) {
+          const nodeStart = state.nodeStarts[nodeId];
+          if (!nodeStart) continue;
+          options.onNodeMove?.(
+            nodeId,
+            nodePositionFromDrag(
+              nodeStart,
+              state.startGraphPoint,
+              currentGraphPoint,
+            ),
+            true,
+          );
+        }
+        return;
+      }
+
+      if (state.type === 'pan') {
+        options.onViewportChange?.(
+          panViewportFromPointerDrag(
+            { zoom: options.viewport.zoom, pan: state.startPan },
+            state.start,
+            event,
           ),
         );
         return;
       }
 
       if (state.type === 'wire') {
+        const rect = options.svgRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        options.onWirePreviewChange?.({
+          from: state.from,
+          fromPort: state.fromPort,
+          point: graphPointFromClientPoint(options.viewport, event, rect),
+        });
         return;
       }
 
@@ -322,9 +401,13 @@ export function useCanvasInteractions(options: {
 
     function handlePointerUp(event: PointerEvent): void {
       const state = dragState.current;
+      if (state?.type === 'node') {
+        options.onNodeDragCommit?.(state.nodeIds);
+      }
       if (state?.type === 'wire') {
-        const to = inputPortNodeIdFromTarget(event.target);
+        const to = inputPortNodeIdFromPointerEvent(event);
         if (to) options.onEdgeReplace?.(state.from, state.fromPort, to);
+        options.onWirePreviewChange?.(null);
       }
       if (state?.type === 'marquee') {
         const rect = options.svgRef.current?.getBoundingClientRect();
@@ -363,10 +446,22 @@ export function useCanvasInteractions(options: {
     },
 
     onCanvasPointerDown(event) {
-      if (!options.onSelectionReplace && !options.onMarqueeChange) return;
-      if (!isPrimaryButton(event)) return;
       const svg = options.svgRef.current;
       if (!svg || event.target !== svg) return;
+      const mode = canvasPointerMode(event);
+      if (mode === 'ignore') return;
+      if (mode === 'pan') {
+        if (!options.onViewportChange) return;
+        event.preventDefault();
+        dragState.current = {
+          type: 'pan',
+          start: { clientX: event.clientX, clientY: event.clientY },
+          startPan: { x: options.viewport.pan.x, y: options.viewport.pan.y },
+        };
+        return;
+      }
+
+      if (!options.onSelectionReplace && !options.onMarqueeChange) return;
       event.preventDefault();
       options.onSelectionReplace?.([]);
       const rect = svg.getBoundingClientRect();
@@ -379,25 +474,51 @@ export function useCanvasInteractions(options: {
     },
 
     onNodePointerDown(event, node) {
+      const mode = canvasPointerMode(event);
+      if (mode === 'ignore') return;
+      if (mode === 'pan') {
+        if (!options.onViewportChange) return;
+        event.preventDefault();
+        event.stopPropagation();
+        dragState.current = {
+          type: 'pan',
+          start: { clientX: event.clientX, clientY: event.clientY },
+          startPan: { x: options.viewport.pan.x, y: options.viewport.pan.y },
+        };
+        return;
+      }
+
       if (!options.onNodeMove) return;
       if (!isPrimaryButton(event)) return;
       event.preventDefault();
       event.stopPropagation();
       const additive = event.shiftKey || event.metaKey;
-      if (additive || !options.selectedNodeIds.includes(node.id)) {
+      const alreadySelected = options.selectedNodeIds.includes(node.id);
+      const selectedNodeIds = nodeDragSelection(
+        options.selectedNodeIds,
+        node.id,
+        additive,
+      );
+      if (!alreadySelected) {
         options.onNodeSelect?.(node.id, additive);
       }
       const rect = options.svgRef.current?.getBoundingClientRect();
       if (!rect) return;
+      const nodeStarts = Object.fromEntries(
+        selectedNodeIds.map((nodeId) => {
+          const graphNode = options.graph.nodes.find((item) => item.id === nodeId);
+          return [nodeId, { x: graphNode?.x ?? 0, y: graphNode?.y ?? 0 }];
+        }),
+      );
       dragState.current = {
         type: 'node',
-        nodeId: node.id,
+        nodeIds: selectedNodeIds,
         startGraphPoint: graphPointFromClientPoint(
           options.viewport,
           event,
           rect,
         ),
-        nodeStart: { x: node.x ?? 0, y: node.y ?? 0 },
+        nodeStarts,
       };
     },
 
@@ -411,6 +532,14 @@ export function useCanvasInteractions(options: {
         from: nodeId,
         fromPort: portName,
       };
+      const rect = options.svgRef.current?.getBoundingClientRect();
+      if (rect) {
+        options.onWirePreviewChange?.({
+          from: nodeId,
+          fromPort: portName,
+          point: graphPointFromClientPoint(options.viewport, event, rect),
+        });
+      }
     },
 
     onMinimapPointerDown(event, preserveViewportOffset) {

@@ -19,7 +19,7 @@ Deno.test('Palette renders semantic policy icons instead of first-letter badges'
   assertStringIncludes(html, 'title="write-guard"');
   assertStringIncludes(html, '>✎</span>');
   assertStringIncludes(html, 'title="ip-filter"');
-  assertStringIncludes(html, '>IP</span>');
+  assertStringIncludes(html, '>🌐</span>');
   assertStringIncludes(html, 'title="route"');
-  assertStringIncludes(html, '>↗</span>');
+  assertStringIncludes(html, '>→</span>');
 });

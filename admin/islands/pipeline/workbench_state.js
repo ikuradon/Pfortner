@@ -26,6 +26,13 @@ export function fingerprintPipelines(pipelines) {
   }));
 }
 
+export function dagFingerprintFromGraphs(graphs) {
+  return JSON.stringify(stableValue({
+    client: graphs?.client ?? { direction: 'client', nodes: [], edges: [] },
+    server: graphs?.server ?? { direction: 'server', nodes: [], edges: [] },
+  }));
+}
+
 export function initialHistoryState(initialGraphs) {
   return { past: [], present: cloneValue(initialGraphs), future: [] };
 }

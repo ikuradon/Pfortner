@@ -1,7 +1,13 @@
 import type { PlaygroundEvaluationPayload } from './api_client.ts';
 import { evaluatePipeline, fetchPipelineDraft, publishPipelines, savePipelineDraft } from './api_client.ts';
-import { graphToPipelines } from './graph.js';
-import { buildPipelineDraft, LOCAL_DRAFT_KEY } from './workbench_state.js';
+import { graphToPipelines, validatePipelineGraph } from './graph.js';
+import type { PlaygroundRunRequest } from './types.ts';
+import {
+  buildPipelineDraft,
+  dagFingerprintFromGraphs,
+  fingerprintPipelines,
+  LOCAL_DRAFT_KEY,
+} from './workbench_state.js';
 import type { WorkbenchAction, WorkbenchState } from './workbench_reducer.ts';
 import { selectWorkbenchDraft, validateWorkbenchGraphsForPublish } from './workbench_reducer.ts';
 
@@ -21,23 +27,6 @@ function errorMessage(error: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function stableValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stableValue);
-  if (value !== null && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.keys(value).sort().map((key) => [
-        key,
-        stableValue((value as Record<string, unknown>)[key]),
-      ]),
-    );
-  }
-  return value;
-}
-
-function draftFingerprintFromParts(graphs: unknown, viewports: unknown): string {
-  return JSON.stringify(stableValue({ graphs, viewports }));
 }
 
 function pipelinesFromResponse(data: unknown, fallback: unknown): unknown {
@@ -87,10 +76,7 @@ export async function saveWorkbenchDraft(
     publishedFingerprint: state.publishedFingerprint,
     now: services.now(),
   });
-  const savedDraftFingerprint = draftFingerprintFromParts(
-    state.graphs,
-    state.viewports,
-  );
+  const savedDraftFingerprint = dagFingerprintFromGraphs(state.graphs);
   const localSaved = services.writeLocalDraft(draft);
 
   try {
@@ -121,6 +107,7 @@ export async function saveWorkbenchDraft(
 export async function loadWorkbenchDraft(
   services: WorkbenchActionServices,
   dispatch: (action: WorkbenchAction) => void,
+  options: { publishedFingerprint?: string } = {},
 ): Promise<void> {
   let draft: unknown | null = null;
   let serverError = '';
@@ -143,7 +130,10 @@ export async function loadWorkbenchDraft(
     return;
   }
 
-  const selectedDraft = selectWorkbenchDraft([draft, services.readLocalDraft()]);
+  const selectedDraft = selectWorkbenchDraft(
+    [draft, services.readLocalDraft()],
+    { publishedFingerprint: options.publishedFingerprint },
+  );
   if ('error' in selectedDraft) {
     dispatch({
       type: 'loadFailed',
@@ -157,10 +147,7 @@ export async function loadWorkbenchDraft(
     graphs: selectedDraft.draft.graphs,
     viewports: selectedDraft.draft.viewports,
     message: 'Loaded saved DAG',
-    savedDraftFingerprint: draftFingerprintFromParts(
-      selectedDraft.draft.graphs,
-      selectedDraft.draft.viewports,
-    ),
+    savedDraftFingerprint: dagFingerprintFromGraphs(selectedDraft.draft.graphs),
   });
 }
 
@@ -181,11 +168,45 @@ export async function publishWorkbenchGraphs(
   const serialized = graphToPipelines(state.graphs);
   try {
     const data = await services.publishPipelines(serialized);
+    const responsePipelines = pipelinesFromResponse(data, serialized);
     dispatch({
       type: 'published',
-      pipelines: pipelinesFromResponse(data, serialized),
+      pipelines: responsePipelines,
       message: 'Pipeline published',
     });
+
+    const publishedFingerprint = fingerprintPipelines(responsePipelines);
+    const draft = buildPipelineDraft({
+      graphs: state.graphs,
+      viewports: state.viewports,
+      publishedFingerprint,
+      now: services.now(),
+    });
+    const savedDraftFingerprint = dagFingerprintFromGraphs(state.graphs);
+    const localSaved = services.writeLocalDraft(draft);
+    try {
+      await services.savePipelineDraft(draft);
+      dispatch({
+        type: 'draftSaved',
+        message: 'Pipeline published',
+        kind: 'success',
+        savedDraftFingerprint,
+      });
+    } catch (saveError) {
+      if (localSaved) {
+        dispatch({
+          type: 'draftSaved',
+          message: `Pipeline published; DAG saved locally; server draft failed: ${errorMessage(saveError)}`,
+          kind: 'warning',
+          savedDraftFingerprint,
+        });
+        return;
+      }
+      dispatch({
+        type: 'loadFailed',
+        message: `Pipeline published; DAG save failed: ${errorMessage(saveError)}`,
+      });
+    }
   } catch (error) {
     dispatch({
       type: 'loadFailed',
@@ -196,13 +217,34 @@ export async function publishWorkbenchGraphs(
 
 export async function runWorkbenchPlayground(
   state: WorkbenchState,
-  rawMessage: string,
+  request: string | PlaygroundRunRequest,
   services: WorkbenchActionServices,
   dispatch: (action: WorkbenchAction) => void,
 ): Promise<void> {
+  const rawMessage = typeof request === 'string' ? request : request.message;
+  const direction = typeof request === 'string' ? state.direction : request.direction;
+  const connectionInfo = typeof request === 'string' ? {} : request.connectionInfo;
+  const validation = validatePipelineGraph(state.graphs[direction]);
+  if (!validation.valid) {
+    dispatch({
+      type: 'playgroundFailed',
+      message: `Graph validation failed: ${validation.errors.map((error) => error.code).join(', ')}`,
+    });
+    return;
+  }
+
+  const trimmedMessage = String(rawMessage ?? '').trim();
+  if (!trimmedMessage) {
+    dispatch({
+      type: 'playgroundFailed',
+      message: 'Please enter a message.',
+    });
+    return;
+  }
+
   let message: unknown;
   try {
-    message = JSON.parse(rawMessage);
+    message = JSON.parse(trimmedMessage);
   } catch (error) {
     dispatch({
       type: 'playgroundFailed',
@@ -214,7 +256,7 @@ export async function runWorkbenchPlayground(
   if (!Array.isArray(message)) {
     dispatch({
       type: 'playgroundFailed',
-      message: 'Message must be a JSON array.',
+      message: 'Message must be a JSON array, e.g. ["EVENT", {...}]',
     });
     return;
   }
@@ -222,10 +264,10 @@ export async function runWorkbenchPlayground(
   const serialized = graphToPipelines(state.graphs);
   try {
     const result = await services.evaluatePipeline({
-      pipeline: serialized[state.direction] ?? [],
+      pipeline: serialized[direction] ?? [],
       message,
-      direction: state.direction,
-      connectionInfo: {},
+      direction,
+      connectionInfo,
     });
     dispatch({ type: 'playgroundResultLoaded', result });
   } catch (error) {

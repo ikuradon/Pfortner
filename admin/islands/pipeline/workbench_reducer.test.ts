@@ -1,6 +1,11 @@
 import { assertEquals, assertMatch, assertStrictEquals } from '@std/assert';
 import { graphToPipelines, pipelinesToGraph, validatePipelineGraph } from './graph.js';
-import { buildPipelineDraft, fingerprintPipelines } from './workbench_state.js';
+import {
+  buildPipelineDraft,
+  dagFingerprintFromGraphs,
+  fingerprintPipelines,
+  getWorkbenchChangeState,
+} from './workbench_state.js';
 import { evaluatePipeline } from './api_client.ts';
 import {
   createInitialWorkbenchState,
@@ -130,6 +135,67 @@ Deno.test('workbench reducer switches direction and preserves viewport', () => {
   assertEquals(state.direction, 'server');
   assertEquals(state.viewports.client.zoom, 1.4);
   assertEquals(state.viewports.client.pan, { x: 20, y: 30 });
+});
+
+Deno.test('workbench reducer does not mark DAG unsaved for viewport-only pan changes', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'accept' }],
+    server: [],
+  });
+  const state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept'],
+    publishedFingerprint: fingerprintPipelines(graphToPipelines(graphs)),
+  });
+
+  const panned = reduceWorkbench(state, {
+    type: 'viewportChanged',
+    zoom: 1,
+    pan: { x: 120, y: 160 },
+  });
+  const changeState = getWorkbenchChangeState({
+    currentDraftFingerprint: dagFingerprintFromGraphs(panned.graphs),
+    savedDraftFingerprint: panned.savedDraftFingerprint,
+    currentPipelineFingerprint: fingerprintPipelines(graphToPipelines(panned.graphs)),
+    publishedFingerprint: panned.publishedFingerprint,
+  });
+
+  assertEquals(changeState.hasUnsavedDagChanges, false);
+  assertEquals(changeState.dagLabel, 'Saved DAG');
+});
+
+Deno.test('workbench reducer can load persisted palette collapsed state', () => {
+  const state = createInitialWorkbenchState({
+    graphs: pipelinesToGraph({ client: [{ policy: 'accept' }], server: [] }),
+    plugins: ['accept'],
+    publishedFingerprint: 'fp',
+  });
+
+  const next = reduceWorkbench(state, {
+    type: 'palettePreferenceLoaded',
+    collapsed: true,
+  });
+
+  assertEquals(next.ui.paletteCollapsed, true);
+});
+
+Deno.test('workbench reducer can load persisted direction', () => {
+  const state = createInitialWorkbenchState({
+    graphs: pipelinesToGraph({
+      client: [{ policy: 'accept' }],
+      server: [{ policy: 'write-guard' }],
+    }),
+    plugins: ['accept', 'write-guard'],
+    publishedFingerprint: 'fp',
+  });
+
+  const next = reduceWorkbench(state, {
+    type: 'directionPreferenceLoaded',
+    direction: 'server',
+  });
+
+  assertEquals(next.direction, 'server');
+  assertEquals(next.selectedNodeIds, []);
 });
 
 Deno.test('workbench reducer initializes direction-scoped selections', () => {
@@ -307,6 +373,46 @@ Deno.test('workbench reducer records node move as undoable action', () => {
   assertEquals(nodeById(moved, 'client', node.id).y, 96);
 });
 
+Deno.test('workbench reducer commits node drag history once on pointer up', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'accept' }],
+    server: [],
+  });
+  let state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept'],
+    publishedFingerprint: 'fp',
+  });
+  const node = policyNode(state, 'client', 'accept');
+
+  state = reduceWorkbench(state, {
+    type: 'nodeMoved',
+    nodeId: node.id,
+    x: 180,
+    y: 96,
+    transient: true,
+  });
+  state = reduceWorkbench(state, {
+    type: 'nodeMoved',
+    nodeId: node.id,
+    x: 220,
+    y: 124,
+    transient: true,
+  });
+  state = reduceWorkbench(state, {
+    type: 'nodeDragCommitted',
+    nodeIds: [node.id],
+  });
+
+  assertEquals(nodeById(state, 'client', node.id).x, 220);
+  assertEquals(nodeById(state, 'client', node.id).y, 124);
+  assertEquals(state.history.client.past.length, 1);
+
+  state = reduceWorkbench(state, { type: 'undo' });
+  assertEquals(nodeById(state, 'client', node.id).x, node.x);
+  assertEquals(nodeById(state, 'client', node.id).y, node.y);
+});
+
 Deno.test('workbench reducer opens settings modal when policy node is double clicked', () => {
   const graphs = pipelinesToGraph({
     client: [{ policy: 'write-guard', config: { require_auth: true } }],
@@ -448,6 +554,65 @@ Deno.test('workbench reducer applies valid settings JSON to the graph and record
   assertEquals(state.ui.activeModal, { type: 'none' });
 });
 
+Deno.test('workbench reducer reconciles match case edges when settings remove a case', () => {
+  const graphs = pipelinesToGraph({
+    client: [{
+      policy: 'match',
+      config: {
+        cases: [
+          { condition: { kind: 1 }, pipeline: [{ policy: 'accept' }] },
+          { condition: { kind: 2 }, pipeline: [{ policy: 'write-guard' }] },
+        ],
+        default: [],
+      },
+    }],
+    server: [],
+  });
+  let state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['match', 'accept', 'write-guard'],
+    publishedFingerprint: 'fp',
+  });
+  const matchNode = policyNode(state, 'client', 'match');
+  const secondCaseEdge = state.graphs.client.edges.find((edge) =>
+    edge.from === matchNode.id && edge.fromPort === 'case:1'
+  );
+  if (!secondCaseEdge) throw new Error('Expected second case edge');
+
+  state = reduceWorkbench(state, {
+    type: 'nodeDoubleClicked',
+    nodeId: matchNode.id,
+  });
+  state = reduceWorkbench(state, {
+    type: 'settingsJsonChanged',
+    value: JSON.stringify(
+      {
+        cases: [
+          { condition: { kind: 2 }, pipeline: [{ policy: 'write-guard' }] },
+        ],
+        default: [],
+      },
+      null,
+      2,
+    ),
+    caseIndexMap: [1],
+  });
+  state = reduceWorkbench(state, { type: 'settingsApplied' });
+
+  assertEquals(
+    state.graphs.client.edges.some((edge) =>
+      edge.from === matchNode.id &&
+      edge.fromPort === 'case:0' &&
+      edge.to === secondCaseEdge.to
+    ),
+    true,
+  );
+  assertEquals(
+    state.graphs.client.edges.some((edge) => edge.from === matchNode.id && edge.fromPort === 'case:1'),
+    false,
+  );
+});
+
 Deno.test('workbench reducer keeps settings modal open for invalid JSON apply', () => {
   const graphs = pipelinesToGraph({
     client: [{ policy: 'write-guard', config: { require_auth: true } }],
@@ -586,6 +751,56 @@ Deno.test('workbench draft selection falls back to local draft when server draft
   if ('error' in selected) throw new Error(selected.error);
   assertEquals(
     selected.draft.graphs.client.nodes.some((node: any) => node.policy === 'accept'),
+    true,
+  );
+});
+
+Deno.test('workbench draft selection prefers newest draft compatible with published fingerprint', () => {
+  const compatibleOld = buildPipelineDraft({
+    graphs: pipelinesToGraph({
+      client: [{ policy: 'accept' }],
+      server: [],
+    }),
+    viewports: {
+      client: { zoom: 1, pan: { x: 1, y: 1 } },
+      server: { zoom: 1, pan: { x: 0, y: 0 } },
+    },
+    publishedFingerprint: 'published-a',
+    now: '2026-01-01T00:00:00.000Z',
+  });
+  const incompatibleNew = buildPipelineDraft({
+    graphs: pipelinesToGraph({
+      client: [{ policy: 'rate-limit' }],
+      server: [],
+    }),
+    viewports: {
+      client: { zoom: 1, pan: { x: 2, y: 2 } },
+      server: { zoom: 1, pan: { x: 0, y: 0 } },
+    },
+    publishedFingerprint: 'published-b',
+    now: '2026-02-01T00:00:00.000Z',
+  });
+  const compatibleNew = buildPipelineDraft({
+    graphs: pipelinesToGraph({
+      client: [{ policy: 'write-guard' }],
+      server: [],
+    }),
+    viewports: {
+      client: { zoom: 1, pan: { x: 3, y: 3 } },
+      server: { zoom: 1, pan: { x: 0, y: 0 } },
+    },
+    publishedFingerprint: 'published-a',
+    now: '2026-03-01T00:00:00.000Z',
+  });
+
+  const selected = selectWorkbenchDraft(
+    [compatibleOld, incompatibleNew, compatibleNew],
+    { publishedFingerprint: 'published-a' },
+  );
+
+  if ('error' in selected) throw new Error(selected.error);
+  assertEquals(
+    selected.draft.graphs.client.nodes.some((node: any) => node.policy === 'write-guard'),
     true,
   );
 });
@@ -863,13 +1078,14 @@ Deno.test('workbench reducer scopes server move history away from client graph',
   assertEquals(state.history.server.past.length, 1);
 });
 
-Deno.test('workbench reducer adds a policy node after start in current direction', () => {
+Deno.test('workbench reducer adds a standalone policy node in current direction', () => {
   const graphs = pipelinesToGraph({ client: [], server: [] });
   const state = createInitialWorkbenchState({
     graphs,
     plugins: ['accept'],
     publishedFingerprint: 'fp',
   });
+  const initialEdges = state.graphs.client.edges;
 
   const next = reduceWorkbench(state, {
     type: 'policyNodeAdded',
@@ -881,16 +1097,33 @@ Deno.test('workbench reducer adds a policy node after start in current direction
   assertEquals(added.id, 'client-node-1');
   assertEquals(added.x, 160);
   assertEquals(added.y, 80);
-  assertEquals(
-    next.graphs.client.edges.some((edge) =>
-      edge.id === 'client-edge-1' &&
-      edge.from === 'client-start' &&
-      edge.fromPort === 'next' &&
-      edge.to === added.id &&
-      edge.toPort === 'in'
-    ),
-    true,
-  );
+  assertEquals(next.graphs.client.edges, initialEdges);
+  assertEquals(next.selectedNodeIds, [added.id]);
+});
+
+Deno.test('workbench reducer adds policy nodes as standalone blocks without auto-connecting', () => {
+  const graphs = pipelinesToGraph({
+    client: [{ policy: 'accept' }],
+    server: [],
+  });
+  const state = createInitialWorkbenchState({
+    graphs,
+    plugins: ['accept', 'rate-limit'],
+    publishedFingerprint: 'fp',
+  });
+  const initialEdges = state.graphs.client.edges;
+
+  const next = reduceWorkbench(state, {
+    type: 'policyNodeAdded',
+    policy: 'rate-limit',
+    position: { x: 520, y: 160 },
+  });
+
+  const added = policyNode(next, 'client', 'rate-limit');
+  assertEquals(added.id, 'client-node-2');
+  assertEquals(added.x, 520);
+  assertEquals(added.y, 160);
+  assertEquals(next.graphs.client.edges, initialEdges);
 });
 
 Deno.test('workbench reducer deletes node with connected edges and clears selection', () => {

@@ -13,14 +13,17 @@ import {
 } from './minimap.ts';
 import { policyIcon } from './policy_icons.ts';
 import { useCanvasInteractions } from './use_canvas_interactions.ts';
+import { graphPointFromClientPoint } from './use_canvas_interactions.ts';
 import { shouldRenderRunAction, shouldRenderSettingsAction } from './config_editor.js';
-import type { PipelineEdge, PipelineGraph, PipelineNode, Rect, Viewport } from './types.ts';
+import type { PipelineEdge, PipelineGraph, PipelineNode, Point, Rect, Viewport, WirePreview } from './types.ts';
 
 const DEFAULT_VIEWPORT: Viewport = { zoom: 1, pan: { x: 56, y: 80 } };
 
 export function Canvas(props: {
   graph: PipelineGraph;
   selectedNodeIds: string[];
+  executionNodeIds?: string[];
+  wirePreview?: WirePreview | null;
   marquee?: Rect | null;
   viewport?: Viewport;
   canvasSize?: Size;
@@ -28,14 +31,19 @@ export function Canvas(props: {
   onNodeSelect?(nodeId: string, additive: boolean): void;
   onSelectionReplace?(nodeIds: string[]): void;
   onMarqueeChange?(rect: Rect | null): void;
-  onNodeMove?(nodeId: string, position: { x: number; y: number }): void;
+  onNodeMove?(nodeId: string, position: Point, transient?: boolean): void;
+  onNodeDragCommit?(nodeIds: string[]): void;
   onEdgeReplace?(from: string, fromPort: string, to: string): void;
+  onEdgeRemove?(edgeId: string): void;
+  onWirePreviewChange?(preview: WirePreview | null): void;
+  onPolicyDrop?(policy: string, position: Point): void;
   onNodeDoubleClick(nodeId: string): void;
 }) {
   const viewport = props.viewport ?? DEFAULT_VIEWPORT;
   const canvasSize = props.canvasSize ?? DEFAULT_CANVAS_SIZE;
   const minimap = buildMinimapModel(props.graph, viewport, canvasSize);
   const selectedNodeIds = new Set(props.selectedNodeIds);
+  const executionNodeIds = new Set(props.executionNodeIds ?? []);
   const marqueeStyle = props.marquee
     ? {
       display: 'block',
@@ -59,7 +67,9 @@ export function Canvas(props: {
     onSelectionReplace: props.onSelectionReplace,
     onMarqueeChange: props.onMarqueeChange,
     onNodeMove: props.onNodeMove,
+    onNodeDragCommit: props.onNodeDragCommit,
     onEdgeReplace: props.onEdgeReplace,
+    onWirePreviewChange: props.onWirePreviewChange,
   });
 
   return (
@@ -68,6 +78,24 @@ export function Canvas(props: {
       id='pipeline-canvas'
       role='region'
       aria-label='Pipeline canvas'
+      onDragOver={(event) => {
+        if (!props.onPolicyDrop) return;
+        event.preventDefault();
+      }}
+      onDrop={(event) => {
+        if (!props.onPolicyDrop) return;
+        const policy = event.dataTransfer?.getData('application/x-pfortner-policy') ||
+          event.dataTransfer?.getData('text/plain') ||
+          '';
+        if (!policy) return;
+        event.preventDefault();
+        const rect = svgRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        props.onPolicyDrop(
+          policy,
+          graphPointFromClientPoint(viewport, event, rect),
+        );
+      }}
     >
       <div
         class='selection-marquee'
@@ -92,18 +120,43 @@ export function Canvas(props: {
               const path = edgePath(props.graph, edge);
               if (!path) return null;
               return (
-                <path
-                  key={edge.id}
-                  class='pipeline-edge'
-                  data-edge-id={edge.id}
-                  data-edge-from={edge.from}
-                  data-edge-from-port={edge.fromPort ?? ''}
-                  data-edge-to={edge.to}
-                  data-edge-to-port={edge.toPort ?? ''}
-                  d={path}
-                />
+                <>
+                  <path
+                    key={`${edge.id}-hit`}
+                    class='pipeline-edge-hit'
+                    data-edge-id={edge.id}
+                    data-edge-from={edge.from}
+                    data-edge-from-port={edge.fromPort ?? ''}
+                    data-edge-to={edge.to}
+                    data-edge-to-port={edge.toPort ?? ''}
+                    d={path}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      props.onEdgeRemove?.(edge.id);
+                    }}
+                  />
+                  <path
+                    key={edge.id}
+                    class='pipeline-edge'
+                    data-edge-id={edge.id}
+                    data-edge-from={edge.from}
+                    data-edge-from-port={edge.fromPort ?? ''}
+                    data-edge-to={edge.to}
+                    data-edge-to-port={edge.toPort ?? ''}
+                    d={path}
+                  />
+                </>
               );
             })}
+            {props.wirePreview
+              ? (
+                <path
+                  class='pipeline-edge pipeline-edge-preview'
+                  d={wirePreviewPath(props.graph, props.wirePreview)}
+                />
+              )
+              : null}
           </g>
           <g class='pipeline-node-layer'>
             {props.graph.nodes.map((node) => {
@@ -115,6 +168,7 @@ export function Canvas(props: {
                 'pipeline-node',
                 isStartNode(node) ? 'pipeline-node-start' : '',
                 selectedNodeIds.has(node.id) ? 'selected' : '',
+                executionNodeIds.has(node.id) ? 'executed' : '',
               ].filter(Boolean).join(' ');
 
               return (
@@ -324,6 +378,18 @@ function edgePath(graph: PipelineGraph, edge: PipelineEdge): string {
   return `M ${x1} ${y1} C ${x1 + tension} ${y1}, ${x2 - tension} ${y2}, ${x2} ${y2}`;
 }
 
+function wirePreviewPath(graph: PipelineGraph, preview: WirePreview): string {
+  const from = graph.nodes.find((node) => node.id === preview.from);
+  if (!from) return '';
+
+  const source = outputPortPosition(from, preview.fromPort);
+  const target = preview.point;
+  const tension = Math.max(80, Math.abs(target.x - source.x) * 0.45);
+  return `M ${source.x} ${source.y} C ${source.x + tension} ${source.y}, ${
+    target.x - tension
+  } ${target.y}, ${target.x} ${target.y}`;
+}
+
 function isStartNode(node: PipelineNode): boolean {
   return node.type === 'start' || node.policy === 'start';
 }
@@ -344,10 +410,40 @@ function nodeAction(node: PipelineNode): {
 
 function nodeSubtitle(node: PipelineNode): string {
   if (isStartNode(node)) return 'Pipeline start';
-  return node.id;
+  return condensedConfig(node) || node.id;
 }
 
 function formatNodeConfig(config: unknown): string {
-  if (config === undefined) return '';
-  return JSON.stringify(config);
+  return JSON.stringify(config ?? {});
+}
+
+function condensedConfig(node: PipelineNode): string {
+  const cfg = node.config !== null && typeof node.config === 'object' && !Array.isArray(node.config)
+    ? node.config as Record<string, unknown>
+    : {};
+  if (Object.keys(cfg).length === 0) return '';
+  const parts: string[] = [];
+  if (cfg.mode && cfg.kinds) {
+    parts.push(`${cfg.mode}:${(cfg.kinds as unknown[]).join(',')}`);
+  }
+  if (Array.isArray(cfg.allow_kinds)) {
+    parts.push(`allow:${cfg.allow_kinds.join(',')}`);
+  }
+  if (Array.isArray(cfg.deny_kinds)) {
+    parts.push(`deny:${cfg.deny_kinds.join(',')}`);
+  }
+  if (cfg.require_auth !== undefined) {
+    parts.push(`require_auth:${cfg.require_auth}`);
+  }
+  if (cfg.max_content_length !== undefined) {
+    parts.push(`max_len:${cfg.max_content_length}`);
+  }
+  if (cfg.condition) {
+    parts.push(`if:${JSON.stringify(cfg.condition).slice(0, 40)}`);
+  }
+  if (Array.isArray(cfg.allow)) parts.push(`allow:[${cfg.allow.length}]`);
+  if (Array.isArray(cfg.deny)) parts.push(`deny:[${cfg.deny.length}]`);
+  if (cfg.upstream) parts.push(`upstream:${cfg.upstream}`);
+  if (parts.length === 0) parts.push(Object.keys(cfg).slice(0, 2).join(', '));
+  return parts.join(' · ');
 }
