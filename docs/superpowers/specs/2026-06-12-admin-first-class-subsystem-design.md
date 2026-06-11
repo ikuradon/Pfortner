@@ -32,6 +32,7 @@ admin/
     create_admin_app.ts
     dashboard_model.ts
     fresh_runtime.ts
+    island_build_cache.ts
   http/
     api_routes.ts
     auth_middleware.ts
@@ -85,6 +86,12 @@ Fresh `App` の composition root。static middleware、Fresh runtime patch、aut
 
 programmatic Fresh app で必要な client entry patch を担当する。`/admin/static/fresh_nav.js`、modulepreload link、空 boot import の置換をここに閉じ込める。
 
+### `admin/app/island_build_cache.ts`
+
+programmatic Fresh app で必要な `ProdBuildCache` 登録を担当する。現行 `admin/fresh_islands.ts` の `installAdminIslandBuildCache()` 実装をここへ移し、`AdminIslandSmoke` と `PipelineWorkbench` の chunk URL を Fresh SSR に登録する。
+
+既存 `admin/fresh_islands.ts` は `installAdminIslandBuildCache()` の export 名を維持し、`admin/app/island_build_cache.ts` へ委譲する wrapper として残す。
+
 ### `admin/app/dashboard_model.ts`
 
 dashboard SSR に必要な health props を `AdminState` から作る。`admin/main.ts` から helper を外し、page renderer から再利用しやすい read model にする。
@@ -130,7 +137,9 @@ actions は `Request` や Fresh context に依存しない。入力は plain obj
 
 ### `src/admin/server.ts`
 
-Bearer token 用の既存 admin API entrypoint として残す。routing は維持してよいが、処理本体は `src/admin/actions/*` と read models を使う。Fresh admin API と Bearer API の重複をなくし、挙動差分を HTTP status、redirect の有無、path prefix の違いに限定する。
+Bearer token 用の既存 admin API entrypoint として残す。routing は維持してよいが、既存で Fresh admin API と重なる処理本体だけを `src/admin/actions/*` と read models に寄せる。
+
+この refactor では Bearer API の公開面を増やさない。Fresh UI 専用 endpoint は Fresh UI 専用のまま残し、`src/admin/server.ts` に `pipeline-draft`、`pipelines`、`playground`、Prometheus text export、blocklist list endpoint を追加しない。
 
 ### `src/admin/service.ts`
 
@@ -171,6 +180,31 @@ admin/routes/*.tsx
 
 `admin/static/*` は URL で直接配信される生成物または本物の static asset に限定する。source of truth の client logic は `admin/client/*` と `admin/islands/*` に置く。
 
+## Endpoint Matrix
+
+この refactor は endpoint parity を作るものではない。既存で重なる endpoint は共通 action/read model を使い、Fresh UI 専用 endpoint は Bearer API に追加しない。
+
+| Capability                  | Fresh admin API                                  | Bearer API                             | Refactor rule                                      |
+| --------------------------- | ------------------------------------------------ | -------------------------------------- | -------------------------------------------------- |
+| health summary              | `GET /admin/api/health`                          | `GET /health`                          | shared read model                                  |
+| health detail               | `GET /admin/api/health/detail`                   | `GET /health/detail`                   | shared read model                                  |
+| masked config               | `GET /admin/api/config`                          | `GET /config`                          | shared read model                                  |
+| plugin list                 | `GET /admin/api/plugins`                         | `GET /plugins`                         | shared read model                                  |
+| connection list             | `GET /admin/api/connections`                     | `GET /connections`                     | shared read model                                  |
+| connection batch disconnect | `POST /admin/api/connections/disconnect-batch`   | `POST /connections/disconnect-batch`   | shared `connections` action                        |
+| connection single close     | none                                             | `DELETE /connections/:id`              | shared `connections` action, Bearer-only route     |
+| throughput metrics          | `GET /admin/api/metrics/throughput`              | `GET /metrics/throughput`              | shared read model                                  |
+| logs snapshot               | `GET /admin/api/logs`                            | `GET /logs`                            | shared read model                                  |
+| logs stream                 | `GET /admin/api/logs/stream`                     | `GET /logs/stream`                     | shared stream helper                               |
+| blocklist add/delete        | `POST`/`DELETE /admin/api/blocklist/{pubkey,ip}` | `POST`/`DELETE /blocklist/{pubkey,ip}` | shared `blocklist` action                          |
+| config reload               | `POST /admin/api/reload`                         | `POST /reload`                         | shared `reload` action, different response shape   |
+| shutdown                    | `POST /admin/api/shutdown`                       | `POST /shutdown`                       | shared `shutdown` action, different response shape |
+| Prometheus text export      | `GET /admin/api/metrics/prometheus`              | none                                   | Fresh-only                                         |
+| blocklist list              | `GET /admin/api/blocklist`                       | none                                   | Fresh-only                                         |
+| pipeline draft              | `GET`/`POST /admin/api/pipeline-draft`           | none                                   | Fresh-only                                         |
+| pipeline save               | `POST /admin/api/pipelines`                      | none                                   | Fresh-only                                         |
+| playground evaluate         | `POST /admin/api/playground/evaluate`            | none                                   | Fresh-only                                         |
+
 ## Error Handling
 
 actions は domain error を文字列 message と status hint で返す。HTTP adapter はそれを `json({ error }, status)`、redirect、または plain text response に変換する。
@@ -183,11 +217,12 @@ auth failure は現行どおり、page route は login redirect、Fresh API は 
 
 ### Phase 1: entrypoint を薄くする
 
-`admin/app/create_admin_app.ts`、`admin/app/fresh_runtime.ts`、`admin/app/dashboard_model.ts` を作る。`admin/main.ts` は `createAdminApp` の facade にする。
+`admin/app/create_admin_app.ts`、`admin/app/fresh_runtime.ts`、`admin/app/island_build_cache.ts`、`admin/app/dashboard_model.ts` を作る。`admin/main.ts` は `createAdminApp` の facade にする。既存 `admin/fresh_islands.ts` は `installAdminIslandBuildCache()` の wrapper にする。
 
 完了条件:
 
 - `admin/main.ts` に Fresh runtime patch や dashboard helper の実体が残らない。
+- `admin/app/create_admin_app.ts` が `installAdminIslandBuildCache()` を呼び、PipelineWorkbench island chunk の SSR 登録が維持される。
 - `admin/main.test.ts` が通る。
 - URL、auth、SSR HTML、Fresh client entry、island bundle path が変わらない。
 
@@ -213,22 +248,24 @@ auth failure は現行どおり、page route は login redirect、Fresh API は 
 
 ### Phase 4: API action を `src/admin/actions` へ移す
 
-`admin/api_routes.ts` の pipeline save、pipeline draft、playground evaluate、blocklist mutation、reload、shutdown を action module へ抽出する。Fresh route registrar の実体は `admin/http/api_routes.ts` へ移し、既存 `admin/api_routes.ts` は wrapper にする。
+`admin/api_routes.ts` の connection batch disconnect、pipeline save、pipeline draft、playground evaluate、blocklist mutation、reload、shutdown を action module へ抽出する。Fresh route registrar の実体は `admin/http/api_routes.ts` へ移し、既存 `admin/api_routes.ts` は wrapper にする。
 
 完了条件:
 
 - `admin/http/api_routes.ts` が body/params/query parse と response 変換だけを担当する。
-- pipeline YAML 更新、draft normalize、playground normalize、blocklist mutation は `src/admin/actions/*` にある。
+- connection batch disconnect、pipeline YAML 更新、draft normalize、playground normalize、blocklist mutation は `src/admin/actions/*` にある。
 - `admin/api_routes.test.ts` が通る。
 - pipeline save failure 時に config file が unchanged である既存保証が通る。
 
 ### Phase 5: Bearer API を共通 action に寄せる
 
-`src/admin/server.ts` の各 route handler が `src/admin/actions/*` と read models を使うようにする。
+`src/admin/server.ts` の既存 route handler が `src/admin/actions/*` と read models を使うようにする。Bearer API に Fresh-only endpoint は追加しない。
 
 完了条件:
 
-- Fresh admin API と Bearer API の重複実装がなくなる。
+- Fresh admin API と Bearer API の既存で重なる処理の重複実装がなくなる。
+- Bearer-only の `DELETE /connections/:id` と shared の `POST /connections/disconnect-batch` は同じ `src/admin/actions/connections.ts` を使う。
+- `pipeline-draft`、`pipelines`、`playground`、Prometheus text export、blocklist list の Bearer route は追加されない。
 - `src/admin/server.test.ts` が通る。
 - `mod.ts` の public export は互換維持される。
 
@@ -252,7 +289,7 @@ auth failure は現行どおり、page route は login redirect、Fresh API は 
 deno fmt --check --config deno.json
 deno lint --config deno.json
 deno check mod.ts admin/main.ts admin/api_routes.ts src/admin/server.ts
-deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --unstable-kv admin/main.test.ts admin/api_routes.test.ts admin/page_routes.test.ts admin/security.test.ts admin/static_files.test.ts src/admin/server.test.ts src/admin/service.test.ts
+deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --unstable-kv admin/main.test.ts admin/api_routes.test.ts admin/page_routes.test.ts admin/security.test.ts admin/static_files.test.ts src/admin/main_csrf.test.ts src/admin/server.test.ts src/admin/service.test.ts
 deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --unstable-kv admin/ src/admin/
 ```
 
@@ -271,7 +308,8 @@ deno task test
 - `admin/http/*` が HTTP adapter と middleware を担う。
 - `admin/pages/*` が authenticated page route registration を担う。
 - `src/admin/actions/*` が mutation と domain action を担う。
-- Fresh admin API と `src/admin/server.ts` の Bearer API が共通 actions/read models を使う。
+- Fresh admin API と `src/admin/server.ts` の Bearer API が、既存で重なる処理について共通 actions/read models を使う。
+- Fresh-only endpoint は Bearer API に追加されていない。
 - 既存 URL、public exports、auth/CSRF/static/login/logout、Pipeline Workbench asset path は変わらない。
 - `docs/current-architecture.md` と `CLAUDE.md` が新構造を説明している。
 - 既存の未コミット変更を巻き戻さず、リファクタ差分を phase ごとに atomic commit できる。
