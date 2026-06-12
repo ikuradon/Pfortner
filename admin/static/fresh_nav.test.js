@@ -1631,6 +1631,129 @@ Deno.test('fresh nav mounts island modules introduced by partial navigation', as
   }
 });
 
+Deno.test('fresh nav unmounts mounted islands before partial replacement', async () => {
+  const mountedWorkbench = new FakeElement(
+    'div',
+    { 'data-pipeline-workbench-mount': 'true' },
+    '',
+    [new FakeElement('div', { id: 'pipeline-workbench' })],
+  );
+  const currentDocument = new FakeDocument({
+    title: 'Pipelines',
+    childNodes: [
+      new FakeComment('frsh:partial:admin-content'),
+      mountedWorkbench,
+      new FakeComment('/frsh:partial'),
+    ],
+  });
+  const nextDocument = new FakeDocument({
+    title: 'Dashboard',
+    childNodes: [
+      new FakeComment('frsh:partial:admin-content'),
+      new FakeElement('div', { id: 'dashboard' }),
+      new FakeComment('/frsh:partial'),
+    ],
+  });
+  const window = new FakeWindow();
+  const location = {
+    href: 'http://localhost/admin/pipelines',
+    origin: 'http://localhost',
+    assignCalls: [],
+    assign(url) {
+      this.assignCalls.push(url);
+    },
+  };
+  const historyCalls = [];
+  const unmountCalls = [];
+  const restoreDocument = setGlobal('document', currentDocument);
+  const restoreWindow = setGlobal('window', window);
+  const restoreNode = setGlobal('Node', { ELEMENT_NODE: 1, COMMENT_NODE: 8 });
+  const restoreNodeFilter = setGlobal('NodeFilter', { SHOW_COMMENT: 128 });
+  const restoreLocation = setGlobal('location', location);
+  const restoreHistory = setGlobal('history', {
+    pushState(_state, _title, url) {
+      historyCalls.push(['push', url]);
+      location.href = new URL(url, location.href).href;
+    },
+    replaceState(_state, _title, url) {
+      historyCalls.push(['replace', url]);
+      location.href = new URL(url, location.href).href;
+    },
+  });
+  const restoreFetch = setGlobal('fetch', () =>
+    Promise.resolve({
+      ok: true,
+      url: 'http://localhost/admin/',
+      headers: { get: () => null },
+      text: () => Promise.resolve('<html></html>'),
+    }));
+  const restoreParser = setGlobal(
+    'DOMParser',
+    class {
+      parseFromString() {
+        return nextDocument;
+      }
+    },
+  );
+  const restoreBootArgs = setGlobal(
+    '__PFORTNER_FRESH_ISLAND_BOOT_ARGS__',
+    undefined,
+  );
+  delete globalThis.__PFORTNER_FRESH_ISLAND_BOOT_ARGS__;
+
+  try {
+    const { boot } = await importFreshNav();
+
+    boot({
+      PipelineWorkbench: {
+        mount() {},
+        unmount(root) {
+          unmountCalls.push({
+            hasWorkbench: Boolean(root.querySelector('#pipeline-workbench')),
+            parentNode: mountedWorkbench.parentNode,
+          });
+        },
+      },
+    }, []);
+    const clickListener = currentDocument.listeners.find((entry) => entry.type === 'click')?.listener;
+    const anchor = new FakeElement('a', {
+      href: 'http://localhost/admin/',
+      'f-client-nav': 'true',
+    });
+
+    clickListener({
+      target: anchor,
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault() {},
+    });
+
+    await waitFor(() => historyCalls.length === 1);
+
+    assertEquals(unmountCalls, [{
+      hasWorkbench: true,
+      parentNode: currentDocument,
+    }]);
+    assertEquals(currentDocument.querySelector('#pipeline-workbench'), null);
+    assertEquals(currentDocument.querySelector('#dashboard') !== null, true);
+    assertEquals(location.assignCalls, []);
+  } finally {
+    restoreBootArgs();
+    restoreParser();
+    restoreFetch();
+    restoreHistory();
+    restoreLocation();
+    restoreNodeFilter();
+    restoreNode();
+    restoreWindow();
+    restoreDocument();
+  }
+});
+
 Deno.test('fresh nav mounts island modules from partial navigation Link header', async () => {
   const currentDocument = new FakeDocument({
     title: 'Blocklist',

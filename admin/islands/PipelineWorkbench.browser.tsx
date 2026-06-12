@@ -9,6 +9,7 @@ interface PipelineWorkbenchBrowserProps {
 
 type MountableWorkbench = (() => null) & {
   mount?: (root: ParentNode, props?: unknown) => void;
+  unmount?: (root: ParentNode) => void;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -109,7 +110,14 @@ export function mountPipelineWorkbench(root: ParentNode, rawProps: unknown = {})
   workbench.dataset.pfortnerPreactMounted = 'true';
 }
 
+export function unmountPipelineWorkbench(root: ParentNode): void {
+  const mountPoint = root.querySelector?.('[data-pipeline-workbench-mount="true"]') as HTMLElement | null;
+  if (!mountPoint) return;
+  render(null, mountPoint);
+}
+
 const PipelineWorkbenchBrowser = (() => null) as MountableWorkbench;
 PipelineWorkbenchBrowser.mount = mountPipelineWorkbench;
+PipelineWorkbenchBrowser.unmount = unmountPipelineWorkbench;
 
 export default PipelineWorkbenchBrowser;

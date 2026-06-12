@@ -31,6 +31,7 @@ let rawMetricsExpanded = false;
 let logStream = null;
 let logsPaused = false;
 const seenLogIds = new Set();
+const mountedAdminIslands = [];
 
 function mountThemeToggle() {
   const mount = document.getElementById('theme-toggle-mount');
@@ -1711,6 +1712,27 @@ function mountAdminIslands(islands, props) {
   for (const island of Object.values(islands ?? {})) {
     if (typeof island?.mount !== 'function') continue;
     island.mount(document, props);
+    rememberMountedAdminIsland(island, document);
+  }
+}
+
+function rememberMountedAdminIsland(island, root) {
+  if (typeof island?.unmount !== 'function') return;
+  if (mountedAdminIslands.some((mounted) => mounted.island === island && mounted.root === root)) return;
+  mountedAdminIslands.push({ island, root });
+}
+
+function unmountMountedAdminIslands(root) {
+  for (let index = mountedAdminIslands.length - 1; index >= 0; index -= 1) {
+    const mounted = mountedAdminIslands[index];
+    if (mounted.root !== root) continue;
+    try {
+      mounted.island.unmount(root);
+    } catch (error) {
+      console.warn('Admin island unmount failed', error);
+    } finally {
+      mountedAdminIslands.splice(index, 1);
+    }
   }
 }
 
@@ -1888,19 +1910,23 @@ async function navigate(url, historyMode) {
     const responseUrl = response.url || url;
     const nextDocument = new DOMParser().parseFromString(html, 'text/html');
     const partialNames = getPartialNames(document);
-    let replaced = 0;
+    const replacements = [];
 
     for (const name of partialNames) {
       const current = findPartial(document, name);
       const next = findPartial(nextDocument, name);
       if (!current || !next) continue;
-      replacePartial(current, next);
-      replaced += 1;
+      replacements.push({ current, next });
     }
 
-    if (replaced === 0) {
+    if (replacements.length === 0) {
       location.assign(response.url || url);
       return;
+    }
+
+    unmountMountedAdminIslands(document);
+    for (const { current, next } of replacements) {
+      replacePartial(current, next);
     }
 
     document.title = nextDocument.title;
