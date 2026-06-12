@@ -41,6 +41,14 @@ Deno.test('admin GET /health returns 200', async () => {
   assertEquals(body.status, 'ok');
 });
 
+Deno.test('Bearer admin health keeps summary payload shape', async () => {
+  const handler = createAdminHandler(makeState());
+  const res = await handler(makeRequest('/health'));
+  const body = await res.json();
+
+  assertEquals(Object.keys(body).sort(), ['connections', 'pressure', 'status']);
+});
+
 Deno.test('admin rejects missing token', async () => {
   const handler = createAdminHandler(makeState());
   const res = await handler(new Request('http://localhost:9091/health'));
@@ -118,12 +126,88 @@ Deno.test('admin POST /blocklist/ip adds IP', async () => {
   assertEquals(state.blocklist.ips.has('1.2.3.4'), true);
 });
 
+Deno.test('Bearer admin blocklist keeps legacy truthy value semantics', async () => {
+  const state = makeState();
+  const handler = createAdminHandler(state);
+
+  const pubkeyRes = await handler(
+    makeRequest('/blocklist/pubkey', 'POST', 'test-token', JSON.stringify({ pubkey: 123 })),
+  );
+  const ipRes = await handler(
+    makeRequest('/blocklist/ip', 'POST', 'test-token', JSON.stringify({ ip: 456 })),
+  );
+
+  assertEquals(pubkeyRes.status, 200);
+  assertEquals(ipRes.status, 200);
+  assertEquals(await pubkeyRes.json(), { added: 123 });
+  assertEquals(await ipRes.json(), { added: 456 });
+  assertEquals(state.blocklist.pubkeys.has(123 as never), true);
+  assertEquals(state.blocklist.ips.has(456 as never), true);
+});
+
+Deno.test('Bearer admin blocklist delete keeps legacy empty path semantics', async () => {
+  const state = makeState();
+  const handler = createAdminHandler(state);
+
+  const pubkeyRes = await handler(makeRequest('/blocklist/pubkey/', 'DELETE'));
+  const ipRes = await handler(makeRequest('/blocklist/ip/', 'DELETE'));
+
+  assertEquals(pubkeyRes.status, 200);
+  assertEquals(ipRes.status, 200);
+  assertEquals(await pubkeyRes.json(), { deleted: '' });
+  assertEquals(await ipRes.json(), { deleted: '' });
+});
+
+Deno.test('Bearer admin blocklist delete uses shared action for non-empty path values', async () => {
+  const state = makeState();
+  state.blocklist.pubkeys.add('pk1');
+  state.blocklist.ips.add('1.2.3.4');
+  const handler = createAdminHandler(state);
+
+  const pubkeyRes = await handler(makeRequest('/blocklist/pubkey/pk1', 'DELETE'));
+  const ipRes = await handler(makeRequest('/blocklist/ip/1.2.3.4', 'DELETE'));
+
+  assertEquals(pubkeyRes.status, 200);
+  assertEquals(ipRes.status, 200);
+  assertEquals(await pubkeyRes.json(), { deleted: 'pk1' });
+  assertEquals(await ipRes.json(), { deleted: '1.2.3.4' });
+  assertEquals(state.blocklist.pubkeys.has('pk1'), false);
+  assertEquals(state.blocklist.ips.has('1.2.3.4'), false);
+});
+
+Deno.test('Bearer admin blocklist delete non-empty paths call shared actions', async () => {
+  const source = await Deno.readTextFile(new URL('./server.ts', import.meta.url));
+
+  assertEquals(source.includes('const result = deletePubkey(state.blocklist, pk);'), true);
+  assertEquals(source.includes('const result = deleteIp(state.blocklist, ip);'), true);
+});
+
 Deno.test('admin does not keep legacy deny-list API route', async () => {
   const handler = createAdminHandler(makeState());
   const res = await handler(
     makeRequest(`/${legacyDenyListTerm}/ip`, 'POST', 'test-token', JSON.stringify({ ip: '1.2.3.4' })),
   );
   assertEquals(res.status, 404);
+});
+
+Deno.test('Bearer admin API does not expose Fresh-only endpoints', async () => {
+  const handler = createAdminHandler(makeState());
+
+  const getPipelineDraft = await handler(makeRequest('/pipeline-draft'));
+  const postPipelineDraft = await handler(makeRequest('/pipeline-draft', 'POST'));
+  const pipelines = await handler(makeRequest('/pipelines', 'POST', 'test-token', JSON.stringify({ pipelines: {} })));
+  const playground = await handler(
+    makeRequest('/playground/evaluate', 'POST', 'test-token', JSON.stringify({ message: [] })),
+  );
+  const prometheus = await handler(makeRequest('/metrics/prometheus'));
+  const blocklist = await handler(makeRequest('/blocklist'));
+
+  assertEquals(getPipelineDraft.status, 404);
+  assertEquals(postPipelineDraft.status, 404);
+  assertEquals(pipelines.status, 404);
+  assertEquals(playground.status, 404);
+  assertEquals(prometheus.status, 404);
+  assertEquals(blocklist.status, 404);
 });
 
 Deno.test('admin returns 404 for unknown path', async () => {

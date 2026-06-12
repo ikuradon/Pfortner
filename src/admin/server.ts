@@ -6,19 +6,17 @@ import type { ShutdownManager } from '../shutdown/manager.ts';
 import type { UpstreamProbe } from '../connections/upstream-probe.ts';
 import type { ThroughputTracker } from '../infra/throughput-tracker.ts';
 import type { PrometheusMetrics } from '../infra/prometheus.ts';
-import {
-  closeConnection,
-  closeConnectionBatch,
-  createLogStreamResponse,
-  getConnections,
-  getHealthDetail,
-  getHealthSimple,
-  getLogs,
-  getThroughputData,
-  maskSecrets,
-  parseLogLimit,
-} from './service.ts';
-import type { AdminServiceState } from './service.ts';
+import { closeConnection, closeConnectionBatch } from './actions/connections.ts';
+import { addIp, addPubkey, deleteIp, deletePubkey } from './actions/blocklist.ts';
+import { reloadConfig } from './actions/reload.ts';
+import { shutdownAdmin } from './actions/shutdown.ts';
+import { maskSecrets } from './read_models/config_view.ts';
+import { getConnections } from './read_models/connections.ts';
+import { getHealthDetail, getHealthSimple } from './read_models/health.ts';
+import { getLogs, parseLogLimit } from './read_models/logs.ts';
+import { getThroughputData } from './read_models/throughput.ts';
+import { createLogStreamResponse } from './http/log_stream.ts';
+import { type AdminServiceState } from './state.ts';
 
 export interface AdminState extends AdminServiceState {
   config: PfortnerConfig;
@@ -146,57 +144,56 @@ export function createAdminHandler(state: AdminState): (req: Request) => Promise
     if (method === 'POST' && path === '/blocklist/pubkey') {
       const body = await req.json();
       if (body.pubkey) {
-        state.blocklist.pubkeys.add(body.pubkey);
+        state.blocklist.pubkeys.add(body.pubkey as string);
         return json({ added: body.pubkey });
       }
-      return json({ error: 'pubkey required' }, 400);
+      const result = addPubkey(state.blocklist, body.pubkey);
+      return 'error' in result ? json({ error: result.error }, 400) : json(result);
     }
 
     // DELETE /blocklist/pubkey/:pk
     if (method === 'DELETE' && path.startsWith('/blocklist/pubkey/')) {
       const pk = path.slice('/blocklist/pubkey/'.length);
-      state.blocklist.pubkeys.delete(pk);
-      return json({ deleted: pk });
+      if (pk === '') {
+        state.blocklist.pubkeys.delete(pk);
+        return json({ deleted: pk });
+      }
+      const result = deletePubkey(state.blocklist, pk);
+      return 'error' in result ? json({ error: result.error }, 400) : json(result);
     }
 
     // POST /blocklist/ip
     if (method === 'POST' && path === '/blocklist/ip') {
       const body = await req.json();
       if (body.ip) {
-        state.blocklist.ips.add(body.ip);
+        state.blocklist.ips.add(body.ip as string);
         return json({ added: body.ip });
       }
-      return json({ error: 'ip required' }, 400);
+      const result = addIp(state.blocklist, body.ip);
+      return 'error' in result ? json({ error: result.error }, 400) : json(result);
     }
 
     // DELETE /blocklist/ip/:ip
     if (method === 'DELETE' && path.startsWith('/blocklist/ip/')) {
       const ip = path.slice('/blocklist/ip/'.length);
-      state.blocklist.ips.delete(ip);
-      return json({ deleted: ip });
+      if (ip === '') {
+        state.blocklist.ips.delete(ip);
+        return json({ deleted: ip });
+      }
+      const result = deleteIp(state.blocklist, ip);
+      return 'error' in result ? json({ error: result.error }, 400) : json(result);
     }
 
     // POST /reload
     if (method === 'POST' && path === '/reload') {
-      if (!state.configPath || !state.reloadFn) {
-        return json({ error: 'reload not configured' }, 500);
-      }
-      try {
-        const content = await Deno.readTextFile(state.configPath);
-        await state.reloadFn(content);
-        return json({ status: 'reloaded' });
-      } catch (e) {
-        return json({ error: `reload failed: ${(e as Error).message}` }, 500);
-      }
+      const result = await reloadConfig(state);
+      return 'error' in result ? json({ error: result.error }, result.status) : json(result);
     }
 
     // POST /shutdown
     if (method === 'POST' && path === '/shutdown') {
-      if (state.shutdownManager) {
-        state.shutdownManager.initiateShutdown().catch(console.error);
-        return json({ status: 'shutting down' });
-      }
-      return json({ error: 'shutdown not configured' }, 500);
+      const result = shutdownAdmin(state);
+      return 'error' in result ? json({ error: result.error }, result.status) : json(result);
     }
 
     return json({ error: 'not found' }, 404);
