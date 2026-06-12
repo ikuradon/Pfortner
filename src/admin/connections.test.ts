@@ -53,3 +53,9 @@ Deno.test('admin connection service closes batches without hiding misses', () =>
   assertEquals(closed, 1);
   assertEquals(result, { closed: ['c1'], notFound: ['missing'] });
 });
+
+Deno.test('admin connection read model lives outside the compatibility facade', async () => {
+  const readModel = await import('./read_models/connections.ts') as Record<string, unknown>;
+  assertEquals(typeof readModel.getConnections, 'function');
+  assertEquals(typeof readModel.closeConnectionBatch, 'undefined');
+});

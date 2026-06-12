@@ -34,3 +34,12 @@ Deno.test('admin logs service returns buffered entries and metadata', () => {
   assertEquals(result.total, 2);
   assertEquals(result.subscribers, 0);
 });
+
+Deno.test('admin logs read model does not create HTTP responses', async () => {
+  const readModel = await import('./read_models/logs.ts') as Record<string, unknown>;
+  const http = await import('./http/log_stream.ts');
+
+  assertEquals(typeof readModel.getLogs, 'function');
+  assertEquals(typeof readModel.createLogStreamResponse, 'undefined');
+  assertEquals(typeof http.createLogStreamResponse, 'function');
+});
