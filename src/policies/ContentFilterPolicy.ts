@@ -79,8 +79,10 @@ export const contentFilterPlugin: PolicyPlugin = {
           max_response_bytes: { type: 'number', minimum: 1 },
         },
         required: ['url', 'timeout', 'on_error'],
+        additionalProperties: false,
       },
     },
+    additionalProperties: false,
   },
   initialize(config: unknown, infra: InfraContext): Promise<PolicyFactory> {
     const cfg = config as ContentFilterConfig;

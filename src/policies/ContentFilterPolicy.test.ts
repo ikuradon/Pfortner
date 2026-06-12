@@ -2,6 +2,10 @@ import { assertEquals } from 'jsr:@std/assert@1.0.18';
 import { contentFilterPlugin } from './ContentFilterPolicy.ts';
 import { buildInfraContext } from '../infra/context.ts';
 import type { PfortnerInstance } from '../plugins/types.ts';
+import AjvModule from 'ajv';
+
+// deno-lint-ignore no-explicit-any
+const AjvClass = (AjvModule as any).default ?? AjvModule;
 
 const infra = buildInfraContext({});
 const mockInstance = (): PfortnerInstance => ({
@@ -149,6 +153,28 @@ Deno.test('contentFilter external_api on_error reject rejects on API failure', a
   const inst = mockInstance();
   const result = await factory(inst)(['EVENT', makeEvent('hello')], inst.connectionInfo);
   assertEquals(result.action, 'reject');
+});
+
+Deno.test('contentFilter configSchema rejects legacy banned keys', () => {
+  const validate = new AjvClass({ allErrors: true }).compile(contentFilterPlugin.configSchema);
+
+  assertEquals(validate({ banned_words: ['spam'] }), false);
+  assertEquals(validate({ banned_patterns: ['spam'] }), false);
+  assertEquals(
+    validate({
+      blocked_words: ['spam'],
+      blocked_patterns: ['https?://spam\\.example'],
+      apply_to_kinds: [1],
+      external_api: {
+        url: 'https://moderation.example.test/check',
+        timeout: 1000,
+        on_error: 'reject',
+        max_concurrent_requests: 2,
+        max_response_bytes: 2048,
+      },
+    }),
+    true,
+  );
 });
 
 Deno.test('contentFilter external_api bounds concurrent moderation requests', async () => {

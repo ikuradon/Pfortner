@@ -37,10 +37,15 @@ export const ipFilterPlugin: PolicyPlugin = {
           ips: { type: 'array', items: { type: 'string' } },
           cidrs: { type: 'array', items: { type: 'string' } },
           source: { type: 'string' },
+          refresh_interval: { type: 'number' },
         },
+        additionalProperties: false,
       },
       block_tor: { type: 'boolean' },
+      block_countries: { type: 'array', items: { type: 'string' } },
+      geoip_db: { type: 'string' },
     },
+    additionalProperties: false,
   },
   async initialize(config: unknown, infra: InfraContext): Promise<PolicyFactory> {
     const cfg = config as IpFilterConfig;

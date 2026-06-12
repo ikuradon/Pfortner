@@ -2,6 +2,10 @@ import { assertEquals } from 'jsr:@std/assert@1.0.18';
 import { ipFilterPlugin } from './IpFilterPolicy.ts';
 import { buildInfraContext } from '../infra/context.ts';
 import type { PfortnerInstance } from '../plugins/types.ts';
+import AjvModule from 'ajv';
+
+// deno-lint-ignore no-explicit-any
+const AjvClass = (AjvModule as any).default ?? AjvModule;
 
 const infra = buildInfraContext({});
 const makeInstance = (ip: string): PfortnerInstance => ({
@@ -106,4 +110,19 @@ Deno.test('ipFilter block_countries without geoip_db silently skips GeoIP', asyn
   const factory = await ipFilterPlugin.initialize({ block_countries: ['XX'] }, infra);
   const inst = makeInstance('1.2.3.4');
   assertEquals((await factory(inst)(['EVENT', { id: 'e1' }], inst.connectionInfo)).action, 'next');
+});
+
+Deno.test('ipFilter configSchema rejects legacy blacklist keys', () => {
+  const validate = new AjvClass({ allErrors: true }).compile(ipFilterPlugin.configSchema);
+
+  assertEquals(validate({ blacklist: { ips: ['1.2.3.4'] } }), false);
+  assertEquals(
+    validate({
+      blocklist: { ips: ['1.2.3.4'], cidrs: ['10.0.0.0/8'], source: 'https://example.test/ips.txt' },
+      block_tor: true,
+      block_countries: ['ZZ'],
+      geoip_db: '/tmp/GeoLite2-Country.mmdb',
+    }),
+    true,
+  );
 });
