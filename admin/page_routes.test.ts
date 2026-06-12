@@ -28,6 +28,13 @@ function makeContext(path: string): AdminRouteContext {
   };
 }
 
+Deno.test('admin page route compatibility module delegates to pages module', async () => {
+  const compat = await import('./page_routes.ts');
+  const pages = await import('./pages/page_routes.ts');
+
+  assertEquals(compat.registerAdminPageRoutes, pages.registerAdminPageRoutes);
+});
+
 Deno.test('page route registrar redirects root and renders registered Fresh pages', async () => {
   const app = new RecordedRoutes();
   const rendered: string[] = [];
