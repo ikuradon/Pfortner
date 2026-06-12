@@ -51,6 +51,13 @@ admin/
 src/admin/
   server.ts
   state.ts
+  health.ts
+  config_view.ts
+  connections.ts
+  logs.ts
+  throughput.ts
+  pipeline_draft.ts
+  pipeline_simulator.ts
   read_models/
     health.ts
     config_view.ts
@@ -65,6 +72,8 @@ src/admin/
     playground.ts
     reload.ts
     shutdown.ts
+  http/
+    log_stream.ts
   service.ts
 ```
 
@@ -119,7 +128,11 @@ authenticated page route の登録と page renderer mapping を担当する。
 
 ### `src/admin/read_models/*`
 
-admin UI と Bearer API が参照する読み取りモデルを置く。現在の `src/admin/health.ts`、`config_view.ts`、`connections.ts`、`logs.ts`、`throughput.ts` はこの役割に近い。移行時は `src/admin/read_models/*` に実体を移し、既存 top-level files は同じ export 名を維持する wrapper にする。
+admin UI と Bearer API が参照する読み取りモデルを置く。現在の `src/admin/health.ts`、`config_view.ts`、`connections.ts`、`logs.ts`、`throughput.ts` はこの役割に近い。移行時は読み取り専用の実体を `src/admin/read_models/*` に移し、既存 top-level files は同じ export 名を維持する wrapper にする。
+
+`src/admin/read_models/connections.ts` は `AdminConnectionDto`、`toAdminConnectionDto()`、`getConnections()` だけを持つ。`closeConnection()` と `closeConnectionBatch()` は mutation なので `src/admin/actions/connections.ts` に置く。
+
+`src/admin/read_models/logs.ts` は `parseLogLimit()` と `getLogs()` だけを持つ。`Response` を返す SSE stream helper は read model に置かない。
 
 ### `src/admin/actions/*`
 
@@ -134,6 +147,18 @@ admin mutation と domain action を置く。
 - `shutdown.ts`: shutdown initiation。
 
 actions は `Request` や Fresh context に依存しない。入力は plain object、出力は plain result object または domain error とする。
+
+### `src/admin/http/log_stream.ts`
+
+Fresh admin API と Bearer API が共有する logs SSE `Response` helper を置く。`createLogStreamResponse()` は SSE headers と `ReadableStream` を組み立てる HTTP helper であり、read model ではない。
+
+既存 `src/admin/logs.ts` は `parseLogLimit()`、`getLogs()`、`createLogStreamResponse()` の export 名を維持する wrapper として残す。
+
+### top-level 互換 files
+
+`src/admin/health.ts`、`config_view.ts`、`connections.ts`、`logs.ts`、`throughput.ts`、`pipeline_draft.ts`、`pipeline_simulator.ts` は既存 import を壊さないために残す。実体移動後は `src/admin/read_models/*`、`src/admin/actions/*`、`src/admin/http/*` への wrapper として扱う。
+
+`src/admin/connections.ts` は read model と action の両方を re-export する compatibility facade になる。`src/admin/pipeline_draft.ts` は `src/admin/actions/pipeline_draft.ts` の facade、`src/admin/pipeline_simulator.ts` は `src/admin/actions/playground.ts` の simulation export facade として残す。
 
 ### `src/admin/server.ts`
 
@@ -195,7 +220,7 @@ admin/routes/*.tsx
 | connection single close     | none                                             | `DELETE /connections/:id`              | shared `connections` action, Bearer-only route     |
 | throughput metrics          | `GET /admin/api/metrics/throughput`              | `GET /metrics/throughput`              | shared read model                                  |
 | logs snapshot               | `GET /admin/api/logs`                            | `GET /logs`                            | shared read model                                  |
-| logs stream                 | `GET /admin/api/logs/stream`                     | `GET /logs/stream`                     | shared stream helper                               |
+| logs stream                 | `GET /admin/api/logs/stream`                     | `GET /logs/stream`                     | shared HTTP stream helper                          |
 | blocklist add/delete        | `POST`/`DELETE /admin/api/blocklist/{pubkey,ip}` | `POST`/`DELETE /blocklist/{pubkey,ip}` | shared `blocklist` action                          |
 | config reload               | `POST /admin/api/reload`                         | `POST /reload`                         | shared `reload` action, different response shape   |
 | shutdown                    | `POST /admin/api/shutdown`                       | `POST /shutdown`                       | shared `shutdown` action, different response shape |
@@ -261,12 +286,16 @@ auth failure は現行どおり、page route は login redirect、Fresh API は 
 
 ### Phase 4: read model を `src/admin/read_models` へ移す
 
-`src/admin/health.ts`、`src/admin/config_view.ts`、`src/admin/connections.ts`、`src/admin/logs.ts`、`src/admin/throughput.ts` の実体を `src/admin/read_models/*` へ移す。既存 top-level files は同じ export 名を維持する wrapper にする。
+`src/admin/health.ts`、`src/admin/config_view.ts`、`src/admin/connections.ts`、`src/admin/logs.ts`、`src/admin/throughput.ts` の読み取り専用実体を `src/admin/read_models/*` へ移す。既存 top-level files は同じ export 名を維持する wrapper にする。
 
 完了条件:
 
 - `src/admin/read_models/health.ts`、`config_view.ts`、`connections.ts`、`logs.ts`、`throughput.ts` に実体がある。
+- `src/admin/read_models/connections.ts` は `AdminConnectionDto`、`toAdminConnectionDto()`、`getConnections()` だけを持つ。
+- `src/admin/read_models/logs.ts` は `parseLogLimit()` と `getLogs()` だけを持つ。
 - 既存 `src/admin/health.ts`、`config_view.ts`、`connections.ts`、`logs.ts`、`throughput.ts` は wrapper として残り、既存 import を壊さない。
+- `closeConnection()` と `closeConnectionBatch()` は Phase 5 まで top-level `src/admin/connections.ts` に残し、Phase 5 で `src/admin/actions/connections.ts` へ移す。
+- `createLogStreamResponse()` は read model に移さず、Phase 4 で `src/admin/http/log_stream.ts` に移す。既存 `src/admin/logs.ts` は同じ export 名を wrapper として残す。
 - shared read model は raw snapshot を返し、Fresh API と Bearer API の HTTP payload shape は adapter 側 projection で維持される。
 - `src/admin/connections.test.ts`、`src/admin/logs.test.ts`、`src/admin/service.test.ts`、`src/admin/server.test.ts` が通る。
 
@@ -277,7 +306,8 @@ auth failure は現行どおり、page route は login redirect、Fresh API は 
 完了条件:
 
 - `admin/http/api_routes.ts` が body/params/query parse と response 変換だけを担当する。
-- connection batch disconnect、pipeline YAML 更新、draft normalize、playground normalize、blocklist mutation、reload、shutdown は `src/admin/actions/*` にある。
+- single close、connection batch disconnect、pipeline draft read/write/normalize、pipeline YAML 更新、playground simulation、blocklist mutation、reload、shutdown は `src/admin/actions/*` にある。
+- 既存 `src/admin/pipeline_draft.ts` と `src/admin/pipeline_simulator.ts` は wrapper として残り、`admin/api_routes.test.ts` と `src/admin/service.ts` の既存 import/export を壊さない。
 - `admin/api_routes.test.ts` が通る。
 - pipeline save failure 時に config file が unchanged である既存保証が通る。
 
@@ -290,6 +320,7 @@ auth failure は現行どおり、page route は login redirect、Fresh API は 
 - Fresh admin API と Bearer API の既存で重なる処理の重複実装がなくなる。
 - Bearer health endpoint は shared health snapshot を使いつつ、既存 Bearer payload shape を adapter projection で維持する。
 - Bearer-only の `DELETE /connections/:id` と shared の `POST /connections/disconnect-batch` は同じ `src/admin/actions/connections.ts` を使う。
+- Fresh と Bearer の logs stream endpoint は `src/admin/http/log_stream.ts` を使い、read model file は `Response` object を作らない。
 - `pipeline-draft`、`pipelines`、`playground`、Prometheus text export、blocklist list の Bearer route は追加されない。
 - `src/admin/server.test.ts` が通る。
 - `mod.ts` の public export は互換維持される。
@@ -333,7 +364,9 @@ deno task test
 - `admin/http/*` が HTTP adapter と middleware を担う。
 - `admin/pages/*` が authenticated page route registration を担う。
 - `src/admin/read_models/*` が読み取りモデルの実体を担い、既存 top-level read model files は互換 wrapper になっている。
+- logs SSE `Response` helper は `src/admin/http/log_stream.ts` にあり、read model に置かれていない。
 - `src/admin/actions/*` が mutation と domain action を担う。
+- `src/admin/pipeline_draft.ts` と `src/admin/pipeline_simulator.ts` は互換 wrapper として残っている。
 - Fresh admin API と `src/admin/server.ts` の Bearer API が、既存で重なる処理について共通 actions/read models を使う。
 - Bearer health endpoint の payload shape は既存互換を維持している。
 - Fresh-only endpoint は Bearer API に追加されていない。
