@@ -193,6 +193,49 @@ Deno.test('pipeline save route persists posted pipelines and reloads runtime', a
   await Deno.remove(configPath);
 });
 
+Deno.test('pipeline save route preserves env placeholders outside pipelines', async () => {
+  const app = new RecordedRoutes();
+  const state = makeState();
+  const configPath = await Deno.makeTempFile({ suffix: '.yaml' });
+  let reloadedYaml = '';
+  state.configPath = configPath;
+  state.config.admin = { enabled: true, auth_token: 'expanded-admin-token' };
+  state.config.infra = { redis: { url: 'redis://expanded-secret' } };
+  state.reloadFn = (yaml) => {
+    reloadedYaml = yaml;
+    state.config = parseYaml(yaml) as AdminState['config'];
+    return Promise.resolve();
+  };
+  await Deno.writeTextFile(
+    configPath,
+    'server:\n  port: 3000\n  upstream_relay: ws://localhost:7777\nadmin:\n  enabled: true\n  auth_token: "${ADMIN_TOKEN}"\ninfra:\n  redis:\n    url: "${REDIS_URL}"\npipelines:\n  client:\n    - policy: accept\n  server:\n    - policy: accept\n',
+  );
+  registerAdminApiRoutes(app, '/admin', state);
+
+  const handler = app.postRoutes.get('/admin/api/pipelines');
+  assertExists(handler);
+  const res = await handler(makeContext('/admin/api/pipelines', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      pipelines: {
+        client: [{ policy: 'write-guard', config: { require_auth: true } }],
+        server: [{ policy: 'accept' }],
+      },
+    }),
+  }));
+
+  const persistedYaml = await Deno.readTextFile(configPath);
+  assertEquals(res.status, 200);
+  assertEquals(reloadedYaml, persistedYaml);
+  assertEquals(persistedYaml.includes('${ADMIN_TOKEN}'), true);
+  assertEquals(persistedYaml.includes('${REDIS_URL}'), true);
+  assertEquals(persistedYaml.includes('expanded-admin-token'), false);
+  assertEquals(persistedYaml.includes('redis://expanded-secret'), false);
+
+  await Deno.remove(configPath);
+});
+
 Deno.test('pipeline save route reports not configured before reading request body', async () => {
   const app = new RecordedRoutes();
   const state = makeState();
