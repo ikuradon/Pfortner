@@ -42,41 +42,49 @@
 
 ## Admin Server
 
-`admin/main.ts` は Fresh app の assembly、login/logout glue、middleware 接続に集中する。
+`admin/main.ts` は compatibility entrypoint であり、実体は `admin/app/create_admin_app.ts` の `createAdminApp()` に delegate する。Fresh app の assembly は `admin/app/*` に集約する。
 
-- `admin/security.ts`: cookie credential、login redirect/cookie、same-origin/CSRF 判定
-- `admin/static_files.ts`: static path resolution、content type、cache-control、file cache
-- `admin/page_routes.ts`: authenticated Fresh page route registration
-- `admin/api_routes.ts`: Admin JSON/SSE/mutation API route registration
-- `admin/route_types.ts`: route registrar が必要とする最小 app interface
+- `admin/app/create_admin_app.ts`: Fresh `App` composition、middleware 接続、route registration。
+- `admin/app/fresh_runtime.ts`: programmatic Fresh app が返す response へ runtime marker を補う response adapter。
+- `admin/app/island_build_cache.ts`: Fresh `ProdBuildCache` へ admin client entry と island chunk URL を登録する manifest glue。
+- `admin/app/dashboard_model.ts`: Dashboard SSR 用の read model shaping。
+- `admin/http/*`: HTTP adapter/middleware layer。auth middleware、login routes、static middleware、Admin API route registration、JSON response helper をここに置く。
+- `admin/pages/*`: authenticated page route registration と renderer composition。`admin/pages/page_routes.ts` が route map を持ち、`admin/pages/renderers.tsx` が page renderer を作る。
+- `admin/routes/*.tsx`: Fresh page DOM の source of truth。
+- `admin/api_routes.ts` と `admin/page_routes.ts`: 既存 import を残す compatibility facades。
+- `admin/security.ts`、`admin/static_files.ts`、`admin/route_types.ts`: HTTP layer から共有される auth/static/route support。
 
-`admin/main.ts` に新しい Admin API の business logic を追加しない。API の計算や read model は `src/admin/*` に置き、`admin/api_routes.ts` は HTTP 変換に留める。
+`admin/app/*` と `admin/http/*` に新しい Admin API の business logic を追加しない。API の計算や read model は `src/admin/read_models/*`、mutation は `src/admin/actions/*` に置き、HTTP route は request/response 変換に留める。
 
 ## Admin Services
 
-`src/admin/service.ts` は互換用 barrel であり、実装は以下に分かれる。
+`src/admin/read_models/*` は state から read-only snapshot を作る module、`src/admin/actions/*` は mutation/domain action module である。top-level `src/admin/*.ts` service files は compatibility facades として残し、新しい実装の source of truth は subdirectory 側に置く。
 
-- `src/admin/state.ts`: `AdminServiceState`
-- `src/admin/config_view.ts`: secret masking
-- `src/admin/health.ts`: simple/detail health response
-- `src/admin/connections.ts`: Admin connection DTO と close 操作
-- `src/admin/logs.ts`: log limit、buffer read、SSE stream response
-- `src/admin/throughput.ts`: throughput read model
-- `src/admin/pipeline_simulator.ts`: Playground pipeline simulation
+- `src/admin/state.ts`: shared `AdminServiceState`。
+- `src/admin/read_models/health.ts`: simple/detail health response。
+- `src/admin/read_models/connections.ts`: Admin connection DTO。
+- `src/admin/read_models/logs.ts`: log limit と buffer read model。
+- `src/admin/read_models/config_view.ts`: secret masking。
+- `src/admin/read_models/throughput.ts`: throughput snapshot。
+- `src/admin/actions/connections.ts`: connection close/disconnect batch。
+- `src/admin/actions/blocklist.ts`: blocklist add/delete/list mutation。
+- `src/admin/actions/pipelines.ts`、`pipeline_draft.ts`、`playground.ts`、`reload.ts`、`shutdown.ts`: Pipeline Workbench、config reload、shutdown の domain actions。
+- `src/admin/http/log_stream.ts`: Admin logs SSE 用の shared response helper。Fresh route と legacy bearer handler の両方から使う。
+- `src/admin/service.ts`: compatibility barrel。`src/admin/connections.ts`、`logs.ts`、`health.ts`、`config_view.ts`、`throughput.ts`、`pipeline_simulator.ts` も既存 import のための compatibility facade。
+- `src/admin/server.ts`: bearer-token JSON/SSE handler の compatibility surface。内部では read model/action/log stream helper を使う。
 
-新規 code は、互換が必要な場合を除いて `src/admin/service.ts` ではなく実体 module を import する。
+新規 code は、互換が必要な場合を除いて top-level service facade ではなく `src/admin/read_models/*`、`src/admin/actions/*`、`src/admin/http/log_stream.ts` を直接 import する。
 
 ## Admin UI
 
-Authenticated `/admin/*` page route は Fresh-rendered page を返す。`/admin/login` も Fresh `ctx.render()` を通る SSR page として扱う。
+Fresh 2.x + Preact が main port 上の `/admin` を serve する。Authenticated `/admin/*` page route は Fresh-rendered page を返し、`/admin/login` も Fresh SSR page として扱う。source client logic は `admin/client/*` と `admin/islands/*` に置き、`admin/static/*` は URL-addressed output または static asset を基本とする。例外として legacy helper の `admin/static/dom.js` は同階層の regression test のため残すが、新規 runtime code から import しない。
 
 - `admin/components/Sidebar.tsx`: shared sidebar と `Layout`。`body` に `f-client-nav` を付け、sidebar を Fresh `Partial` の `admin-sidebar`、`main` 内を `admin-content` として差し替え対象にする。
-- `admin/page_routes.ts`: `/admin/`, `/admin/connections`, `/admin/pipelines`, `/admin/metrics`, `/admin/blocklist`, `/admin/config`, `/admin/logs` を page renderer map に登録する。
+- `admin/pages/page_routes.ts`: `/admin/`, `/admin/connections`, `/admin/pipelines`, `/admin/metrics`, `/admin/blocklist`, `/admin/config`, `/admin/logs` を page renderer map に登録する。
 - `admin/routes/*.tsx`: page DOM の source of truth。
-- `admin/static/dom.js`: shared DOM helper。
 - `admin/client/fresh_nav.js`: programmatic Fresh App で空の client entry が出ることを避ける admin-local partial navigation runtime の source。Fresh の partial marker を使い、admin island static chunk mount を navigation 後に呼び直す。layout-level behavior として theme toggle を mount し、Dashboard page の polling/rendering、Connections page の fetch/filter/disconnect behavior、Metrics page の chart/raw viewer behavior、Logs page の info/fallback/SSE behavior、Config page の read/reload behavior、Blocklist page の add/delete/list behavior も client entry 側で初期化する。標準 Fresh build へ移すまでは、この file が `f-client-nav` / `Partial` と hand-written island chunk loading の互換 bridge source である。
 - `admin/static/fresh_nav.js`: `admin/client/fresh_nav.js` から `deno task build:admin-assets` で生成する URL-addressed client entry artifact。`/admin/static/fresh_nav.js` という public URL は Fresh SSR の `ProdBuildCache` と browser preload のために残すが、source of truth ではない。
-- `admin/fresh_islands.ts`: `@fresh/core/internal` `ProdBuildCache` を使い、programmatic `/admin` app の client entry と island chunk URL を Fresh SSR に登録する。これは chunk URL の manifest であり、browser bundle は生成しない。
+- `admin/fresh_islands.ts`: 既存 import 向け compatibility facade。実体は `admin/app/island_build_cache.ts` で、`@fresh/core/internal` `ProdBuildCache` を使い、programmatic `/admin` app の client entry と island chunk URL を Fresh SSR に登録する。これは chunk URL の manifest であり、browser bundle は生成しない。
 - `admin/islands/PipelineWorkbench.tsx`: Pipeline Workbench の Fresh island composition root。SSR initial graph props、direction state、toolbar/palette/canvas/modal composition、save/load/publish/playground action dispatch を担う。
 - `admin/islands/PipelineWorkbench.browser.tsx`: `PipelineWorkbench.tsx` を browser で mount するための adapter source。`scripts/build_admin_islands.ts` / `deno task build:admin-assets` で `/admin/static/islands/PipelineWorkbench.js` へ bundle し、Fresh boot props を decode して SSR placeholder を Preact mount point に差し替える。
 - `admin/islands/pipeline/*`: graph canvas、toolbar、palette、modals、API client、reducer、viewport/minimap/canvas interaction hook、keyboard hook。

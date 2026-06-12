@@ -49,10 +49,9 @@ Configured in `deno.json`: 2-space indent, 120-char line width, semicolons requi
 - npm packages (ajv, maxmind): use `const Mod = (imported as any).default ?? imported` for CJS/ESM compat
 - RateLimitPolicy/SpamFilterPolicy have module-level global state (`sharedCounters`, `seenEventIds`) — call `destroy()` between tests to avoid state leak
 - `initialize()` methods: do NOT use `async` if only returning `Promise.resolve()` — lint `require-await` will fail
-- Client-side JS (`admin/static/*.js`): use `createElement`/`textContent` only, never `innerHTML` (XSS prevention)
+- Client-side JS (`admin/client/*.js`, `admin/islands/**/*.tsx`, and URL-addressed output under `admin/static/*.js`): use `createElement`/`textContent` only, never `innerHTML` (XSS prevention)
 - Static file paths: validate with `resolve()` + `startsWith()`, not string `..` check (path traversal)
-- Shared client utilities in `admin/static/utils.js` (formatUptime, safeFetch) — loaded via `<script>` tag
-- `admin/main.ts` is the Fresh app composition root; static serving, security helpers, page routes, and API routes live in `admin/static_files.ts`, `admin/security.ts`, `admin/page_routes.ts`, and `admin/api_routes.ts`
+- `admin/main.ts` is a compatibility entrypoint that delegates to `admin/app/create_admin_app.ts`; Fresh composition lives in `admin/app/*`, HTTP adapters in `admin/http/*`, and authenticated page registration in `admin/pages/*`
 
 ## Architecture
 
@@ -129,7 +128,7 @@ YAML config loader (`loader.ts`) with env var expansion (`${VAR}`), ajv schema v
 
 ### Admin UI (`admin/`)
 
-Fresh 2.x + Preact serves `/admin` on the main port. Login remains SSR; authenticated pages return the shared `AdminAppShell`, and the browser SPA router renders Dashboard, Connections, Pipelines, Playground, Metrics, Blocklist, Config, and Logs. `admin/static/app.js` only boots the SPA and propagates asset versions; routing is in `admin/static/router.js`; DOM templates are in `admin/static/page_templates.js`; shared DOM helpers are in `admin/static/dom.js`. Admin API read models and mutations are split across `src/admin/health.ts`, `connections.ts`, `logs.ts`, `config_view.ts`, `throughput.ts`, and `pipeline_simulator.ts`; `src/admin/service.ts` is a compatibility barrel.
+Fresh 2.x + Preact serves `/admin` on the main port. `admin/main.ts` delegates to `admin/app/create_admin_app.ts`; `admin/http/*` owns HTTP adapters/middleware, and `admin/pages/*` owns authenticated page route registration. Source client logic remains in `admin/client/*` and `admin/islands/*`; `admin/static/*` is limited to URL-addressed output or static assets. Admin service boundaries are defined by `src/admin/read_models/*`, `src/admin/actions/*`, `src/admin/http/log_stream.ts`, and top-level compatibility facades such as `src/admin/service.ts`.
 
 ### Event System
 
