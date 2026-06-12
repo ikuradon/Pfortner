@@ -49,16 +49,23 @@ function makeContext(
   };
 }
 
-Deno.test('Fresh admin API routes use first-class HTTP JSON helper', async () => {
+Deno.test('Fresh admin API HTTP routes use first-class HTTP JSON helper', async () => {
   const source = await Deno.readTextFile(
-    new URL('./api_routes.ts', import.meta.url),
+    new URL('./http/api_routes.ts', import.meta.url),
   );
 
-  assertEquals(source.includes("import { json } from './http/json.ts';"), true);
+  assertEquals(source.includes("import { json } from './json.ts';"), true);
   assertEquals(
     source.includes("import { json } from '$admin/server.ts';"),
     false,
   );
+});
+
+Deno.test('admin API route compatibility module delegates to HTTP module', async () => {
+  const compat = await import('./api_routes.ts');
+  const http = await import('./http/api_routes.ts');
+
+  assertEquals(compat.registerAdminApiRoutes, http.registerAdminApiRoutes);
 });
 
 Deno.test('API route registrar registers expected admin API surface', () => {
@@ -184,6 +191,23 @@ Deno.test('pipeline save route persists posted pipelines and reloads runtime', a
   assertEquals(body.pipelines.client[0].policy, 'kind-filter');
 
   await Deno.remove(configPath);
+});
+
+Deno.test('pipeline save route reports not configured before reading request body', async () => {
+  const app = new RecordedRoutes();
+  const state = makeState();
+  registerAdminApiRoutes(app, '/admin', state);
+
+  const handler = app.postRoutes.get('/admin/api/pipelines');
+  assertExists(handler);
+  const res = await handler(makeContext('/admin/api/pipelines', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{',
+  }));
+
+  assertEquals(res.status, 500);
+  assertEquals(await res.json(), { error: 'pipeline save not configured' });
 });
 
 Deno.test('pipeline save route leaves config file unchanged when reload validation fails', async () => {

@@ -59,3 +59,8 @@ Deno.test('admin connection read model lives outside the compatibility facade', 
   assertEquals(typeof readModel.getConnections, 'function');
   assertEquals(typeof readModel.closeConnectionBatch, 'undefined');
 });
+
+Deno.test('admin connection actions live outside the compatibility facade', async () => {
+  const actions = await import('./actions/connections.ts');
+  assertEquals(typeof actions.closeConnectionBatch, 'function');
+});

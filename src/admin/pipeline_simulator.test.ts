@@ -42,3 +42,10 @@ Deno.test('admin pipeline simulator uses runtime kind-filter mode schema', async
   assertEquals(result.finalAction, 'reject');
   assertEquals(result.finalResponse, 'kind 4 is not allowed');
 });
+
+Deno.test('admin pipeline simulator facade delegates to playground action module', async () => {
+  const facade = await import('./pipeline_simulator.ts');
+  const action = await import('./actions/playground.ts');
+
+  assertEquals(facade.simulatePipeline, action.simulatePipeline);
+});
