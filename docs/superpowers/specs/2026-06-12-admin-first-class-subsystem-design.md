@@ -183,6 +183,8 @@ Request /admin/*
   -> Response
 ```
 
+logs stream のみ、`admin/http/api_routes.ts` から `src/admin/http/log_stream.ts` を呼び、SSE `Response` を組み立てる。
+
 Bearer API の request flow:
 
 ```text
@@ -192,6 +194,8 @@ Request /*
   -> src/admin/read_models/* または src/admin/actions/*
   -> JSON Response
 ```
+
+Bearer `GET /logs/stream` のみ、`src/admin/server.ts` から `src/admin/http/log_stream.ts` を呼び、SSE `Response` を組み立てる。
 
 UI component と browser interaction の flow:
 
@@ -309,6 +313,7 @@ auth failure は現行どおり、page route は login redirect、Fresh API は 
 - single close、connection batch disconnect、pipeline draft read/write/normalize、pipeline YAML 更新、playground simulation、blocklist mutation、reload、shutdown は `src/admin/actions/*` にある。
 - 既存 `src/admin/pipeline_draft.ts` と `src/admin/pipeline_simulator.ts` は wrapper として残り、`admin/api_routes.test.ts` と `src/admin/service.ts` の既存 import/export を壊さない。
 - `admin/api_routes.test.ts` が通る。
+- `src/admin/service.test.ts` が通り、`src/admin/service.ts` 経由の `simulatePipeline` export が維持される。
 - pipeline save failure 時に config file が unchanged である既存保証が通る。
 
 ### Phase 6: Bearer API を共通 action に寄せる
