@@ -60,6 +60,18 @@ Deno.test('admin main entrypoint delegates to first-class app module', async () 
   assertEquals(main.createAdminApp, appModule.createAdminApp);
 });
 
+Deno.test('admin app composes through first-class HTTP modules', async () => {
+  const jsonModule = await import('./http/json.ts');
+  const authModule = await import('./http/auth_middleware.ts');
+  const loginModule = await import('./http/login_routes.ts');
+  const staticModule = await import('./http/static_middleware.ts');
+
+  assertEquals(typeof jsonModule.json, 'function');
+  assertEquals(typeof authModule.createAdminAuthMiddleware, 'function');
+  assertEquals(typeof loginModule.registerAdminLoginRoutes, 'function');
+  assertEquals(typeof staticModule.createAdminStaticMiddleware, 'function');
+});
+
 Deno.test('admin app auth uses updated state config token', async () => {
   const state = makeState();
   const handler = createAdminApp(state);

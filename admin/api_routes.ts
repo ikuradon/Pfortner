@@ -1,5 +1,4 @@
 import { stringify as stringifyYaml } from '@std/yaml';
-import { json } from '$admin/server.ts';
 import type { AdminState } from '$admin/server.ts';
 import type { PfortnerConfig, PipelineEntry } from '../src/config/loader.ts';
 import {
@@ -19,6 +18,7 @@ import {
   parseLogLimit,
   simulatePipeline,
 } from '$admin/service.ts';
+import { json } from './http/json.ts';
 import type { AdminRouteApp } from './route_types.ts';
 
 export function registerAdminApiRoutes(

@@ -49,6 +49,18 @@ function makeContext(
   };
 }
 
+Deno.test('Fresh admin API routes use first-class HTTP JSON helper', async () => {
+  const source = await Deno.readTextFile(
+    new URL('./api_routes.ts', import.meta.url),
+  );
+
+  assertEquals(source.includes("import { json } from './http/json.ts';"), true);
+  assertEquals(
+    source.includes("import { json } from '$admin/server.ts';"),
+    false,
+  );
+});
+
 Deno.test('API route registrar registers expected admin API surface', () => {
   const app = new RecordedRoutes();
   registerAdminApiRoutes(app, '/admin', makeState());
