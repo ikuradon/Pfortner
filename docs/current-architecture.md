@@ -67,7 +67,7 @@
 - `src/admin/read_models/config_view.ts`: secret masking。
 - `src/admin/read_models/throughput.ts`: throughput snapshot。
 - `src/admin/actions/connections.ts`: connection close/disconnect batch。
-- `src/admin/actions/blocklist.ts`: blocklist add/delete/list mutation。
+- `src/admin/actions/blocklist.ts`: blocklist add/delete/list mutation。Fresh API は strict string validation、Bearer compatibility handler は既存の truthy value / empty path semantics を保つ legacy action を使う。
 - `src/admin/actions/pipelines.ts`、`pipeline_draft.ts`、`playground.ts`、`reload.ts`、`shutdown.ts`: Pipeline Workbench、config reload、shutdown の domain actions。
 - `src/admin/http/log_stream.ts`: Admin logs SSE 用の shared response helper。Fresh route と legacy bearer handler の両方から使う。
 - `src/admin/service.ts`: compatibility barrel。`src/admin/connections.ts`、`logs.ts`、`health.ts`、`config_view.ts`、`throughput.ts`、`pipeline_simulator.ts` も既存 import のための compatibility facade。

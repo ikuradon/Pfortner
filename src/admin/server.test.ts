@@ -175,11 +175,17 @@ Deno.test('Bearer admin blocklist delete uses shared action for non-empty path v
   assertEquals(state.blocklist.ips.has('1.2.3.4'), false);
 });
 
-Deno.test('Bearer admin blocklist delete non-empty paths call shared actions', async () => {
+Deno.test('Bearer admin blocklist routes call shared legacy actions', async () => {
   const source = await Deno.readTextFile(new URL('./server.ts', import.meta.url));
 
-  assertEquals(source.includes('const result = deletePubkey(state.blocklist, pk);'), true);
-  assertEquals(source.includes('const result = deleteIp(state.blocklist, ip);'), true);
+  assertEquals(source.includes('state.blocklist.pubkeys.add'), false);
+  assertEquals(source.includes('state.blocklist.pubkeys.delete'), false);
+  assertEquals(source.includes('state.blocklist.ips.add'), false);
+  assertEquals(source.includes('state.blocklist.ips.delete'), false);
+  assertEquals(source.includes('addLegacyBearerPubkey(state.blocklist, body.pubkey)'), true);
+  assertEquals(source.includes('deleteLegacyBearerPubkey(state.blocklist, pk)'), true);
+  assertEquals(source.includes('addLegacyBearerIp(state.blocklist, body.ip)'), true);
+  assertEquals(source.includes('deleteLegacyBearerIp(state.blocklist, ip)'), true);
 });
 
 Deno.test('admin does not keep legacy deny-list API route', async () => {

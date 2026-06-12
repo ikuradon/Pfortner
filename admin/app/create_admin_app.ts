@@ -1,6 +1,6 @@
 import { App } from '@fresh/core';
 import type { AdminState } from '$admin/server.ts';
-import { registerAdminApiRoutes } from '../api_routes.ts';
+import { registerAdminApiRoutes } from '../http/api_routes.ts';
 import { createAdminAuthMiddleware } from '../http/auth_middleware.ts';
 import { registerAdminLoginRoutes } from '../http/login_routes.ts';
 import { createAdminStaticMiddleware } from '../http/static_middleware.ts';

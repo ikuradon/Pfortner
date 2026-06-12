@@ -7,7 +7,12 @@ import type { UpstreamProbe } from '../connections/upstream-probe.ts';
 import type { ThroughputTracker } from '../infra/throughput-tracker.ts';
 import type { PrometheusMetrics } from '../infra/prometheus.ts';
 import { closeConnection, closeConnectionBatch } from './actions/connections.ts';
-import { addIp, addPubkey, deleteIp, deletePubkey } from './actions/blocklist.ts';
+import {
+  addLegacyBearerIp,
+  addLegacyBearerPubkey,
+  deleteLegacyBearerIp,
+  deleteLegacyBearerPubkey,
+} from './actions/blocklist.ts';
 import { reloadConfig } from './actions/reload.ts';
 import { shutdownAdmin } from './actions/shutdown.ts';
 import { maskSecrets } from './read_models/config_view.ts';
@@ -143,44 +148,28 @@ export function createAdminHandler(state: AdminState): (req: Request) => Promise
     // POST /blocklist/pubkey
     if (method === 'POST' && path === '/blocklist/pubkey') {
       const body = await req.json();
-      if (body.pubkey) {
-        state.blocklist.pubkeys.add(body.pubkey as string);
-        return json({ added: body.pubkey });
-      }
-      const result = addPubkey(state.blocklist, body.pubkey);
+      const result = addLegacyBearerPubkey(state.blocklist, body.pubkey);
       return 'error' in result ? json({ error: result.error }, 400) : json(result);
     }
 
     // DELETE /blocklist/pubkey/:pk
     if (method === 'DELETE' && path.startsWith('/blocklist/pubkey/')) {
       const pk = path.slice('/blocklist/pubkey/'.length);
-      if (pk === '') {
-        state.blocklist.pubkeys.delete(pk);
-        return json({ deleted: pk });
-      }
-      const result = deletePubkey(state.blocklist, pk);
+      const result = deleteLegacyBearerPubkey(state.blocklist, pk);
       return 'error' in result ? json({ error: result.error }, 400) : json(result);
     }
 
     // POST /blocklist/ip
     if (method === 'POST' && path === '/blocklist/ip') {
       const body = await req.json();
-      if (body.ip) {
-        state.blocklist.ips.add(body.ip as string);
-        return json({ added: body.ip });
-      }
-      const result = addIp(state.blocklist, body.ip);
+      const result = addLegacyBearerIp(state.blocklist, body.ip);
       return 'error' in result ? json({ error: result.error }, 400) : json(result);
     }
 
     // DELETE /blocklist/ip/:ip
     if (method === 'DELETE' && path.startsWith('/blocklist/ip/')) {
       const ip = path.slice('/blocklist/ip/'.length);
-      if (ip === '') {
-        state.blocklist.ips.delete(ip);
-        return json({ deleted: ip });
-      }
-      const result = deleteIp(state.blocklist, ip);
+      const result = deleteLegacyBearerIp(state.blocklist, ip);
       return 'error' in result ? json({ error: result.error }, 400) : json(result);
     }
 
