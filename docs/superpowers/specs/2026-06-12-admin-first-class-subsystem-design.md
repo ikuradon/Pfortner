@@ -119,7 +119,7 @@ authenticated page route の登録と page renderer mapping を担当する。
 
 ### `src/admin/read_models/*`
 
-admin UI と Bearer API が参照する読み取りモデルを置く。現在の `src/admin/health.ts`、`config_view.ts`、`connections.ts`、`logs.ts`、`throughput.ts` はこの役割に近い。移行時は path を急に変えず、必要なら wrapper export で段階移行する。
+admin UI と Bearer API が参照する読み取りモデルを置く。現在の `src/admin/health.ts`、`config_view.ts`、`connections.ts`、`logs.ts`、`throughput.ts` はこの役割に近い。移行時は `src/admin/read_models/*` に実体を移し、既存 top-level files は同じ export 名を維持する wrapper にする。
 
 ### `src/admin/actions/*`
 
@@ -186,8 +186,8 @@ admin/routes/*.tsx
 
 | Capability                  | Fresh admin API                                  | Bearer API                             | Refactor rule                                      |
 | --------------------------- | ------------------------------------------------ | -------------------------------------- | -------------------------------------------------- |
-| health summary              | `GET /admin/api/health`                          | `GET /health`                          | shared read model                                  |
-| health detail               | `GET /admin/api/health/detail`                   | `GET /health/detail`                   | shared read model                                  |
+| health summary              | `GET /admin/api/health`                          | `GET /health`                          | shared health snapshot + adapter projection        |
+| health detail               | `GET /admin/api/health/detail`                   | `GET /health/detail`                   | shared health snapshot + adapter projection        |
 | masked config               | `GET /admin/api/config`                          | `GET /config`                          | shared read model                                  |
 | plugin list                 | `GET /admin/api/plugins`                         | `GET /plugins`                         | shared read model                                  |
 | connection list             | `GET /admin/api/connections`                     | `GET /connections`                     | shared read model                                  |
@@ -204,6 +204,19 @@ admin/routes/*.tsx
 | pipeline draft              | `GET`/`POST /admin/api/pipeline-draft`           | none                                   | Fresh-only                                         |
 | pipeline save               | `POST /admin/api/pipelines`                      | none                                   | Fresh-only                                         |
 | playground evaluate         | `POST /admin/api/playground/evaluate`            | none                                   | Fresh-only                                         |
+
+## Read Model Projection Rule
+
+shared read model は内部 snapshot を返す。HTTP payload を完全共通化するものではない。HTTP adapter は、その snapshot を既存 response shape へ projection する。
+
+health endpoint は特に互換を固定する。
+
+- Fresh `GET /admin/api/health` は既存 Fresh API payload を維持する。
+- Bearer `GET /health` は `status`、`connections`、`pressure` を維持する。
+- Fresh `GET /admin/api/health/detail` は既存 Fresh API payload を維持する。
+- Bearer `GET /health/detail` は `uptime_seconds`、`connections`、`upstream`、`memory` の既存 shape と fallback behavior を維持する。
+
+Phase 6 では、Bearer health response を `src/admin/read_models/health.ts` の raw result に置き換えない。state inspection logic だけを共有し、`src/admin/server.test.ts` を payload compatibility gate として維持する。
 
 ## Error Handling
 
@@ -246,30 +259,42 @@ auth failure は現行どおり、page route は login redirect、Fresh API は 
 - `admin/routes/*.tsx` はそのまま page DOM source of truth として残る。
 - `admin/page_routes.test.ts` と `admin/main.test.ts` が通る。
 
-### Phase 4: API action を `src/admin/actions` へ移す
+### Phase 4: read model を `src/admin/read_models` へ移す
+
+`src/admin/health.ts`、`src/admin/config_view.ts`、`src/admin/connections.ts`、`src/admin/logs.ts`、`src/admin/throughput.ts` の実体を `src/admin/read_models/*` へ移す。既存 top-level files は同じ export 名を維持する wrapper にする。
+
+完了条件:
+
+- `src/admin/read_models/health.ts`、`config_view.ts`、`connections.ts`、`logs.ts`、`throughput.ts` に実体がある。
+- 既存 `src/admin/health.ts`、`config_view.ts`、`connections.ts`、`logs.ts`、`throughput.ts` は wrapper として残り、既存 import を壊さない。
+- shared read model は raw snapshot を返し、Fresh API と Bearer API の HTTP payload shape は adapter 側 projection で維持される。
+- `src/admin/connections.test.ts`、`src/admin/logs.test.ts`、`src/admin/service.test.ts`、`src/admin/server.test.ts` が通る。
+
+### Phase 5: API action を `src/admin/actions` へ移す
 
 `admin/api_routes.ts` の connection batch disconnect、pipeline save、pipeline draft、playground evaluate、blocklist mutation、reload、shutdown を action module へ抽出する。Fresh route registrar の実体は `admin/http/api_routes.ts` へ移し、既存 `admin/api_routes.ts` は wrapper にする。
 
 完了条件:
 
 - `admin/http/api_routes.ts` が body/params/query parse と response 変換だけを担当する。
-- connection batch disconnect、pipeline YAML 更新、draft normalize、playground normalize、blocklist mutation は `src/admin/actions/*` にある。
+- connection batch disconnect、pipeline YAML 更新、draft normalize、playground normalize、blocklist mutation、reload、shutdown は `src/admin/actions/*` にある。
 - `admin/api_routes.test.ts` が通る。
 - pipeline save failure 時に config file が unchanged である既存保証が通る。
 
-### Phase 5: Bearer API を共通 action に寄せる
+### Phase 6: Bearer API を共通 action に寄せる
 
 `src/admin/server.ts` の既存 route handler が `src/admin/actions/*` と read models を使うようにする。Bearer API に Fresh-only endpoint は追加しない。
 
 完了条件:
 
 - Fresh admin API と Bearer API の既存で重なる処理の重複実装がなくなる。
+- Bearer health endpoint は shared health snapshot を使いつつ、既存 Bearer payload shape を adapter projection で維持する。
 - Bearer-only の `DELETE /connections/:id` と shared の `POST /connections/disconnect-batch` は同じ `src/admin/actions/connections.ts` を使う。
 - `pipeline-draft`、`pipelines`、`playground`、Prometheus text export、blocklist list の Bearer route は追加されない。
 - `src/admin/server.test.ts` が通る。
 - `mod.ts` の public export は互換維持される。
 
-### Phase 6: docs と境界テストを更新する
+### Phase 7: docs と境界テストを更新する
 
 `docs/current-architecture.md` と `CLAUDE.md` の admin section を更新する。`admin/import_boundary.test.ts` を追加し、`admin/app/*`、`admin/http/*`、`admin/pages/*`、`admin/static/*` の禁止 import 関係を固定する。
 
@@ -307,8 +332,10 @@ deno task test
 - `admin/app/*` が Fresh app composition を担う。
 - `admin/http/*` が HTTP adapter と middleware を担う。
 - `admin/pages/*` が authenticated page route registration を担う。
+- `src/admin/read_models/*` が読み取りモデルの実体を担い、既存 top-level read model files は互換 wrapper になっている。
 - `src/admin/actions/*` が mutation と domain action を担う。
 - Fresh admin API と `src/admin/server.ts` の Bearer API が、既存で重なる処理について共通 actions/read models を使う。
+- Bearer health endpoint の payload shape は既存互換を維持している。
 - Fresh-only endpoint は Bearer API に追加されていない。
 - 既存 URL、public exports、auth/CSRF/static/login/logout、Pipeline Workbench asset path は変わらない。
 - `docs/current-architecture.md` と `CLAUDE.md` が新構造を説明している。
