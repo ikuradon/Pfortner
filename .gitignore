@@ -3,3 +3,4 @@
 !.env.sample
 docs/superpowers/
 .superpowers/
+.worktrees/
