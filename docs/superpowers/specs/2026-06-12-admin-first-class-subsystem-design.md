@@ -313,6 +313,8 @@ auth failure は現行どおり、page route は login redirect、Fresh API は 
 - single close、connection batch disconnect、pipeline draft read/write/normalize、pipeline YAML 更新、playground simulation、blocklist mutation、reload、shutdown は `src/admin/actions/*` にある。
 - 既存 `src/admin/pipeline_draft.ts` と `src/admin/pipeline_simulator.ts` は wrapper として残り、`admin/api_routes.test.ts` と `src/admin/service.ts` の既存 import/export を壊さない。
 - `admin/api_routes.test.ts` が通る。
+- `src/admin/connections.test.ts` が通り、`src/admin/connections.ts` 経由の `closeConnectionBatch` export が維持される。
+- `src/admin/pipeline_simulator.test.ts` が通り、`src/admin/pipeline_simulator.ts` 経由の `simulatePipeline` export が維持される。
 - `src/admin/service.test.ts` が通り、`src/admin/service.ts` 経由の `simulatePipeline` export が維持される。
 - pipeline save failure 時に config file が unchanged である既存保証が通る。
 
