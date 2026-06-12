@@ -53,6 +53,13 @@ function makeJsonRequest(path: string, method: string, body: unknown): Request {
 
 const legacyDenyListTerm = 'black' + 'list';
 
+Deno.test('admin main entrypoint delegates to first-class app module', async () => {
+  const main = await import('./main.ts');
+  const appModule = await import('./app/create_admin_app.ts');
+
+  assertEquals(main.createAdminApp, appModule.createAdminApp);
+});
+
 Deno.test('admin app auth uses updated state config token', async () => {
   const state = makeState();
   const handler = createAdminApp(state);
