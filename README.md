@@ -1,253 +1,364 @@
 # Pförtner
 
-**Pförtner** (German for "doorman") is a modular Nostr proxy library for the Deno runtime. It sits between Nostr clients and upstream relays, enabling relay administrators to apply policies that filter, rewrite, or inject data in both directions.
+Pförtner is an Admin UI first Nostr relay proxy. Run it in front of an upstream relay, connect Nostr
+clients to Pförtner, and manage filtering, rate limits, routing, authentication requirements, and relay
+operations from the browser.
+
+Pförtner is designed to be used as a server product:
+
+- Pull or build a Docker image.
+- Mount a persistent data directory at `/data`.
+- Open `/admin` to finish first-run setup.
+- Edit policies and operational settings from the Admin UI or `/data/config.yaml`.
 
 ## Features
 
-### Policy System
-
-Create custom policies to control message flow between clients and relays. Policies can:
-
-- Filter messages by type, content, or metadata
-- Rewrite or modify messages on-the-fly
-- Inject additional data into the stream
-- Accept, reject, or pass messages to the next policy in the pipeline
-
-### NIP-42 Authentication
-
-Built-in support for NIP-42 AUTH handling:
-
-- AUTH messages are terminated at the proxy level (never forwarded upstream)
-- Track authenticated client public keys
-- Stash and replay messages after successful authentication
-- Flexible authorization policies based on authenticated identity
-
-### Event System
-
-Subscribe to lifecycle events for fine-grained control:
-
-- Connection events (`clientConnect`, `serverConnect`, etc.)
-- Message events (`clientMsg`, `serverMsg`, etc.)
-- Authentication events (`authSuccess`, `authFailed`)
-- Protocol-specific events (`clientEvent`, `serverEvent`, `serverOk`, etc.)
-
-## Installation
-
-Pförtner is a Deno library. No installation is required—simply import it directly:
-
-```typescript
-import {
-  acceptPolicy,
-  eventSifterPolicy,
-  pfortnerInit,
-} from 'https://raw.githubusercontent.com/ikuradon/Pfortner/main/mod.ts';
-```
+- Nostr WebSocket relay proxy for client-to-relay traffic.
+- Browser Admin UI served on the same port at `/admin`.
+- First-run setup flow that creates a complete pass-through config.
+- Client and server policy pipelines.
+- Pipeline Workbench for editing, testing, drafting, and publishing policy changes.
+- Built-in NIP-42 aware policies.
+- Runtime health endpoint at `/health`.
+- Optional Prometheus metrics at `/metrics`.
+- Local Deno KV backend by default, with Redis support for shared policy state.
+- Docker-first runtime with all durable state stored under `dataDir`.
 
 ## Quick Start
 
-### Basic Setup
-
-1. Clone the repository or create a new Deno project
-2. Choose a writable data directory for local development:
+### Docker Image
 
 ```bash
-mkdir -p .data
-```
-
-3. Run the server:
-
-```bash
-PFORTNER_DATA_DIR=.data deno task serve
-```
-
-The server starts from `src/server/main.ts` on `PFORTNER_LISTEN_PORT` (default: 3000). If
-`config.yaml` is missing from the data directory, the Admin UI at `/admin` starts in setup mode and
-persists the generated config, admin token, and runtime state under that data directory.
-
-### Server Runtime
-
-`deno task serve` uses the dataDir/Admin-first runtime. Set `PFORTNER_DATA_DIR` or pass
-`--data-dir <path>` to choose where bootstrap config, admin token, and local state are stored.
-
-## Environment Variables
-
-Configure the runtime with these environment variables:
-
-| Variable                    | Required | Description                                     | Example    |
-| --------------------------- | -------- | ----------------------------------------------- | ---------- |
-| `PFORTNER_DATA_DIR`         | No       | Data directory for config, token, KV, and state | `/data`    |
-| `PFORTNER_LISTEN_PORT`      | No       | Server listen port                              | `3000`     |
-| `PFORTNER_LISTEN_ADDR`      | No       | Server listen address                           | `[::]`     |
-| `PFORTNER_ADMIN_ENABLED`    | No       | Enable Admin UI setup/runtime routes            | `true`     |
-| `PFORTNER_ADMIN_TOKEN`      | No       | Admin token override                            | `secret`   |
-| `PFORTNER_ADMIN_TOKEN_FILE` | No       | Admin token file path                           | `/token`   |
-| `PFORTNER_LOG_LEVEL`        | No       | Runtime log level                               | `info`     |
-| `PFORTNER_LOG_FORMAT`       | No       | Runtime log format                              | `text`     |
-| `PFORTNER_TRUST_PROXY`      | No       | Trust proxy headers for client IP handling      | `false`    |
-| `PFORTNER_REDIS_URL`        | No       | Redis URL for shared policy state               | `redis://` |
-| `PFORTNER_REDIS_URL_FILE`   | No       | File containing Redis URL                       | `/secret`  |
-| `PFORTNER_REDIS_KEY_PREFIX` | No       | Redis key prefix                                | `pfortner` |
-
-## Creating Custom Policies
-
-A policy is a function that examines a message and decides what to do with it:
-
-```typescript
-import { type Policy } from 'https://raw.githubusercontent.com/ikuradon/Pfortner/main/mod.ts';
-
-const myPolicy: Policy = (message, connectionInfo, options?) => {
-  // Examine the message
-  const [messageType, ...rest] = message;
-
-  // Make a decision
-  if (shouldAccept(message)) {
-    return { message, action: 'accept' }; // Forward and stop pipeline
-  } else if (shouldReject(message)) {
-    return {
-      message,
-      action: 'reject',
-      response: '["NOTICE","Access denied"]', // Optional response to client
-    };
-  } else {
-    return { message, action: 'next' }; // Pass to next policy
-  }
-};
-```
-
-### Policy Actions
-
-- `'accept'` — Forward the message to its destination and stop the pipeline
-- `'reject'` — Drop the message (optionally send a response to the client) and stop the pipeline
-- `'next'` — Pass the message to the next policy in the chain
-
-### Registering Policies
-
-```typescript
-const pfortner = pfortnerInit(UPSTREAM_RELAY, options);
-
-// Client → Relay pipeline
-pfortner.registerClientPipeline([
-  myClientPolicy,
-  [parameterizedPolicy, { option1: 'value' }],
-  acceptPolicy,
-]);
-
-// Relay → Client pipeline
-pfortner.registerServerPipeline([
-  myServerPolicy,
-  acceptPolicy,
-]);
-```
-
-### Built-in Policies
-
-- **acceptPolicy** — Pass-through policy that accepts all messages
-- **eventSifterPolicy** — Filter client→relay and relay→client EVENT messages through EventSifter-compatible sub-policies
-
-## Docker Usage
-
-Build the Docker image:
-
-```bash
-docker build -t pfortner .
-```
-
-Run the container:
-
-```bash
-docker run -p 3000:3000 \
+docker run --name pfortner \
+  -p 3000:3000 \
   -v pfortner-data:/data \
-  pfortner
+  ghcr.io/ikuradon/pfortner:latest
 ```
 
-Or use Docker Compose:
+If you want to provide the Admin token explicitly:
+
+```bash
+docker run --name pfortner \
+  -p 3000:3000 \
+  -v pfortner-data:/data \
+  -e PFORTNER_ADMIN_TOKEN='change-me' \
+  ghcr.io/ikuradon/pfortner:latest
+```
+
+If no token is provided, Pförtner generates one and stores it in `/data/admin-token`.
+
+```bash
+docker exec pfortner cat /data/admin-token
+```
+
+Open the Admin UI:
+
+```text
+http://localhost:3000/admin
+```
+
+Log in with the Admin token, enter the upstream relay URL, and save setup.
+
+```text
+wss://relay.example.com
+```
+
+After setup, connect Nostr clients to:
+
+```text
+ws://localhost:3000
+```
+
+### Docker Compose
 
 ```yaml
 services:
   pfortner:
-    build: .
+    image: ghcr.io/ikuradon/pfortner:latest
+    restart: unless-stopped
     ports:
       - '3000:3000'
     volumes:
       - pfortner-data:/data
+    environment:
+      PFORTNER_LOG_LEVEL: info
+      PFORTNER_LOG_FORMAT: text
 
 volumes:
   pfortner-data:
 ```
 
-## API Reference
+### Build Locally
 
-### `pfortnerInit(upstreamAddress, options?)`
+```bash
+docker build -t pfortner:local .
 
-Creates a proxy instance.
+docker run --name pfortner \
+  -p 3000:3000 \
+  -v pfortner-data:/data \
+  pfortner:local
+```
 
-**Parameters:**
+## First-Run Setup
 
-- `upstreamAddress` (string): WebSocket URL of the upstream relay
-- `options` (object, optional):
-  - `clientIp` (string): Client IP address
-  - `sendAuthOnConnect` (boolean): Send AUTH challenge on connection
-  - `upstreamRawAddress` (string): HTTP URL for relay info endpoint
-  - `allowedAuthTimeDuration` (number): Maximum allowed time difference for AUTH events in the past (seconds, default: 600)
-  - `allowedAuthFutureTimeDuration` (number): Maximum allowed time difference for AUTH events in the future (seconds, default: 60)
-  - `maxAuthAttempts` (number): Maximum number of AUTH attempts per connection (default: 10)
-  - `idleTimeout` (number): Idle timeout duration in seconds (default: 600)
+Pförtner uses a persistent `dataDir`. In Docker, the default is `/data`.
 
-**Returns:** An object with:
+On an empty data directory:
 
-- `createSession(req)` — Upgrade HTTP request to WebSocket session
-- `registerClientPipeline(policies)` — Register client→relay policies
-- `registerServerPipeline(policies)` — Register relay→client policies
-- `on(event, handler)` — Subscribe to lifecycle events
-- `off(event, handler)` — Unsubscribe from events
-- `connectionInfo` — Current connection state (auth status, pubkey, etc.)
-- `sendMessageToClient(message)` — Send a message directly to the client
-- `sendMessageToServer(message)` — Send a message directly to the upstream relay
+- `/admin` opens the setup UI.
+- `/health` returns `{"status":"setup_required"}`.
+- Relay WebSocket traffic returns `503` until setup is complete.
+- Setup requires the Admin token.
 
-Each `pfortnerInit()` result is a per-connection proxy instance. Call `createSession(req)` only once for that
-instance; create a new `pfortnerInit()` instance for each incoming WebSocket client.
+The setup form asks for:
 
-### Event Types
+- upstream relay URL, for example `wss://relay.example.com`
+- relay name
+- relay description
 
-Subscribe to these events using `pfortner.on(event, handler)`:
+When saved, Pförtner writes `/data/config.yaml` and switches to normal relay mode without requiring a
+container restart.
 
-**Connection Events:**
+The generated starter config is pass-through:
 
-- `clientConnect`, `clientDisconnect`, `clientError`
-- `serverConnect`, `serverDisconnect`, `serverError`
+```yaml
+server:
+  upstream_relay: wss://relay.example.com
 
-**Authentication Events:**
+relay_info:
+  name: Pfortner Relay
+  description: ''
 
-- `authSuccess(event)` — Client successfully authenticated
-- `authFailed()` — Client authentication failed
+pipelines:
+  client:
+    - policy: accept
+  server:
+    - policy: accept
+```
 
-**Message Events:**
+## Operating Pförtner
 
-- `clientMsg(message)` — Any message from client
-- `serverMsg(message)` — Any message from server
-- `clientEvent(event)` — EVENT message from client
-- `serverEvent(subscriptionId, event)` — EVENT message from server
-- `clientRequest(subscriptionId, filters)` — REQ message from client
-- `clientClose(subscriptionId)` — CLOSE message from client
-- `serverOk(eventId, accepted, message)` — OK message from server
-- `serverEose(subscriptionId)` — EOSE message from server
-- `serverClosed(subscriptionId, message)` — CLOSED message from server
-- `serverNotice(message)` — NOTICE message from server
+### Endpoints
+
+| Endpoint                                  | Purpose                          |
+| ----------------------------------------- | -------------------------------- |
+| `/admin`                                  | Admin UI                         |
+| `/health`                                 | health status                    |
+| `/metrics`                                | Prometheus metrics, when enabled |
+| `/` with `Accept: application/nostr+json` | NIP-11 relay information         |
+| `/` WebSocket upgrade                     | Nostr relay proxy endpoint       |
+
+### Data Directory
+
+```text
+/data/
+  config.yaml                    # relay and policy configuration
+  admin-token                    # generated or reused Admin token
+  pipeline-workbench.draft.json  # Admin UI draft state
+  kv/
+    pfortner.sqlite3             # local state backend
+  plugins/                       # local external plugins
+  geoip/                         # GeoIP database files
+```
+
+Keep `/data` on persistent storage. Deleting it removes the config, generated Admin token, local backend
+state, and Admin UI drafts.
+
+## Configuration
+
+Pförtner separates startup settings from relay configuration.
+
+Use environment variables for process-level settings and secrets:
+
+- listen address and port
+- Admin UI enablement and token source
+- logging
+- trusted proxy behavior
+- Redis connection
+- data directory location
+
+Use `/data/config.yaml` for relay behavior:
+
+- upstream relay
+- relay metadata
+- auth behavior
+- connection limits
+- shutdown behavior
+- metrics enablement
+- external plugins
+- client and server policy pipelines
+
+### Environment Variables
+
+| Variable                    | Default                  | Description                                                        |
+| --------------------------- | ------------------------ | ------------------------------------------------------------------ |
+| `PFORTNER_DATA_DIR`         | `/data`                  | Durable state directory                                            |
+| `PFORTNER_LISTEN_ADDR`      | `[::]`                   | Listen address                                                     |
+| `PFORTNER_LISTEN_PORT`      | `3000`                   | Listen port                                                        |
+| `PFORTNER_ADMIN_ENABLED`    | `true`                   | Enables `/admin` and Admin API                                     |
+| `PFORTNER_ADMIN_TOKEN`      | unset                    | Admin token value                                                  |
+| `PFORTNER_ADMIN_TOKEN_FILE` | `${dataDir}/admin-token` | Admin token file                                                   |
+| `PFORTNER_LOG_LEVEL`        | `info`                   | `debug`, `info`, `warn`, or `error`                                |
+| `PFORTNER_LOG_FORMAT`       | `text`                   | `text` or `json`                                                   |
+| `PFORTNER_TRUST_PROXY`      | `false`                  | Trust forwarded headers for client IP and Admin CSRF origin checks |
+| `PFORTNER_REDIS_URL`        | unset                    | Redis URL for shared policy state                                  |
+| `PFORTNER_REDIS_URL_FILE`   | unset                    | File containing the Redis URL                                      |
+| `PFORTNER_REDIS_KEY_PREFIX` | unset                    | Redis key prefix                                                   |
+
+Admin token precedence:
+
+1. `PFORTNER_ADMIN_TOKEN`
+2. `PFORTNER_ADMIN_TOKEN_FILE`
+3. generated token at `${dataDir}/admin-token`
+
+Set `PFORTNER_ADMIN_ENABLED=false` only after `/data/config.yaml` already exists. An empty data directory
+cannot be configured without the Admin UI.
+
+### Config File
+
+`/data/config.yaml` intentionally does not own listen port, Admin token, Redis URL, or logging level.
+Those values belong to the runtime environment.
+
+Example:
+
+```yaml
+server:
+  upstream_relay: wss://relay.example.com
+  upstream_raw_url: https://relay.example.com
+  idle_timeout: 600
+  connections:
+    max: 10000
+    max_per_ip: 50
+    pressure:
+      soft_limit_percent: 90
+      auth_grace_period: 30
+  shutdown:
+    drain_timeout: 10
+    force_after: 30
+
+auth:
+  enabled: true
+  send_on_connect: false
+  max_attempts: 10
+  allowed_time_duration: 600
+  allowed_future_time_duration: 60
+
+relay_info:
+  name: Pfortner Relay
+  description: Nostr relay proxy powered by Pförtner
+  contact: admin@example.com
+
+infra:
+  http:
+    default_timeout: 10
+    user_agent: pfortner
+  metrics:
+    prometheus:
+      enabled: true
+
+pipelines:
+  client:
+    - policy: write-guard
+      config:
+        require_auth: true
+    - policy: rate-limit
+      config:
+        scope: connection
+        window: 60
+        max_events: 60
+        max_requests: 120
+    - policy: accept
+  server:
+    - policy: accept
+```
+
+## Admin UI
+
+The Admin UI is available at `/admin`.
+
+- Dashboard: relay health and runtime status.
+- Connections: inspect and disconnect active connections.
+- Pipelines: edit, test, draft, and publish policy pipelines.
+- Metrics: throughput and Prometheus output.
+- Blocklist: manage blocked pubkeys and IPs.
+- Config: inspect masked config and reload changes.
+- Logs: view buffered logs and live log stream.
+
+## Policies
+
+Policies are applied in order. A policy returns one of three actions:
+
+- `accept`: forward the message and stop the pipeline.
+- `reject`: block the message and stop the pipeline.
+- `next`: pass the message to the next policy.
+
+Pförtner has two pipeline directions:
+
+- `client`: messages from Nostr clients to the upstream relay.
+- `server`: messages from the upstream relay back to clients.
+
+Built-in policy plugins:
+
+- `accept`
+- `kind-filter`
+- `write-guard`
+- `protected-event`
+- `rate-limit`
+- `spam-filter`
+- `content-filter`
+- `pubkey-acl`
+- `ip-filter`
+- `when`
+- `match`
+- `route`
+
+## Library API
+
+Pförtner also exposes a Deno library API for embedding and tests.
+
+```typescript
+import {
+  acceptPolicy,
+  pfortnerInit,
+  type Policy,
+} from 'https://raw.githubusercontent.com/ikuradon/Pfortner/main/mod.ts';
+
+const myPolicy: Policy = (message) => {
+  if (message[0] === 'EVENT') return { message, action: 'next' };
+  return { message, action: 'accept' };
+};
+
+const pfortner = pfortnerInit('wss://relay.example.com');
+
+pfortner.registerClientPipeline([
+  myPolicy,
+  acceptPolicy,
+]);
+
+pfortner.registerServerPipeline([
+  acceptPolicy,
+]);
+```
+
+Each `pfortnerInit()` instance represents one client connection. Create a new instance for each incoming
+WebSocket client.
 
 ## Development
 
 ```bash
-# Development server with file watching
-deno task dev
-
-# Run tests
+deno fmt --check --config deno.json
+deno lint --config deno.json
+deno check mod.ts
 deno task test
+deno task build:admin-assets
+docker build -t pfortner:local .
+```
 
-# Format code
-deno fmt
+For local server development:
 
-# Lint code
-deno lint
+```bash
+mkdir -p .data
+PFORTNER_DATA_DIR=.data deno task dev
 ```
 
 ## License
