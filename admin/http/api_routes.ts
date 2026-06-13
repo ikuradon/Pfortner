@@ -19,6 +19,7 @@ import {
   maskSecrets,
   parseLogLimit,
 } from '$admin/service.ts';
+import { getRuntimeInfo } from '$admin/read_models/runtime.ts';
 import { createLogStreamResponse } from '$admin/http/log_stream.ts';
 import { json } from './json.ts';
 import type { AdminRouteApp } from '../route_types.ts';
@@ -38,6 +39,10 @@ export function registerAdminApiRoutes(
 
   app.get(`${adminPath}/api/health/detail`, (_ctx) => {
     return json(getHealthDetail(state));
+  });
+
+  app.get(`${adminPath}/api/runtime`, (_ctx) => {
+    return json(getRuntimeInfo(state));
   });
 
   app.get(`${adminPath}/api/connections`, (_ctx) => {

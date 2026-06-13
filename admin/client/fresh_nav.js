@@ -1256,17 +1256,13 @@ function clearRenderedLogs() {
 }
 
 async function fetchLogsInfoForPage() {
-  const [configData, healthData] = await Promise.all([
-    fetchJsonOrNull('/admin/api/config'),
+  const [runtimeData, healthData] = await Promise.all([
+    fetchJsonOrNull('/admin/api/runtime'),
     fetchJsonOrNull('/admin/api/health/detail'),
   ]);
   if (typeof document === 'undefined') return;
 
-  const logLevel = configData?.infra?.metrics?.logging?.level ||
-    configData?.log?.level ||
-    configData?.logging?.level ||
-    configData?.log_level ||
-    '—';
+  const logLevel = runtimeData?.logging?.level || '—';
 
   const logLevelElement = document.getElementById('log-level-display');
   if (logLevelElement) logLevelElement.textContent = String(logLevel);

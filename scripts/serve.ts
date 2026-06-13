@@ -69,8 +69,22 @@ if (configPath) {
     }
   }
 
+  const adminAuth: AdminState['adminAuth'] = config.admin?.enabled
+    ? { enabled: true, path: '/admin', token: config.admin.auth_token ?? '', tokenSource: 'env' }
+    : { enabled: false, path: '/admin' };
+  const runtime: AdminState['runtime'] = {
+    logging: {
+      level: config.infra?.metrics?.logging?.level ?? 'info',
+      format: config.infra?.metrics?.logging?.format ?? 'json',
+    },
+    trustProxy: config.admin?.trust_proxy === true,
+    admin: adminAuth.enabled ? { enabled: true, tokenSource: adminAuth.tokenSource } : { enabled: false },
+  };
+
   const adminState: AdminState = {
     config,
+    adminAuth,
+    runtime,
     pluginNames: registry.listNames(),
     connections: new Map(),
     blocklist: { pubkeys: new Set(), ips: new Set() },

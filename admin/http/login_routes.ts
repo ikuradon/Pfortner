@@ -10,13 +10,19 @@ export function registerAdminLoginRoutes(
   state: AdminState,
 ): void {
   app.get(`${adminPath}/login`, (ctx) => {
+    if (!state.adminAuth.enabled) {
+      return ctx.render(h(LoginPage as any, { error: 'Admin is disabled' }));
+    }
     return ctx.render(h(LoginPage as any, {}));
   });
 
   app.post(`${adminPath}/login`, async (ctx) => {
     const form = await ctx.req.formData();
     const token = form.get('token');
-    if (typeof token === 'string' && token === state.config.admin?.auth_token) {
+    if (!state.adminAuth.enabled) {
+      return ctx.render(h(LoginPage as any, { error: 'Admin is disabled' }));
+    }
+    if (typeof token === 'string' && token === state.adminAuth.token) {
       const next = new URL(ctx.req.url).searchParams.get('next');
       const safeNext = getSafeLoginNext(next, adminPath);
       return new Response(null, {

@@ -51,7 +51,10 @@ export function createAdminHandler(state: AdminState): (req: Request) => Promise
     // Auth check
     const authHeader = req.headers.get('Authorization');
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
-    if (!token || token !== state.config.admin?.auth_token) {
+    if (!state.adminAuth.enabled) {
+      return json({ error: 'admin disabled' }, 404);
+    }
+    if (!token || token !== state.adminAuth.token) {
       return json({ error: 'unauthorized' }, 401);
     }
 

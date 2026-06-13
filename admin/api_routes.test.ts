@@ -32,6 +32,12 @@ const makeState = (): AdminState => ({
       server: [{ policy: 'accept' }],
     },
   },
+  adminAuth: { enabled: true, path: '/admin', token: 'test-token', tokenSource: 'env' },
+  runtime: {
+    logging: { level: 'info', format: 'text' },
+    trustProxy: false,
+    admin: { enabled: true, tokenSource: 'env' },
+  },
   pluginNames: ['accept'],
   connections: new Map(),
   blocklist: { pubkeys: new Set<string>(), ips: new Set<string>() },
@@ -73,12 +79,36 @@ Deno.test('API route registrar registers expected admin API surface', () => {
   registerAdminApiRoutes(app, '/admin', makeState());
 
   assertEquals(app.getRoutes.has('/admin/api/health'), true);
+  assertEquals(app.getRoutes.has('/admin/api/runtime'), true);
   assertEquals(app.getRoutes.has('/admin/api/connections'), true);
   assertEquals(app.getRoutes.has('/admin/api/logs/stream'), true);
   assertEquals(app.postRoutes.has('/admin/api/pipelines'), true);
   assertEquals(app.postRoutes.has('/admin/api/playground/evaluate'), true);
   assertEquals(app.postRoutes.has('/admin/api/blocklist/ip'), true);
   assertEquals(app.deleteRoutes.has('/admin/api/blocklist/pubkey/:pk'), true);
+});
+
+Deno.test('API route registrar exposes runtime read model without secrets', async () => {
+  const app = new RecordedRoutes();
+  const state = makeState();
+  state.adminAuth = { enabled: true, path: '/admin', token: 'runtime-token', tokenSource: 'file' };
+  state.runtime = {
+    logging: { level: 'warn', format: 'json' },
+    trustProxy: true,
+    admin: { enabled: true, tokenSource: 'file' },
+  };
+  registerAdminApiRoutes(app, '/admin', state);
+
+  const handler = app.getRoutes.get('/admin/api/runtime');
+  assertExists(handler);
+  const res = await handler(makeContext('/admin/api/runtime', { method: 'GET' }));
+
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), {
+    logging: { level: 'warn', format: 'json' },
+    trust_proxy: true,
+    admin: { enabled: true, token_source: 'file' },
+  });
 });
 
 Deno.test('API route registrar blocklist handlers mutate runtime state', async () => {

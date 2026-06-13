@@ -20,6 +20,12 @@ const makeState = (): AdminState => ({
     admin: { enabled: true, port: 9091, auth_token: 'test-token' },
     pipelines: { client: [{ policy: 'accept' }], server: [{ policy: 'accept' }] },
   },
+  adminAuth: { enabled: true, path: '/admin', token: 'test-token', tokenSource: 'env' },
+  runtime: {
+    logging: { level: 'info', format: 'text' },
+    trustProxy: false,
+    admin: { enabled: true, tokenSource: 'env' },
+  },
   pluginNames: ['accept', 'kind-filter', 'write-guard'],
   connections: new Map<string, ManagedConnection>(),
   blocklist: { pubkeys: new Set<string>(), ips: new Set<string>() },
@@ -61,7 +67,7 @@ Deno.test('admin rejects wrong token', async () => {
   assertEquals(res.status, 401);
 });
 
-Deno.test('admin auth uses updated state config token', async () => {
+Deno.test('admin auth ignores runtime config token changes', async () => {
   const state = makeState();
   const handler = createAdminHandler(state);
 
@@ -73,8 +79,27 @@ Deno.test('admin auth uses updated state config token', async () => {
   const oldRes = await handler(makeRequest('/health'));
   const newRes = await handler(makeRequest('/health', 'GET', 'rotated-token'));
 
-  assertEquals(oldRes.status, 401);
-  assertEquals(newRes.status, 200);
+  assertEquals(oldRes.status, 200);
+  assertEquals(newRes.status, 401);
+});
+
+Deno.test('Bearer admin auth uses runtime adminAuth token', async () => {
+  const state = makeState();
+  state.config.admin = { enabled: true, auth_token: 'old-token' };
+  state.adminAuth = { enabled: true, path: '/admin', token: 'runtime-token', tokenSource: 'env' };
+  const handler = createAdminHandler(state);
+  const res = await handler(makeRequest('/health', 'GET', 'runtime-token'));
+  assertEquals(res.status, 200);
+});
+
+Deno.test('Bearer admin auth returns 404 when runtime admin auth is disabled', async () => {
+  const state = makeState();
+  state.adminAuth = { enabled: false, path: '/admin' };
+  const handler = createAdminHandler(state);
+  const res = await handler(makeRequest('/health', 'GET', 'test-token'));
+
+  assertEquals(res.status, 404);
+  assertEquals(await res.json(), { error: 'admin disabled' });
 });
 
 Deno.test('admin GET /config returns masked config', async () => {

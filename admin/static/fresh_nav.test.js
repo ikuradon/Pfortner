@@ -1213,12 +1213,12 @@ Deno.test('fresh nav boot initializes logs page behavior from the client entry',
   const restoreWindow = setGlobal('window', window);
   const restoreFetch = setGlobal('fetch', (url) => {
     fetchCalls.push(url);
-    if (url === '/admin/api/config') {
+    if (url === '/admin/api/runtime') {
       return Promise.resolve({
         ok: true,
         json: () =>
           Promise.resolve({
-            infra: { metrics: { logging: { level: 'debug' } } },
+            logging: { level: 'debug', format: 'text' },
           }),
       });
     }
@@ -1269,6 +1269,8 @@ Deno.test('fresh nav boot initializes logs page behavior from the client entry',
     assertEquals(fixture.status.textContent, 'fallback');
     assertEquals(fixture.logCount.textContent, '1 line');
     assertEquals(fixture.emptyState.style.display, 'none');
+    assertEquals(fetchCalls.includes('/admin/api/runtime'), true);
+    assertEquals(fetchCalls.includes('/admin/api/config'), false);
     assertEquals(fetchCalls.includes('/admin/api/logs?limit=200'), true);
 
     fixture.pauseButton.click();
@@ -1912,10 +1914,10 @@ Deno.test('fresh nav initializes logs behavior after partial navigation without 
   });
   const restoreFetch = setGlobal('fetch', (url) => {
     fetchCalls.push(url);
-    if (url === '/admin/api/config') {
+    if (url === '/admin/api/runtime') {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ infra: { metrics: { logging: { level: 'info' } } } }),
+        json: () => Promise.resolve({ logging: { level: 'info', format: 'text' } }),
       });
     }
     if (url === '/admin/api/health/detail') {
@@ -1989,6 +1991,8 @@ Deno.test('fresh nav initializes logs behavior after partial navigation without 
     await waitFor(() => currentDocument.querySelector('#log-viewer')?.textContent.includes('partial fallback'));
 
     assertEquals(fetchCalls[0], 'http://localhost/admin/logs');
+    assertEquals(fetchCalls.includes('/admin/api/runtime'), true);
+    assertEquals(fetchCalls.includes('/admin/api/config'), false);
     assertEquals(fetchCalls.includes('/admin/api/logs?limit=200'), true);
     assertEquals(location.assignCalls, []);
     assertEquals(currentDocument.querySelector('#log-stream-status')?.textContent, 'fallback');
@@ -2769,6 +2773,14 @@ Deno.test('PipelineWorkbench static chunk exports a mountable module', async () 
 
   assertEquals(typeof mod.default, 'function');
   assertEquals(typeof mod.default.mount, 'function');
+});
+
+Deno.test('distributed fresh nav asset reads logs runtime from runtime endpoint', async () => {
+  const source = await Deno.readTextFile(new URL('./fresh_nav.js', import.meta.url));
+
+  assertEquals(source.includes('/admin/api/runtime'), true);
+  assertEquals(source.includes("fetchJsonOrNull('/admin/api/config')"), false);
+  assertEquals(source.includes('configData?.infra?.metrics?.logging?.level'), false);
 });
 
 Deno.test('fresh nav does not keep page-local static script initializer registry', async () => {

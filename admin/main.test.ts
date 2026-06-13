@@ -13,6 +13,12 @@ const makeState = (): AdminState => ({
       server: [{ policy: 'accept' }],
     },
   },
+  adminAuth: { enabled: true, path: '/admin', token: 'test-token', tokenSource: 'env' },
+  runtime: {
+    logging: { level: 'info', format: 'text' },
+    trustProxy: false,
+    admin: { enabled: true, tokenSource: 'env' },
+  },
   pluginNames: ['accept'],
   connections: new Map<string, ManagedConnection>(),
   blocklist: { pubkeys: new Set<string>(), ips: new Set<string>() },
@@ -72,7 +78,7 @@ Deno.test('admin app composes through first-class HTTP modules', async () => {
   assertEquals(typeof staticModule.createAdminStaticMiddleware, 'function');
 });
 
-Deno.test('admin app auth uses updated state config token', async () => {
+Deno.test('admin app auth ignores runtime config token changes', async () => {
   const state = makeState();
   const handler = createAdminApp(state);
 
@@ -86,8 +92,8 @@ Deno.test('admin app auth uses updated state config token', async () => {
     makeRequest('/admin/api/health', 'rotated-token'),
   );
 
-  assertEquals(oldRes.status, 401);
-  assertEquals(newRes.status, 200);
+  assertEquals(oldRes.status, 200);
+  assertEquals(newRes.status, 401);
 });
 
 Deno.test('admin app redirects /admin to /admin/', async () => {

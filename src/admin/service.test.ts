@@ -6,6 +6,7 @@ import {
   getHealthDetail,
   getHealthSimple,
   getLogs,
+  getRuntimeInfo,
   getThroughputData,
   maskSecrets,
   simulatePipeline,
@@ -35,6 +36,12 @@ function makeState(overrides: Partial<AdminServiceState> = {}): AdminServiceStat
     pluginNames: ['accept'],
     connections: new Map(),
     blocklist: { pubkeys: new Set(), ips: new Set() },
+    adminAuth: { enabled: true, path: '/admin', token: 'test-token', tokenSource: 'env' },
+    runtime: {
+      logging: { level: 'info', format: 'text' },
+      trustProxy: false,
+      admin: { enabled: true, tokenSource: 'env' },
+    },
     ...overrides,
   };
 }
@@ -160,6 +167,21 @@ Deno.test('getLogs returns buffered log entries', () => {
   assertEquals(result.logs[0].line, 'second');
   assertEquals(result.total, 2);
   assertEquals(result.subscribers, 0);
+});
+
+Deno.test('getRuntimeInfo returns logging and trust proxy without secrets', () => {
+  const state = makeState();
+  state.runtime = {
+    logging: { level: 'warn', format: 'json' },
+    trustProxy: true,
+    admin: { enabled: true, tokenSource: 'file' },
+  };
+  state.adminAuth = { enabled: true, path: '/admin', token: 'runtime-token', tokenSource: 'file' };
+  const info = getRuntimeInfo(state);
+  assertEquals(info.logging, { level: 'warn', format: 'json' });
+  assertEquals(info.trust_proxy, true);
+  assertEquals(info.admin, { enabled: true, token_source: 'file' });
+  assertEquals(Object.hasOwn(info.admin, 'token'), false);
 });
 
 Deno.test('simulatePipeline with empty pipeline returns accept', async () => {

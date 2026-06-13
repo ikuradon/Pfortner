@@ -12,6 +12,12 @@ function makeState(overrides: Partial<AdminServiceState> = {}): AdminServiceStat
     pluginNames: ['accept'],
     connections: new Map(),
     blocklist: { pubkeys: new Set(), ips: new Set() },
+    adminAuth: { enabled: true, path: '/admin', token: 'test-token', tokenSource: 'env' },
+    runtime: {
+      logging: { level: 'info', format: 'text' },
+      trustProxy: false,
+      admin: { enabled: true, tokenSource: 'env' },
+    },
     ...overrides,
   };
 }

@@ -19,8 +19,15 @@ export function createAdminAuthMiddleware(
       return await ctx.next();
     }
 
+    if (!state.adminAuth.enabled) {
+      if (path.startsWith(`${adminPath}/api/`)) {
+        return json({ error: 'admin disabled' }, 404);
+      }
+      return redirectToLogin(ctx.req, adminPath);
+    }
+
     const credential = getCredentialFromRequest(ctx.req);
-    if (!credential || credential.token !== state.config.admin?.auth_token) {
+    if (!credential || credential.token !== state.adminAuth.token) {
       if (path.startsWith(`${adminPath}/api/`)) {
         return json({ error: 'unauthorized' }, 401);
       }
@@ -29,7 +36,7 @@ export function createAdminAuthMiddleware(
 
     if (
       needsCookieCsrfCheck(ctx.req, credential) &&
-      !isSameOriginRequest(ctx.req, state.config.admin?.trust_proxy === true)
+      !isSameOriginRequest(ctx.req, state.runtime.trustProxy)
     ) {
       return path.startsWith(`${adminPath}/api/`)
         ? json({ error: 'csrf validation failed' }, 403)

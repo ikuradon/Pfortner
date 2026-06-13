@@ -2,15 +2,69 @@ import { assertEquals } from 'jsr:@std/assert@1.0.18';
 import { createAdminApp } from '../../admin/main.ts';
 import type { AdminState } from './server.ts';
 
-const makeState = (adminOverrides: Partial<NonNullable<AdminState['config']['admin']>> = {}): AdminState => ({
+const makeState = (options: { trustProxy?: boolean } = {}): AdminState => ({
   config: {
     server: { port: 3000, upstream_relay: 'ws://localhost:7777' },
-    admin: { enabled: true, auth_token: 'test-token', ...adminOverrides },
+    admin: { enabled: true, auth_token: 'test-token' },
     pipelines: { client: [], server: [] },
+  },
+  adminAuth: { enabled: true, path: '/admin', token: 'test-token', tokenSource: 'env' },
+  runtime: {
+    logging: { level: 'info', format: 'text' },
+    trustProxy: options.trustProxy === true,
+    admin: { enabled: true, tokenSource: 'env' },
   },
   pluginNames: [],
   connections: new Map(),
   blocklist: { pubkeys: new Set(), ips: new Set() },
+});
+
+Deno.test('Fresh admin auth uses runtime adminAuth token', async () => {
+  const state = makeState();
+  state.config.admin = { enabled: true, auth_token: 'old-token' };
+  state.adminAuth = { enabled: true, path: '/admin', token: 'runtime-token', tokenSource: 'env' };
+
+  const handler = createAdminApp(state);
+  const oldRes = await handler(
+    new Request('http://admin.example.com/admin/api/health', {
+      headers: { Authorization: 'Bearer old-token' },
+    }),
+  );
+  const runtimeRes = await handler(
+    new Request('http://admin.example.com/admin/api/health', {
+      headers: { Authorization: 'Bearer runtime-token' },
+    }),
+  );
+
+  assertEquals(oldRes.status, 401);
+  assertEquals(runtimeRes.status, 200);
+});
+
+Deno.test('Fresh admin API returns 404 when runtime admin auth is disabled', async () => {
+  const state = makeState();
+  state.adminAuth = { enabled: false, path: '/admin' };
+
+  const handler = createAdminApp(state);
+  const res = await handler(
+    new Request('http://admin.example.com/admin/api/health', {
+      headers: { Authorization: 'Bearer test-token' },
+    }),
+  );
+
+  assertEquals(res.status, 404);
+  assertEquals(await res.json(), { error: 'admin disabled' });
+});
+
+Deno.test('Fresh admin login renders disabled error when runtime admin auth is disabled', async () => {
+  const state = makeState();
+  state.adminAuth = { enabled: false, path: '/admin' };
+
+  const handler = createAdminApp(state);
+  const res = await handler(new Request('http://admin.example.com/admin/login'));
+  const html = await res.text();
+
+  assertEquals(res.status, 200);
+  assertEquals(html.includes('Admin is disabled'), true);
 });
 
 Deno.test('Fresh admin rejects cross-origin cookie POST to shutdown', async () => {
@@ -69,7 +123,7 @@ Deno.test('Fresh admin accepts same-origin cookie POST to shutdown', async () =>
 
 Deno.test('Fresh admin accepts forwarded HTTPS origin for cookie POST', async () => {
   let shutdownCalled = false;
-  const state = makeState({ trust_proxy: true });
+  const state = makeState({ trustProxy: true });
   state.shutdownManager = {
     initiateShutdown: () => {
       shutdownCalled = true;
@@ -98,7 +152,7 @@ Deno.test('Fresh admin accepts forwarded HTTPS origin for cookie POST', async ()
 
 Deno.test('Fresh admin accepts RFC Forwarded origin for cookie POST', async () => {
   let shutdownCalled = false;
-  const state = makeState({ trust_proxy: true });
+  const state = makeState({ trustProxy: true });
   state.shutdownManager = {
     initiateShutdown: () => {
       shutdownCalled = true;
