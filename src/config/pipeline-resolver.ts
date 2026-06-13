@@ -2,6 +2,7 @@ import type { InfraContext, PolicyFactory } from '../plugins/types.ts';
 import type { PluginRegistry } from '../plugins/registry.ts';
 import type { PipelineEntry } from './loader.ts';
 import AjvModule from 'ajv';
+import { instrumentPolicyFactory } from '../infra/relay-metrics.ts';
 
 // deno-lint-ignore no-explicit-any
 const AjvClass = (AjvModule as any).default ?? AjvModule;
@@ -39,7 +40,11 @@ export async function resolvePipeline(
     }
     const infraForPlugin: InfraContext = { ...infra, currentDirection: direction };
     const factory = await plugin.initialize(pluginConfig, infraForPlugin);
-    factories.push(factory);
+    factories.push(instrumentPolicyFactory(factory, {
+      direction,
+      policy: plugin.name,
+      metrics: infra.metrics,
+    }));
   }
   return { factories, direction };
 }

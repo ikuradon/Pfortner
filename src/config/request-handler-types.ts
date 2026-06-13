@@ -1,6 +1,7 @@
 import type { ConnectionManager } from '../connections/manager.ts';
 import type { ManagedConnection } from '../connections/types.ts';
 import type { ShutdownManager } from '../shutdown/manager.ts';
+import type { ThroughputTracker } from '../infra/throughput-tracker.ts';
 
 export interface RequestHandlerHooks {
   onConnect?: (managed: ManagedConnection) => void;
@@ -8,6 +9,7 @@ export interface RequestHandlerHooks {
   blocklist?: { pubkeys: Set<string>; ips: Set<string> };
   connectionManager?: ConnectionManager;
   shutdownManager?: ShutdownManager;
+  throughputTracker?: ThroughputTracker;
 }
 
 export type RequestHandler = (

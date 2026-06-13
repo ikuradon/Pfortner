@@ -2,6 +2,12 @@ import { pfortnerInit } from '../pfortner.ts';
 import type { InfraContext } from '../plugins/types.ts';
 import type { PluginRegistry } from '../plugins/registry.ts';
 import type { PfortnerConfig, PipelineEntry } from './loader.ts';
+import {
+  recordConnectionClosed,
+  recordConnectionOpened,
+  recordPipelineResult,
+  registerRelayMessageMetrics,
+} from '../infra/relay-metrics.ts';
 import { createManagedConnection, registerManagedConnectionDisconnect } from './managed-connection-adapter.ts';
 import { resolvePipeline } from './pipeline-resolver.ts';
 import { evaluateRuntimeGuards } from './runtime-guards.ts';
@@ -56,7 +62,11 @@ export async function buildRequestHandler(
       allowedAuthFutureTimeDuration: config.auth?.allowed_future_time_duration,
       upstreamRawAddress: config.server.upstream_raw_url,
       pubkeyBlocklist: hooks?.blocklist?.pubkeys,
+      onPipelineResult: (_direction, action) => {
+        recordPipelineResult(hooks?.throughputTracker, action);
+      },
     });
+    registerRelayMessageMetrics(instance, infra.metrics);
     const clientPolicies = clientPipeline.factories.map((factory) => factory(instance));
     const serverPolicies = serverPipeline.factories.map((factory) => factory(instance));
     instance.registerClientPipeline(clientPolicies);
@@ -64,6 +74,9 @@ export async function buildRequestHandler(
 
     const managed = createManagedConnection(instance, clientIp);
     registerManagedConnectionDisconnect(instance, { hooks, infra });
+    instance.on('clientDisconnect', () => {
+      recordConnectionClosed(infra.metrics, hooks?.connectionManager?.getStats().active ?? 0);
+    });
 
     let session: Response;
     try {
@@ -75,8 +88,8 @@ export async function buildRequestHandler(
       throw e;
     }
 
-    infra.metrics.counter('pfortner_connections_total');
     hooks?.connectionManager?.register(managed);
+    recordConnectionOpened(infra.metrics, hooks?.connectionManager?.getStats().active ?? 0);
     hooks?.onConnect?.(managed);
 
     return session;

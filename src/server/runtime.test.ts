@@ -105,6 +105,33 @@ Deno.test('normal runtime main handler routes /health with status ok', async () 
   }
 });
 
+Deno.test('normal runtime admin metrics throughput returns initialized buckets', async () => {
+  const dataDir = await makeConfiguredDataDir();
+  const runtime = await createServerRuntime({
+    env: new Map([
+      ['PFORTNER_DATA_DIR', dataDir],
+      ['PFORTNER_ADMIN_TOKEN', 'test-token'],
+    ]),
+    args: [],
+  });
+  try {
+    const res = await runtime.handler(
+      new Request('http://localhost/admin/api/metrics/throughput', {
+        headers: { Authorization: 'Bearer test-token' },
+      }),
+      fakeConn(),
+    );
+    assertEquals(res.status, 200);
+    const body = await res.json();
+    assertEquals(Array.isArray(body), true);
+    assertEquals(body.length, 30);
+    assertEquals(typeof body[0].accept, 'number');
+    assertEquals(typeof body[0].reject, 'number');
+  } finally {
+    if (runtime.mode === 'normal') await runtime.shutdown();
+  }
+});
+
 Deno.test('setup save transitions current process to normal health handler', async () => {
   const dataDir = await Deno.makeTempDir();
   const runtime = await createServerRuntime({

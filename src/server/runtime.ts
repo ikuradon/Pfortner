@@ -13,6 +13,7 @@ import { LogBuffer } from '../infra/log-buffer.ts';
 import { createPrometheusMetrics } from '../infra/prometheus.ts';
 import { createRedisClient } from '../infra/redis.ts';
 import { redactUrlCredentials } from '../infra/redaction.ts';
+import { ThroughputTracker } from '../infra/throughput-tracker.ts';
 import { createPluginRegistry } from '../plugins/registry.ts';
 import type { RedisClient } from '../plugins/types.ts';
 import { ShutdownManager } from '../shutdown/manager.ts';
@@ -164,6 +165,7 @@ async function createNormalRuntime({
     const config = loadProductionConfigFromString(yaml, { backend: backendAvailability });
     let currentConfig = toLegacyConfig(config);
     const logBuffer = new LogBuffer(1000);
+    const throughputTracker = new ThroughputTracker();
     const prometheusMetrics = config.infra?.metrics?.prometheus?.enabled ? createPrometheusMetrics() : undefined;
     const infra = buildInfraContext({
       logging: parsed.logging,
@@ -206,6 +208,7 @@ async function createNormalRuntime({
       configPath: layout.configPath,
       pipelineDraftPath: resolvePipelineDraftPath(layout),
       startTime: Date.now(),
+      throughputTracker,
       metrics: prometheusMetrics,
       logBuffer,
     };
@@ -247,6 +250,7 @@ async function createNormalRuntime({
       blocklist: adminState.blocklist,
       connectionManager,
       shutdownManager,
+      throughputTracker,
     };
 
     managerRef.current = await ConfigManager.create<ProductionRuntimeConfig>(

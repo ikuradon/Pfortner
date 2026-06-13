@@ -37,6 +37,7 @@ export const pfortnerInit = (
     sendAuthOnConnect?: boolean;
     upstreamRawAddress?: string;
     pubkeyBlocklist?: Set<string>;
+    onPipelineResult?: (direction: 'client' | 'server', action: 'accept' | 'reject', message: unknown[]) => void;
   } = {},
 ) => {
   let clientSocket: WebSocket | null = null;
@@ -192,6 +193,7 @@ export const pfortnerInit = (
         await runPolicyPipeline(clientPolicies, msg, connectionInfo, {
           sendAccepted: sendMessageToServer,
           sendRejected: sendMessageToClient,
+          onResult: (action, message) => options.onPipelineResult?.('client', action, message),
         });
       } catch (e) {
         log.error(`Client message handling error: ${e} connectionId=${connectionInfo.connectionId}`);
@@ -468,6 +470,7 @@ export const pfortnerInit = (
     await runPolicyPipeline(serverPolicies, message, connectionInfo, {
       sendAccepted: sendMessageToClient,
       sendRejected: sendMessageToClient,
+      onResult: (action, resultMessage) => options.onPipelineResult?.('server', action, resultMessage),
     });
   }
 

@@ -251,6 +251,53 @@ pipelines:
   assertEquals(onConnectCount, 0);
   assertEquals(onDisconnectCount, 0);
   assertEquals(metrics.getCounter('pfortner_connections_total'), 0);
+  assertEquals(metrics.getGauge('pfortner_connections_active'), 0);
+});
+
+Deno.test('buildRequestHandler records connection metrics after successful websocket upgrade', async () => {
+  const config = loadConfigFromString(`
+server:
+  port: 3000
+  upstream_relay: "ws://localhost:7777"
+  connections:
+    max: 10
+    max_per_ip: 10
+pipelines:
+  client:
+    - policy: accept
+  server:
+    - policy: accept
+`);
+  const connections = new Map<string, ManagedConnection>();
+  const connectionManager = new ConnectionManager(connections, {
+    max: 10,
+    maxPerIp: 10,
+    pressure: { softLimitPercent: 80, authGracePeriod: 30 },
+  });
+  const metrics = createInMemoryMetrics();
+  const handler = await buildRequestHandler(config, buildInfraContext({ metrics }), createPluginRegistry(), {
+    connectionManager,
+  });
+  const req = new Request('http://localhost/', {
+    headers: {
+      Upgrade: 'websocket',
+      Connection: 'Upgrade',
+      'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+      'Sec-WebSocket-Version': '13',
+    },
+  });
+  const conn = { remoteAddr: { hostname: '127.0.0.1', port: 12345, transport: 'tcp' as const } };
+
+  const response = handler(req, conn as any);
+
+  assertEquals(response.status, 101);
+  assertEquals(connections.size, 1);
+  assertEquals(metrics.getCounter('pfortner_connections_total'), 1);
+  assertEquals(metrics.getGauge('pfortner_connections_active'), 1);
+
+  for (const managed of connections.values()) {
+    managed.close();
+  }
 });
 
 Deno.test('buildRequestHandler passes trustProxy option into runtime guards', async () => {

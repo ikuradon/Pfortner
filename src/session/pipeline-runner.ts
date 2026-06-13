@@ -9,6 +9,7 @@ export type Policies<T extends any[]> = {
 export type PipelineSenders = {
   sendAccepted(message: string): Promise<void>;
   sendRejected(message: string): Promise<void>;
+  onResult?: (action: 'accept' | 'reject', message: unknown[]) => void;
 };
 
 function toTuple<P extends Policy>(item: PolicyTuple<P> | P): PolicyTuple<P> {
@@ -25,9 +26,11 @@ export async function runPolicyPipeline(
     const [policy, options] = toTuple(item);
     const result = await policy(msg, connectionInfo, options);
     if (result.action === 'accept') {
+      senders.onResult?.('accept', result.message);
       await senders.sendAccepted(JSON.stringify(result.message));
       break;
     } else if (result.action === 'reject') {
+      senders.onResult?.('reject', result.message);
       if (result.response != null) {
         await senders.sendRejected(result.response);
       }
