@@ -5,7 +5,6 @@ WORKDIR /app
 COPY --chown=deno deno.json deno.lock* ./
 COPY --chown=deno mod.ts ./
 COPY --chown=deno src ./src
-COPY --chown=deno admin ./admin
 COPY --chown=deno scripts ./scripts
 
 RUN deno cache src/server/main.ts scripts/build_admin_islands.ts

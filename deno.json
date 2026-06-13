@@ -16,7 +16,8 @@
     "preact/jsx-runtime": "npm:preact@^10.25.0/jsx-runtime",
     "@preact/signals": "npm:@preact/signals@^2.0.0",
     "preact-render-to-string": "npm:preact-render-to-string@^6.5.0",
-    "$admin/": "./src/admin/"
+    "$admin/": "./src/admin/",
+    "$admin-ui/": "./src/admin/ui/"
   },
   "compilerOptions": {
     "jsx": "react-jsx",
@@ -38,7 +39,7 @@
       "."
     ],
     "exclude": [
-      "admin/static/"
+      "src/admin/ui/static/"
     ],
     "rules": {
       "exclude": [
@@ -55,7 +56,7 @@
     "serve": "deno run --unstable-net --allow-env --allow-net --allow-read --allow-write src/server/main.ts",
     "build:admin-assets": "deno run --allow-env --allow-read --allow-write --allow-run scripts/build_admin_islands.ts",
     "build:admin-islands": "deno task build:admin-assets",
-    "test": "deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --unstable-kv admin/ src/",
+    "test": "deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --unstable-kv src/",
     "bench": "deno run --allow-env --allow-net --allow-read --allow-write --unstable-net scripts/bench.ts bench.scenario.yaml"
   }
 }

@@ -7,7 +7,7 @@ Deno.test('buildAdminClientEntry writes generated Fresh nav client entry from so
 
   try {
     const result = await buildAdminClientEntry({
-      entryPoint: new URL('../admin/client/fresh_nav.js', import.meta.url),
+      entryPoint: new URL('../src/admin/ui/client/fresh_nav.js', import.meta.url),
       outputPath,
     });
     const source = await Deno.readTextFile(outputPath);
@@ -15,7 +15,7 @@ Deno.test('buildAdminClientEntry writes generated Fresh nav client entry from so
     assertEquals(result.outputPath, outputPath);
     assertEquals(
       source.startsWith(
-        '// Generated from admin/client/fresh_nav.js by scripts/build_admin_islands.ts.\n',
+        '// Generated from src/admin/ui/client/fresh_nav.js by scripts/build_admin_islands.ts.\n',
       ),
       true,
     );
@@ -34,7 +34,7 @@ Deno.test('buildAdminIslandBundle writes the PipelineWorkbench mount adapter wit
 
   try {
     const result = await buildAdminIslandBundle({
-      entryPoint: new URL('../admin/islands/PipelineWorkbench.browser.tsx', import.meta.url),
+      entryPoint: new URL('../src/admin/ui/islands/PipelineWorkbench.browser.tsx', import.meta.url),
       outputPath,
       minify: false,
       sourcemap: false,

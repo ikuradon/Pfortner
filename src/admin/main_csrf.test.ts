@@ -1,5 +1,5 @@
 import { assertEquals } from 'jsr:@std/assert@1.0.18';
-import { createAdminApp } from '../../admin/main.ts';
+import { createAdminApp } from './ui/main.ts';
 import type { AdminState } from './server.ts';
 
 const makeState = (options: { trustProxy?: boolean } = {}): AdminState => ({

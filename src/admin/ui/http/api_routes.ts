@@ -20,7 +20,7 @@ import {
   parseLogLimit,
 } from '$admin/service.ts';
 import { getRuntimeInfo } from '$admin/read_models/runtime.ts';
-import { createLogStreamResponse } from '$admin/http/log_stream.ts';
+import { createLogStreamResponse } from '../../http/log_stream.ts';
 import { json } from './json.ts';
 import type { AdminRouteApp } from '../route_types.ts';
 

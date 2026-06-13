@@ -1,4 +1,4 @@
-// Generated from admin/client/fresh_nav.js by scripts/build_admin_islands.ts.
+// Generated from src/admin/ui/client/fresh_nav.js by scripts/build_admin_islands.ts.
 // Lightweight Fresh-compatible partial navigation for the programmatic admin app.
 
 const DASHBOARD_POLL_INTERVAL_MS = 5000;

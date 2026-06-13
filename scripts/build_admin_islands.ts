@@ -1,12 +1,18 @@
 import * as esbuild from 'esbuild';
 import { dirname, fromFileUrl } from '@std/path';
 
-const DEFAULT_ADMIN_CLIENT_ENTRY_SOURCE = new URL('../admin/client/fresh_nav.js', import.meta.url);
-const DEFAULT_ADMIN_CLIENT_ENTRY_OUTPUT = new URL('../admin/static/fresh_nav.js', import.meta.url);
-const DEFAULT_PIPELINE_WORKBENCH_ENTRY = new URL('../admin/islands/PipelineWorkbench.browser.tsx', import.meta.url);
-const DEFAULT_PIPELINE_WORKBENCH_OUTPUT = new URL('../admin/static/islands/PipelineWorkbench.js', import.meta.url);
+const DEFAULT_ADMIN_CLIENT_ENTRY_SOURCE = new URL('../src/admin/ui/client/fresh_nav.js', import.meta.url);
+const DEFAULT_ADMIN_CLIENT_ENTRY_OUTPUT = new URL('../src/admin/ui/static/fresh_nav.js', import.meta.url);
+const DEFAULT_PIPELINE_WORKBENCH_ENTRY = new URL(
+  '../src/admin/ui/islands/PipelineWorkbench.browser.tsx',
+  import.meta.url,
+);
+const DEFAULT_PIPELINE_WORKBENCH_OUTPUT = new URL(
+  '../src/admin/ui/static/islands/PipelineWorkbench.js',
+  import.meta.url,
+);
 const GENERATED_ADMIN_CLIENT_ENTRY_BANNER =
-  '// Generated from admin/client/fresh_nav.js by scripts/build_admin_islands.ts.\n';
+  '// Generated from src/admin/ui/client/fresh_nav.js by scripts/build_admin_islands.ts.\n';
 
 const DENO_RESOLVED_BROWSER_IMPORTS = new Set([
   'preact',

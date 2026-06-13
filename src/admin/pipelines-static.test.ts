@@ -4,7 +4,7 @@ import {
   matchExecutionSteps,
   pipelinesToGraph,
   validatePipelineGraph,
-} from '../../admin/islands/pipeline/graph.js';
+} from './ui/islands/pipeline/graph.js';
 import {
   configToEditorRows,
   parseConfigJson,
@@ -12,7 +12,7 @@ import {
   shouldRenderRunAction,
   shouldRenderSettingsAction,
   updateConfigFromEditorRows,
-} from '../../admin/islands/pipeline/config_editor.js';
+} from './ui/islands/pipeline/config_editor.js';
 import {
   applyHistoryChange,
   buildPipelineDraft,
@@ -28,9 +28,9 @@ import {
   PALETTE_COLLAPSED_KEY,
   recordDirectionHistorySnapshot,
   recordHistorySnapshot,
-} from '../../admin/islands/pipeline/workbench_state.js';
-import { buildPublishConfirmationMessage, buildYamlPreview } from '../../admin/islands/pipeline/yaml_preview.ts';
-import { createInitialWorkbenchState, reduceWorkbench } from '../../admin/islands/pipeline/workbench_reducer.ts';
+} from './ui/islands/pipeline/workbench_state.js';
+import { buildPublishConfirmationMessage, buildYamlPreview } from './ui/islands/pipeline/yaml_preview.ts';
+import { createInitialWorkbenchState, reduceWorkbench } from './ui/islands/pipeline/workbench_reducer.ts';
 import {
   addMatchCaseDraftConfig,
   defaultConfigForPolicy,
@@ -38,7 +38,7 @@ import {
   reconcileMatchCaseEdges,
   removeMatchCaseDraftConfig,
   shouldRenderInputPort,
-} from '../../admin/islands/pipeline/node_defaults.ts';
+} from './ui/islands/pipeline/node_defaults.ts';
 
 Deno.test('pipeline helper implementations are not URL-addressed static files', async () => {
   for (
@@ -49,7 +49,7 @@ Deno.test('pipeline helper implementations are not URL-addressed static files', 
     ]
   ) {
     await assertRejects(
-      () => Deno.stat(new URL(`../../admin/static/${fileName}`, import.meta.url)),
+      () => Deno.stat(new URL(`./ui/static/${fileName}`, import.meta.url)),
       Deno.errors.NotFound,
     );
   }

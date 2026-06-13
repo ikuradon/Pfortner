@@ -1,4 +1,4 @@
-import { createAdminApp } from '../../admin/main.ts';
+import { createAdminApp } from '../admin/ui/main.ts';
 import type { AdminState } from '../admin/server.ts';
 import { pipelineDraftPathForConfig } from '../admin/pipeline_draft.ts';
 import { ConnectionManager } from '../connections/manager.ts';

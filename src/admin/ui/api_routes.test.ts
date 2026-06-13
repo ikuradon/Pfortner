@@ -2,8 +2,8 @@ import { assertEquals, assertExists } from '@std/assert';
 import { parse as parseYaml } from '@std/yaml';
 import { registerAdminApiRoutes } from './api_routes.ts';
 import type { AdminRouteApp, AdminRouteContext, AdminRouteHandler } from './route_types.ts';
-import { pipelineDraftPathForConfig } from '../src/admin/pipeline_draft.ts';
-import type { AdminState } from '../src/admin/server.ts';
+import { pipelineDraftPathForConfig } from '../pipeline_draft.ts';
+import type { AdminState } from '../server.ts';
 
 class RecordedRoutes implements AdminRouteApp {
   readonly getRoutes = new Map<string, AdminRouteHandler>();

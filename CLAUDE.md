@@ -46,9 +46,9 @@ Configured in `deno.json`: 2-space indent, 120-char line width, semicolons requi
 - npm packages (ajv, maxmind): use `const Mod = (imported as any).default ?? imported` for CJS/ESM compat
 - RateLimitPolicy/SpamFilterPolicy have module-level global state (`sharedCounters`, `seenEventIds`) — call `destroy()` between tests to avoid state leak
 - `initialize()` methods: do NOT use `async` if only returning `Promise.resolve()` — lint `require-await` will fail
-- Client-side JS (`admin/client/*.js`, `admin/islands/**/*.tsx`, and URL-addressed output under `admin/static/*.js`): use `createElement`/`textContent` only, never `innerHTML` (XSS prevention)
+- Client-side JS (`src/admin/ui/client/*.js`, `src/admin/ui/islands/**/*.tsx`, and URL-addressed output under `src/admin/ui/static/*.js`): use `createElement`/`textContent` only, never `innerHTML` (XSS prevention)
 - Static file paths: validate with `resolve()` + `startsWith()`, not string `..` check (path traversal)
-- `admin/main.ts` is a compatibility entrypoint that delegates to `admin/app/create_admin_app.ts`; Fresh composition lives in `admin/app/*`, HTTP adapters in `admin/http/*`, and authenticated page registration in `admin/pages/*`
+- `src/admin/ui/main.ts` is a compatibility entrypoint that delegates to `src/admin/ui/app/create_admin_app.ts`; Fresh composition lives in `src/admin/ui/app/*`, HTTP adapters in `src/admin/ui/http/*`, and authenticated page registration in `src/admin/ui/pages/*`
 
 ## Architecture
 
@@ -123,9 +123,9 @@ YAML config loader (`loader.ts`) with env var expansion (`${VAR}`), ajv schema v
 
 **UpstreamPool** manages shared WebSocket connections to alternative relays. Subscription ID multiplexing via `{clientId}:subId` prefix (split on first `:`).
 
-### Admin UI (`admin/`)
+### Admin UI (`src/admin/ui/`)
 
-Fresh 2.x + Preact serves `/admin` on the main port. `admin/main.ts` delegates to `admin/app/create_admin_app.ts`; `admin/http/*` owns HTTP adapters/middleware, and `admin/pages/*` owns authenticated page route registration. Source client logic remains in `admin/client/*` and `admin/islands/*`; `admin/static/*` is limited to URL-addressed output or static assets. Runtime-facing admin services live under `src/admin/read_models/*`, `src/admin/actions/*`, `src/admin/http/log_stream.ts`, and top-level compatibility facades such as `src/admin/service.ts`; keep Fresh UI source and runtime service boundaries separate.
+Fresh 2.x + Preact serves `/admin` on the main port. `src/admin/ui/main.ts` delegates to `src/admin/ui/app/create_admin_app.ts`; `src/admin/ui/http/*` owns HTTP adapters/middleware, and `src/admin/ui/pages/*` owns authenticated page route registration. Source client logic remains in `src/admin/ui/client/*` and `src/admin/ui/islands/*`; `src/admin/ui/static/*` is limited to URL-addressed output or static assets. Runtime-facing admin services live under `src/admin/read_models/*`, `src/admin/actions/*`, the log stream module under `src/admin/http`, and top-level compatibility facades such as `src/admin/service.ts`; keep Fresh UI source and runtime service boundaries separate.
 
 ### Event System
 

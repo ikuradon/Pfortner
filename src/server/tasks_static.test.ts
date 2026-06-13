@@ -4,6 +4,8 @@ const serverEntrypoint = 'src/server/main.ts';
 const oldServeEntrypoint = ['scripts', 'serve.ts'].join('/');
 const removedServeTask = ['serve', 'config'].join(':');
 const dataDirSetupCommand = 'RUN mkdir -p /data && chown deno:deno /data';
+const adminUiStaticDir = 'src/admin/ui/static';
+const removedRootAdminCopy = 'COPY --chown=deno ' + 'admin ./' + 'admin';
 
 function projectFile(path: string): URL {
   return new URL(`../../${path}`, import.meta.url);
@@ -64,12 +66,17 @@ Deno.test('serve and dev tasks use src/server/main.ts', async () => {
 
 Deno.test('Dockerfile runs src/server/main.ts and checks /health', async () => {
   const dockerfile = await Deno.readTextFile(projectFile('Dockerfile'));
+  const buildAdminAssets = await Deno.readTextFile(projectFile('scripts/build_admin_islands.ts'));
 
   assertEquals(dockerfile.includes('FROM denoland/deno:2.8.3'), true);
   assertEquals(dockerfile.includes('COPY --chown=deno deno.json deno.lock* ./'), true);
   assertEquals(dockerfile.includes('COPY --chown=deno mod.ts ./'), true);
+  assertEquals(dockerfile.includes('COPY --chown=deno src ./src'), true);
+  assertEquals(dockerfile.includes(removedRootAdminCopy), false);
   assertEquals(dockerfile.includes(`RUN deno cache ${serverEntrypoint} scripts/build_admin_islands.ts`), true);
   assertEquals(dockerfile.includes('RUN deno task build:admin-assets'), true);
+  assertEquals(buildAdminAssets.includes(adminUiStaticDir), true);
+  assertEquals(buildAdminAssets.includes('../admin/static'), false);
   assertEquals(dockerfile.includes(dataDirSetupCommand), true);
   assertEquals(dockerfile.includes(serverEntrypoint), true);
   assertEquals(dockerfile.includes('http://localhost:3000/health'), true);

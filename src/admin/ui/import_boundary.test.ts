@@ -8,7 +8,7 @@ const STATIC_IMPORT_PATTERNS = [
 ];
 const STATIC_ISLAND_PREFIX = '..' + '/static/islands/';
 const ALLOWED_STATIC_IMPORTS: Record<string, string[]> = {
-  'admin/client/fresh_nav.js': [
+  'src/admin/ui/client/fresh_nav.js': [
     `import('${STATIC_ISLAND_PREFIX}AdminIslandSmoke.js')`,
     `import('${STATIC_ISLAND_PREFIX}PipelineWorkbench.js')`,
   ],
@@ -44,7 +44,7 @@ Deno.test('admin source modules do not import implementation from admin/static',
   const offenders: string[] = [];
 
   for (const file of files) {
-    const adminPath = file.replace(ADMIN_SOURCE_ROOT.pathname, 'admin/');
+    const adminPath = file.replace(ADMIN_SOURCE_ROOT.pathname, 'src/admin/ui/');
     const source = withoutAllowedStaticBridgeImports(
       adminPath,
       await Deno.readTextFile(file),

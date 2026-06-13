@@ -24,7 +24,7 @@ Deno.test('admin islands do not import JavaScript implementations from static', 
   for (const path of await collectSourceFiles(ISLANDS_ROOT)) {
     const source = await Deno.readTextFile(path);
     if (source.includes(staticOneUp) || source.includes(staticTwoUp)) {
-      offenders.push(path.replace(ISLANDS_ROOT.pathname, 'admin/islands/'));
+      offenders.push(path.replace(ISLANDS_ROOT.pathname, 'src/admin/ui/islands/'));
     }
   }
 
