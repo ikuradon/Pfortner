@@ -59,7 +59,12 @@ export async function createServerRuntime(options: CreateServerRuntimeOptions = 
       tokenFile: parsed.adminTokenFile,
     });
     const runtime = buildRuntimeEnvelope(parsed, layout.kvPath, adminAuth, redisUrl);
-    const baseSetupHandler = createSetupHandler({ layout, runtime: { backend: backendAvailability } });
+    const baseSetupHandler = createSetupHandler({
+      layout,
+      runtime: { backend: backendAvailability },
+      adminAuth,
+      trustProxy: parsed.trustProxy,
+    });
     let currentHandler: (req: Request, conn: ServeInfo) => Promise<Response>;
     let currentShutdown = async () => {};
     const serverRuntime: ServerRuntime = {

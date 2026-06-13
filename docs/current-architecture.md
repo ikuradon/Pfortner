@@ -38,8 +38,8 @@ production runtime は `src/server/*` が composition root である。`scripts/
 - `src/server/env.ts`: `PFORTNER_*` env と `--data-dir` を parse する。listen、logging、admin enable/token、trust proxy、Redis backend など runtime envelope の raw settings を所有する。
 - `src/server/data_dir.ts`: dataDir layout を解決し、default `/data`、`config.yaml`、`admin-token`、Pipeline Workbench draft、KV、plugins、geoip の path を導出する。
 - `src/server/admin_token.ts`: Admin 有効時だけ env/file/generated token を解決する。Admin 無効時は token file を読まず、生成もしない。
-- `src/server/bootstrap.ts`: setup mode と normal mode を判定し、setup save 時の complete production config YAML と atomic write を扱う。empty dataDir では `config.yaml` を作らず、missing `config.yaml` を setup-required state とする。
-- `src/server/setup_app.ts`: setup mode 専用の最小 UI/API。`upstream_relay` と relay metadata から production loader が受け付ける完全な config を生成する。
+- `src/server/bootstrap.ts`: setup mode と normal mode を判定し、setup save 時の complete production config YAML と atomic no-overwrite publish を扱う。empty dataDir では `config.yaml` を作らず、missing `config.yaml` を setup-required state とする。
+- `src/server/setup_app.ts`: setup mode 専用の最小 UI/API。Admin token login、Bearer/cookie auth、cookie CSRF guard を通したうえで、`upstream_relay` と relay metadata から production loader が受け付ける完全な config を生成する。
 - `src/server/runtime.ts`: config、infra、registry、connection manager、shutdown manager、Admin state、runtime envelope を組み立てる production composition root。setup save 後の setup-to-normal transition もここで扱う。
 - `src/server/handler.ts`: main port の route dispatcher。`/admin*`、`/health`、`/metrics`、relay info、relay WebSocket handler を runtime mode に応じて振り分ける。
 - `src/server/types.ts`: `ParsedServerEnv`、`RuntimeEnvelope`、`AdminAuthState` など server runtime の共有 type。

@@ -120,6 +120,7 @@ Deno.test('setup save transitions current process to normal health handler', asy
     const setupRes = await runtime.handler(
       new Request('http://localhost/admin/setup', {
         method: 'POST',
+        headers: { Authorization: 'Bearer test-token' },
         body: new URLSearchParams({
           upstream_relay: 'ws://127.0.0.1:1',
           relay_name: 'Transition Relay',
@@ -141,6 +142,37 @@ Deno.test('setup save transitions current process to normal health handler', asy
     );
     assertEquals(nip11Res.status, 200);
     assertEquals((await nip11Res.json()).name, 'Transition Relay');
+  } finally {
+    if ('shutdown' in runtime) await runtime.shutdown();
+  }
+});
+
+Deno.test('setup save rejects unauthenticated requests before normal transition', async () => {
+  const dataDir = await Deno.makeTempDir();
+  const runtime = await createServerRuntime({
+    env: new Map([
+      ['PFORTNER_DATA_DIR', dataDir],
+      ['PFORTNER_ADMIN_TOKEN', 'test-token'],
+    ]),
+    args: [],
+  });
+  try {
+    assertEquals(runtime.mode, 'setup');
+
+    const setupRes = await runtime.handler(
+      new Request('http://localhost/admin/setup', {
+        method: 'POST',
+        body: new URLSearchParams({
+          upstream_relay: 'ws://127.0.0.1:1',
+          relay_name: 'Transition Relay',
+          relay_description: 'transitioned',
+        }),
+      }),
+      fakeConn(),
+    );
+    assertEquals(setupRes.status, 401);
+    assertEquals(runtime.mode, 'setup');
+    await assertMissing(`${dataDir}/config.yaml`);
   } finally {
     if ('shutdown' in runtime) await runtime.shutdown();
   }

@@ -77,7 +77,7 @@ dataDir の最終形:
 
 `config.yaml` の path は dataDir から導出する。利用者が production entrypoint に arbitrary config path を渡す設計にはしない。
 
-`config.yaml` は complete production config だけを表す。setup mode 中に incomplete config を `config.yaml` として書かない。empty dataDir では `config.yaml` が存在しないこと自体を setup-required state とし、setup save が成功した瞬間にだけ一時 file から atomic rename で `config.yaml` を作る。
+`config.yaml` は complete production config だけを表す。setup mode 中に incomplete config を `config.yaml` として書かない。empty dataDir では `config.yaml` が存在しないこと自体を setup-required state とし、setup save が成功した瞬間にだけ一時 file から atomic no-overwrite publish で `config.yaml` を作る。
 
 ## Env Ownership
 
@@ -227,7 +227,8 @@ setup mode の動作:
 
 - `/admin` は setup UI を表示する。
 - setup UI は `upstream_relay` と最小 relay metadata を保存する。
-- 保存時に complete production YAML を検証し、一時 file へ書いた後に `/data/config.yaml` へ atomic rename する。
+- setup UI/API は Admin token で保護する。`GET /admin` は未認証なら setup login へ redirect し、`POST /admin/setup` は Bearer token または login cookie を要求する。cookie credential の unsafe method は normal Admin UI と同じ same-origin/CSRF evidence を要求する。
+- 保存時に complete production YAML を検証し、一時 file へ書いた後に `/data/config.yaml` へ atomic no-overwrite publish する。
 - config 完成後、relay handler、upstream probe、ConfigManager を起動する。
 - `upstream_relay` 未設定中の WebSocket relay request は `503` と明示 message を返す。
 - `/health` は `status: "setup_required"` を返す。
@@ -361,6 +362,7 @@ Docker image は Admin UI assets を含む完成物にする。
 起動時 env error:
 
 - `PFORTNER_LISTEN_PORT` が number でない場合は fail fast。
+- `--data-dir <path>` 以外の CLI 引数は fail fast。旧 config path positional argument は `--data-dir` / `PFORTNER_DATA_DIR` への移行 error を出し、黙って setup mode に落とさない。
 - `PFORTNER_DATA_DIR` が作れない、または writable でない場合は fail fast。
 - `PFORTNER_ADMIN_ENABLED=true` で token file が読めず、生成もできない場合は fail fast。
 - `PFORTNER_ADMIN_ENABLED=false` の場合は admin token file を読まず、missing/unreadable token file で fail fast しない。
@@ -374,7 +376,8 @@ setup mode:
 
 config save:
 
-- setup UI の save は一時 file へ書いて atomic rename する。
+- setup UI の save は一時 file へ書いて atomic no-overwrite publish する。
+- setup UI の save は valid Admin token を要求し、未認証 request で `/data/config.yaml` を作らない。
 - invalid config は保存しない。
 - secret value は response/log に出さない。
 
@@ -417,6 +420,8 @@ runtime reload:
   - Redis secret は masked config API に出ない。
 - setup UI/API:
   - missing upstream では `/health` が `setup_required`。
+  - unauthenticated `POST /admin/setup` は config を作らず `401` になる。
+  - login cookie による `POST /admin/setup` は same-origin/CSRF evidence なしでは config を作らず `403` になる。
   - setup save は `pipelines.client` と `pipelines.server` に `accept` policy を含む complete production YAML を生成する。
   - setup save 後に `/data/config.yaml` が完成し、normal runtime へ遷移できる。
 - Admin Logs:

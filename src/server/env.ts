@@ -34,13 +34,22 @@ export function parseServerEnv(
 }
 
 function readDataDir(env: Pick<Map<string, string>, 'get'>, args: string[]): string {
-  const index = args.indexOf('--data-dir');
-  if (index >= 0) {
-    const value = args[index + 1];
-    if (!value) throw new Error('--data-dir requires a value');
-    return value;
+  let dataDir = env.get('PFORTNER_DATA_DIR') || '/data';
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === '--data-dir') {
+      const value = args[++index];
+      if (!value) throw new Error('--data-dir requires a value');
+      dataDir = value;
+      continue;
+    }
+    if (arg.endsWith('.yaml') || arg.endsWith('.yml')) {
+      throw new Error('config path mode was removed; use --data-dir or PFORTNER_DATA_DIR');
+    }
+    if (arg.startsWith('--')) throw new Error(`Unknown server argument: ${arg}`);
+    throw new Error('Unexpected server argument; config path mode was removed; use --data-dir or PFORTNER_DATA_DIR');
   }
-  return env.get('PFORTNER_DATA_DIR') || '/data';
+  return dataDir;
 }
 
 function parsePort(value: string): number {

@@ -26,6 +26,22 @@ Deno.test('parseServerEnv uses --data-dir over PFORTNER_DATA_DIR', () => {
   assertEquals(env.dataDir, '/cli-data');
 });
 
+Deno.test('parseServerEnv rejects removed config path positional argument', () => {
+  assertThrows(
+    () => parseServerEnv(new Map(), ['pfortner.yaml']),
+    Error,
+    'config path mode was removed; use --data-dir or PFORTNER_DATA_DIR',
+  );
+});
+
+Deno.test('parseServerEnv rejects unknown server flags', () => {
+  assertThrows(
+    () => parseServerEnv(new Map(), ['--config', 'pfortner.yaml']),
+    Error,
+    'Unknown server argument: --config',
+  );
+});
+
 Deno.test('parseServerEnv rejects invalid port', () => {
   assertThrows(
     () => parseServerEnv(new Map([['PFORTNER_LISTEN_PORT', 'abc']]), []),
