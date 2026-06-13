@@ -7,7 +7,7 @@ export { eventSifterPolicy } from './src/policies/EventSifterPolicy.ts';
 export { loadConfigFromFile, loadConfigFromString } from './src/config/loader.ts';
 export type { PfortnerConfig, PipelineEntry } from './src/config/loader.ts';
 export { buildRequestHandler } from './src/config/starter.ts';
-export type { RequestHandler } from './src/config/starter.ts';
+export type { RequestHandler, RequestHandlerOptions } from './src/config/starter.ts';
 export type { InfraContext, PfortnerInstance, PolicyFactory, PolicyPlugin } from './src/plugins/types.ts';
 export { extractEvent } from './src/plugins/types.ts';
 export { createPluginRegistry } from './src/plugins/registry.ts';

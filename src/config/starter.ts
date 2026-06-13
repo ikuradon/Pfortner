@@ -10,11 +10,22 @@ import type { RequestHandler, RequestHandlerHooks } from './request-handler-type
 export { resolvePipeline } from './pipeline-resolver.ts';
 export type { RequestHandler, RequestHandlerHooks } from './request-handler-types.ts';
 
+type RequestHandlerConfig = Pick<PfortnerConfig, 'auth' | 'pipelines'> & {
+  server: Omit<PfortnerConfig['server'], 'port'> & {
+    port?: number;
+  };
+};
+
+export interface RequestHandlerOptions {
+  trustProxy?: boolean;
+}
+
 export async function buildRequestHandler(
-  config: PfortnerConfig,
+  config: RequestHandlerConfig,
   infra: InfraContext,
   registry: PluginRegistry,
   hooks?: RequestHandlerHooks,
+  options: RequestHandlerOptions = {},
 ): Promise<RequestHandler> {
   const infraWithResolver: InfraContext = {
     ...infra,
@@ -32,7 +43,7 @@ export async function buildRequestHandler(
   const serverPipeline = await resolvePipeline(config.pipelines.server, 'server', registry, infraWithResolver);
 
   return (req, conn) => {
-    const guard = evaluateRuntimeGuards({ config, hooks, req, conn });
+    const guard = evaluateRuntimeGuards({ config, hooks, req, conn, trustProxy: options.trustProxy });
     if (guard.response) return guard.response;
     const { clientIp } = guard;
 

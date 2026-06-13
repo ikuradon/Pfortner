@@ -1,7 +1,12 @@
 import type { InfraContext, PolicyPlugin } from '../plugins/types.ts';
 import type { PluginRegistry } from '../plugins/registry.ts';
 import { loadConfigFromString, type PfortnerConfig, type ProductionPfortnerConfig } from './loader.ts';
-import { buildRequestHandler, type RequestHandler, type RequestHandlerHooks } from './starter.ts';
+import {
+  buildRequestHandler,
+  type RequestHandler,
+  type RequestHandlerHooks,
+  type RequestHandlerOptions,
+} from './starter.ts';
 
 type ConfigManagerConfig = PfortnerConfig | ProductionPfortnerConfig;
 
@@ -12,24 +17,10 @@ interface Generation {
   activeCount: number;
 }
 
-interface RequestHandlerOptions {
-  trustProxy?: boolean;
-}
-
 interface ConfigManagerOptions<TConfig extends ConfigManagerConfig = PfortnerConfig> {
   loadConfig?: (yamlString: string) => TConfig;
   requestHandlerOptions?: RequestHandlerOptions;
 }
-
-type BuildRequestHandlerWithOptions = (
-  config: ConfigManagerConfig,
-  infra: InfraContext,
-  registry: PluginRegistry,
-  hooks?: RequestHandlerHooks,
-  options?: RequestHandlerOptions,
-) => Promise<RequestHandler>;
-
-const buildRequestHandlerWithOptions = buildRequestHandler as unknown as BuildRequestHandlerWithOptions;
 
 export class ConfigManager<TConfig extends ConfigManagerConfig = PfortnerConfig> {
   private currentGen: Generation;
@@ -79,7 +70,7 @@ export class ConfigManager<TConfig extends ConfigManagerConfig = PfortnerConfig>
     const loadConfig = (options.loadConfig ?? loadConfigFromString) as (yamlString: string) => TConfig;
     const config = loadConfig(yamlString);
     const usedPlugins = ConfigManager.collectPlugins(config, registry);
-    const handler = await buildRequestHandlerWithOptions(config, infra, registry, hooks, options.requestHandlerOptions);
+    const handler = await buildRequestHandler(config, infra, registry, hooks, options.requestHandlerOptions);
     const gen: Generation = { id: 0, handler, plugins: usedPlugins, activeCount: 0 };
     return new ConfigManager<TConfig>(gen, infra, registry, hooks, loadConfig, options.requestHandlerOptions);
   }
@@ -127,7 +118,7 @@ export class ConfigManager<TConfig extends ConfigManagerConfig = PfortnerConfig>
   async reload(yamlString: string): Promise<TConfig> {
     const config = this.loadConfig(yamlString);
     const usedPlugins = ConfigManager.collectPlugins(config, this.registry);
-    const handler = await buildRequestHandlerWithOptions(
+    const handler = await buildRequestHandler(
       config,
       this.infra,
       this.registry,

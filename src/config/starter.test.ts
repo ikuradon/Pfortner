@@ -252,3 +252,43 @@ pipelines:
   assertEquals(onDisconnectCount, 0);
   assertEquals(metrics.getCounter('pfortner_connections_total'), 0);
 });
+
+Deno.test('buildRequestHandler passes trustProxy option into runtime guards', async () => {
+  const config = loadConfigFromString(`
+server:
+  port: 3000
+  upstream_relay: "ws://localhost:7777"
+  x_forwarded_for: false
+pipelines:
+  client:
+    - policy: accept
+  server:
+    - policy: accept
+`);
+  let capturedIp: string | undefined;
+  const connectionManager = {
+    canAccept: (ip: string) => {
+      capturedIp = ip;
+      return { allowed: false, reason: 'captured', statusCode: 429 };
+    },
+    register: () => {},
+    unregister: () => {},
+    getStats: () => ({ active: 0, authenticated: 0, max: 10, perIpMax: 3, pressure: 'normal' as const }),
+  };
+  const handler = await buildRequestHandler(
+    config,
+    buildInfraContext({}),
+    createPluginRegistry(),
+    { connectionManager: connectionManager as any },
+    { trustProxy: true },
+  );
+  const req = new Request('http://localhost/', {
+    headers: { 'x-forwarded-for': '203.0.113.55' },
+  });
+  const conn = { remoteAddr: { hostname: '10.0.0.5', port: 1234, transport: 'tcp' as const } };
+
+  const response = handler(req, conn as Deno.ServeHandlerInfo<Deno.NetAddr>);
+
+  assertEquals(response.status, 429);
+  assertEquals(capturedIp, '203.0.113.55');
+});

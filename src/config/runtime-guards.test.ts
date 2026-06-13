@@ -59,3 +59,29 @@ Deno.test('runtime guards return connection pressure rejection before session cr
   assertEquals(result.response?.status, 429);
   assertEquals(await result.response?.text(), 'busy');
 });
+
+Deno.test('runtime guards use explicit trustProxy option instead of config.server.x_forwarded_for', () => {
+  const config = makeConfig(false);
+  const req = new Request('http://localhost/', {
+    headers: { 'x-forwarded-for': '203.0.113.10' },
+  });
+  const conn = { remoteAddr: { hostname: '10.0.0.5', port: 1234, transport: 'tcp' } } as Deno.ServeHandlerInfo<
+    Deno.NetAddr
+  >;
+
+  const result = evaluateRuntimeGuards({ config, req, conn, trustProxy: true });
+  assertEquals(result.clientIp, '203.0.113.10');
+});
+
+Deno.test('runtime guards allow explicit trustProxy false to override legacy trusted config', () => {
+  const config = makeConfig(true);
+  const req = new Request('http://localhost/', {
+    headers: { 'x-forwarded-for': '203.0.113.10' },
+  });
+  const conn = { remoteAddr: { hostname: '10.0.0.5', port: 1234, transport: 'tcp' } } as Deno.ServeHandlerInfo<
+    Deno.NetAddr
+  >;
+
+  const result = evaluateRuntimeGuards({ config, req, conn, trustProxy: false });
+  assertEquals(result.clientIp, '10.0.0.5');
+});

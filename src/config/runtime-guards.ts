@@ -1,5 +1,4 @@
 import { remoteHostnameFromConn, selectClientIp } from '../net/client-ip.ts';
-import type { PfortnerConfig } from './loader.ts';
 import type { RequestHandlerHooks } from './request-handler-types.ts';
 
 export type RuntimeGuardResult = {
@@ -7,20 +6,28 @@ export type RuntimeGuardResult = {
   response?: Response;
 };
 
+type RuntimeGuardConfig = {
+  server: {
+    x_forwarded_for?: boolean;
+  };
+};
+
 export function evaluateRuntimeGuards({
   config,
   hooks,
   req,
   conn,
+  trustProxy = config.server.x_forwarded_for === true,
 }: {
-  config: PfortnerConfig;
+  config: RuntimeGuardConfig;
   hooks?: RequestHandlerHooks;
   req: Request;
   conn: Deno.ServeHandlerInfo<Deno.NetAddr>;
+  trustProxy?: boolean;
 }): RuntimeGuardResult {
   const clientIp = selectClientIp(req, {
     remoteHostname: remoteHostnameFromConn(conn),
-    trustForwardedFor: config.server.x_forwarded_for === true,
+    trustForwardedFor: trustProxy,
   });
 
   if (hooks?.shutdownManager?.isDraining()) {
