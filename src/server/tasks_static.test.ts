@@ -6,6 +6,10 @@ const removedServeTask = ['serve', 'config'].join(':');
 const dataDirSetupCommand = 'RUN mkdir -p /data && chown deno:deno /data';
 const adminUiStaticDir = 'src/admin/ui/static';
 const removedRootAdminCopy = 'COPY --chown=deno ' + 'admin ./' + 'admin';
+const denoImage = 'denoland/deno:2.8.3@sha256:438618d8c0678c3154fc77ad6edad61f38cbc42803a181e7908d3e2c9e645022';
+const redisImage = 'redis:8.8.0-alpine@sha256:09160599abd229764c0fb44cb6be640294e1d360a54b19985ab4843dcf2d90f1';
+const checkoutAction = 'actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10';
+const setupDenoAction = 'denoland/setup-deno@909cc5acb0fdd60627fb858598759246509fa755';
 
 function projectFile(path: string): URL {
   return new URL(`../../${path}`, import.meta.url);
@@ -70,7 +74,8 @@ Deno.test('Dockerfile runs src/server/main.ts and checks /health', async () => {
   const dockerfile = await Deno.readTextFile(projectFile('Dockerfile'));
   const buildAdminAssets = await Deno.readTextFile(projectFile('scripts/build_admin_islands.ts'));
 
-  assertEquals(dockerfile.includes('FROM denoland/deno:2.8.3'), true);
+  assertEquals(dockerfile.includes(`FROM ${denoImage}`), true);
+  assertEquals(dockerfile.includes('FROM denoland/deno:latest'), false);
   assertEquals(dockerfile.includes('COPY --chown=deno deno.json deno.lock* ./'), true);
   assertEquals(dockerfile.includes('COPY --chown=deno mod.ts ./'), true);
   assertEquals(dockerfile.includes('COPY --chown=deno src ./src'), true);
@@ -88,6 +93,24 @@ Deno.test('Dockerfile runs src/server/main.ts and checks /health', async () => {
   assertEquals(dockerfile.includes(oldServeEntrypoint), false);
   assertDockerfileOrder(dockerfile, dataDirSetupCommand, 'USER deno');
   assertDockerfileOrder(dockerfile, dataDirSetupCommand, 'VOLUME /data');
+});
+
+Deno.test('GitHub Actions pins runner, actions, Deno, and service images', async () => {
+  const workflow = await Deno.readTextFile(projectFile('.github/workflows/ci.yml'));
+
+  assertEquals(workflow.includes('runs-on: ubuntu-24.04'), true);
+  assertEquals(workflow.includes('runs-on: ubuntu-latest'), false);
+  assertEquals(workflow.includes(`uses: ${checkoutAction}`), true);
+  assertEquals(workflow.includes('uses: actions/checkout@v'), false);
+  assertEquals(workflow.includes(`uses: ${setupDenoAction}`), true);
+  assertEquals(workflow.includes('uses: denoland/setup-deno@v'), false);
+  assertEquals(workflow.includes('uses: actions/cache@'), false);
+  assertEquals(workflow.includes('deno-version: 2.8.3'), true);
+  assertEquals(workflow.includes('deno-version: v2.x'), false);
+  assertEquals(workflow.includes('cache: true'), true);
+  assertEquals(workflow.includes(`image: ${redisImage}`), true);
+  assertEquals(workflow.includes('image: redis:7-alpine'), false);
+  assertEquals(workflow.includes('image: redis:alpine'), false);
 });
 
 Deno.test('removed production wrapper has no production references', async () => {

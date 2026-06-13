@@ -6,52 +6,48 @@ on:
   pull_request:
     branches: ['**']
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Setup Deno
-        uses: denoland/setup-deno@v2
+        uses: denoland/setup-deno@909cc5acb0fdd60627fb858598759246509fa755 # v2.0.2
         with:
-          deno-version: v2.x
-
-      - name: Cache Deno dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/deno
-          key: deno-${{ runner.os }}-${{ hashFiles('src/deps.ts', 'scripts/deps.ts', 'deno.json') }}
-          restore-keys: |
-            deno-${{ runner.os }}-
+          deno-version: 2.8.3
+          cache: true
 
       - name: Run deno lint
         run: deno lint
 
   format:
     name: Format Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Setup Deno
-        uses: denoland/setup-deno@v2
+        uses: denoland/setup-deno@909cc5acb0fdd60627fb858598759246509fa755 # v2.0.2
         with:
-          deno-version: v2.x
+          deno-version: 2.8.3
+          cache: true
 
       - name: Check formatting
         run: deno fmt --check
 
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       redis:
-        image: redis:7-alpine
+        image: redis:8.8.0-alpine@sha256:09160599abd229764c0fb44cb6be640294e1d360a54b19985ab4843dcf2d90f1
         ports:
           - 6379:6379
         options: >-
@@ -61,21 +57,13 @@ jobs:
           --health-retries 5
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Setup Deno
-        uses: denoland/setup-deno@v2
+        uses: denoland/setup-deno@909cc5acb0fdd60627fb858598759246509fa755 # v2.0.2
         with:
-          deno-version: v2.x
-
-      - name: Cache Deno dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/deno
-          key: deno-${{ runner.os }}-${{ hashFiles('src/deps.ts', 'scripts/deps.ts', 'deno.json') }}
-          restore-keys: |
-            deno-${{ runner.os }}-
+          deno-version: 2.8.3
+          cache: true
 
       - name: Run tests
         env:
@@ -84,10 +72,10 @@ jobs:
 
   docker-build:
     name: Docker Build Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Build Docker image
         run: docker build -t pfortner:test .
