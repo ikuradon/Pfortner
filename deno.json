@@ -50,10 +50,9 @@
     }
   },
   "tasks": {
-    "dev": "deno run --unstable-net --allow-env --allow-net --allow-read --watch scripts/serve.ts",
+    "dev": "deno run --unstable-net --allow-env --allow-net --allow-read --allow-write --watch src/server/main.ts",
     "dev:admin": "deno task dev",
-    "serve": "deno run --unstable-net --allow-env --allow-net --allow-read scripts/serve.ts",
-    "serve:config": "deno run --unstable-net --allow-env --allow-net --allow-read --allow-write=pfortner.yaml,pfortner.yaml.workbench.json scripts/serve.ts pfortner.yaml",
+    "serve": "deno run --unstable-net --allow-env --allow-net --allow-read --allow-write src/server/main.ts",
     "build:admin-assets": "deno run --allow-env --allow-read --allow-write --allow-run scripts/build_admin_islands.ts",
     "build:admin-islands": "deno task build:admin-assets",
     "test": "deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --unstable-kv admin/ src/",

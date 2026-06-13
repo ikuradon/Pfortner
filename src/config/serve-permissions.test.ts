@@ -1,9 +1,18 @@
-import { assertStringIncludes } from '@std/assert';
+import { assertEquals, assertStringIncludes } from '@std/assert';
 
-Deno.test('serve:config grants write access for admin pipeline saves and draft sidecar', async () => {
+const oldServeEntrypoint = ['scripts', 'serve.ts'].join('/');
+
+Deno.test('serve task grants runtime permissions for dataDir mode', async () => {
   const denoJson = JSON.parse(await Deno.readTextFile('deno.json')) as {
     tasks: Record<string, string>;
   };
+  const serveTask = denoJson.tasks.serve;
 
-  assertStringIncludes(denoJson.tasks['serve:config'], '--allow-write=pfortner.yaml,pfortner.yaml.workbench.json');
+  assertStringIncludes(serveTask, '--unstable-net');
+  assertStringIncludes(serveTask, '--allow-write');
+  assertStringIncludes(serveTask, '--allow-read');
+  assertStringIncludes(serveTask, '--allow-net');
+  assertStringIncludes(serveTask, '--allow-env');
+  assertStringIncludes(serveTask, 'src/server/main.ts');
+  assertEquals(serveTask.includes(oldServeEntrypoint), false);
 });

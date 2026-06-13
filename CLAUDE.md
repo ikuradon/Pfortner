@@ -15,9 +15,6 @@ deno task dev
 # Production server
 deno task serve
 
-# Run with YAML config
-deno task serve:config
-
 # Run all tests
 deno task test
 
@@ -128,7 +125,7 @@ YAML config loader (`loader.ts`) with env var expansion (`${VAR}`), ajv schema v
 
 ### Admin UI (`admin/`)
 
-Fresh 2.x + Preact serves `/admin` on the main port. `admin/main.ts` delegates to `admin/app/create_admin_app.ts`; `admin/http/*` owns HTTP adapters/middleware, and `admin/pages/*` owns authenticated page route registration. Source client logic remains in `admin/client/*` and `admin/islands/*`; `admin/static/*` is limited to URL-addressed output or static assets. Admin service boundaries are defined by `src/admin/read_models/*`, `src/admin/actions/*`, `src/admin/http/log_stream.ts`, and top-level compatibility facades such as `src/admin/service.ts`.
+Fresh 2.x + Preact serves `/admin` on the main port. `admin/main.ts` delegates to `admin/app/create_admin_app.ts`; `admin/http/*` owns HTTP adapters/middleware, and `admin/pages/*` owns authenticated page route registration. Source client logic remains in `admin/client/*` and `admin/islands/*`; `admin/static/*` is limited to URL-addressed output or static assets. Runtime-facing admin services live under `src/admin/read_models/*`, `src/admin/actions/*`, `src/admin/http/log_stream.ts`, and top-level compatibility facades such as `src/admin/service.ts`; keep Fresh UI source and runtime service boundaries separate.
 
 ### Event System
 
@@ -138,20 +135,21 @@ The `on()`/`off()` methods subscribe to lifecycle events: `authSuccess`, `authFa
 
 Exports the intended public surface: core API, config loading/request handling, plugin types and registry, infra helpers, policy plugins, condition helpers, upstream routing, operational managers, and admin handler/state types. Internal session, admin routing, and bootstrap helper modules are not exported directly.
 
-### Example Server (`scripts/serve.ts`)
+### Server Runtime (`src/server/main.ts`)
 
-Supports two modes: legacy env-var mode and YAML config mode. Config mode enables plugin system, admin UI, metrics, connection management, and graceful shutdown.
+`deno task serve` runs `src/server/main.ts`, which creates the dataDir bootstrap/runtime. `PFORTNER_DATA_DIR` defaults to `/data`; local development can pass `--data-dir <path>` or set the env var. If `config.yaml` is missing and Admin UI is enabled, startup enters setup mode and serves `/admin` so the initial config can be saved into the data directory. Runtime writes such as `config.yaml`, admin token, Deno KV, and generated setup state must be possible in the data directory.
 
 ## Environment Variables
 
-Legacy env-var mode (`.env` from `.env.sample`):
-
-- `APP_PORT` — server listen port
-- `UPSTREAM_RELAY` — WebSocket URL of upstream relay (e.g. `wss://relay.example.com`)
-- `UPSTREAM_RAW_URL` — HTTP URL of upstream relay (for relay info endpoint)
-- `X_FORWARDED_FOR` — whether to forward client IP
-
-YAML config mode (preferred): copy `pfortner.sample.yaml` to `pfortner.yaml`. See spec docs in `docs/superpowers/specs/` for full schema. Run with `deno task serve:config`.
+- `PFORTNER_DATA_DIR` — data directory for bootstrap config, admin token, KV, and runtime state (default: `/data`)
+- `PFORTNER_LISTEN_PORT` — server listen port (default: `3000`)
+- `PFORTNER_LISTEN_ADDR` — server listen address (default: `[::]`)
+- `PFORTNER_ADMIN_ENABLED` — enable Admin UI setup/runtime routes (default: `true`)
+- `PFORTNER_ADMIN_TOKEN` — admin token override
+- `PFORTNER_ADMIN_TOKEN_FILE` — admin token file path (default: `${PFORTNER_DATA_DIR}/admin-token`)
+- `PFORTNER_LOG_LEVEL` / `PFORTNER_LOG_FORMAT` — runtime logging controls
+- `PFORTNER_TRUST_PROXY` — trust proxy headers for client IP handling
+- `PFORTNER_REDIS_URL`, `PFORTNER_REDIS_URL_FILE`, `PFORTNER_REDIS_KEY_PREFIX` — Redis-backed shared state configuration
 
 ## Documentation
 

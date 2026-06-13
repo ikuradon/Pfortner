@@ -48,39 +48,45 @@ import {
 ### Basic Setup
 
 1. Clone the repository or create a new Deno project
-2. Copy `.env.sample` to `.env` and configure your environment variables:
+2. Choose a writable data directory for local development:
 
 ```bash
-cp .env.sample .env
+mkdir -p .data
 ```
 
-3. Edit `.env` with your settings (see [Environment Variables](#environment-variables))
-
-4. Run the example server:
+3. Run the server:
 
 ```bash
-deno task serve
+PFORTNER_DATA_DIR=.data deno task serve
 ```
 
-The server will start on the port specified in `APP_PORT` (default: 3000).
+The server starts from `src/server/main.ts` on `PFORTNER_LISTEN_PORT` (default: 3000). If
+`config.yaml` is missing from the data directory, the Admin UI at `/admin` starts in setup mode and
+persists the generated config, admin token, and runtime state under that data directory.
 
-### Example Server
+### Server Runtime
 
-A complete example is available in `scripts/serve.ts`, which demonstrates:
-
-- NIP-42 authentication enforcement for DMs (kind 4)
-- Message stashing before authentication completes
-- Re-sending stashed messages after successful authentication
+`deno task serve` uses the dataDir/Admin-first runtime. Set `PFORTNER_DATA_DIR` or pass
+`--data-dir <path>` to choose where bootstrap config, admin token, and local state are stored.
 
 ## Environment Variables
 
-Configure Pförtner using these environment variables in your `.env` file:
+Configure the runtime with these environment variables:
 
-| Variable           | Required | Description                                              | Example                     |
-| ------------------ | -------- | -------------------------------------------------------- | --------------------------- |
-| `APP_PORT`         | No       | Server listen port                                       | `3000`                      |
-| `UPSTREAM_RELAY`   | **Yes**  | WebSocket URL of the upstream relay                      | `wss://relay.example.com`   |
-| `UPSTREAM_RAW_URL` | No       | HTTP URL of the upstream relay (for relay info endpoint) | `https://relay.example.com` |
+| Variable                    | Required | Description                                     | Example    |
+| --------------------------- | -------- | ----------------------------------------------- | ---------- |
+| `PFORTNER_DATA_DIR`         | No       | Data directory for config, token, KV, and state | `/data`    |
+| `PFORTNER_LISTEN_PORT`      | No       | Server listen port                              | `3000`     |
+| `PFORTNER_LISTEN_ADDR`      | No       | Server listen address                           | `[::]`     |
+| `PFORTNER_ADMIN_ENABLED`    | No       | Enable Admin UI setup/runtime routes            | `true`     |
+| `PFORTNER_ADMIN_TOKEN`      | No       | Admin token override                            | `secret`   |
+| `PFORTNER_ADMIN_TOKEN_FILE` | No       | Admin token file path                           | `/token`   |
+| `PFORTNER_LOG_LEVEL`        | No       | Runtime log level                               | `info`     |
+| `PFORTNER_LOG_FORMAT`       | No       | Runtime log format                              | `text`     |
+| `PFORTNER_TRUST_PROXY`      | No       | Trust proxy headers for client IP handling      | `false`    |
+| `PFORTNER_REDIS_URL`        | No       | Redis URL for shared policy state               | `redis://` |
+| `PFORTNER_REDIS_URL_FILE`   | No       | File containing Redis URL                       | `/secret`  |
+| `PFORTNER_REDIS_KEY_PREFIX` | No       | Redis key prefix                                | `pfortner` |
 
 ## Creating Custom Policies
 
@@ -150,8 +156,7 @@ Run the container:
 
 ```bash
 docker run -p 3000:3000 \
-  -e UPSTREAM_RELAY=wss://relay.example.com \
-  -e APP_PORT=3000 \
+  -v pfortner-data:/data \
   pfortner
 ```
 
@@ -163,11 +168,11 @@ services:
     build: .
     ports:
       - '3000:3000'
-    environment:
-      - UPSTREAM_RELAY=wss://relay.example.com
-      - APP_PORT=3000
-      - UPSTREAM_RAW_URL=https://relay.example.com
-      - X_FORWARDED_FOR=true
+    volumes:
+      - pfortner-data:/data
+
+volumes:
+  pfortner-data:
 ```
 
 ## API Reference
