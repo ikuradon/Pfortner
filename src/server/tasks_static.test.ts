@@ -58,9 +58,11 @@ Deno.test('serve and dev tasks use src/server/main.ts', async () => {
   const denoJson = JSON.parse(await Deno.readTextFile(projectFile('deno.json')));
 
   assertEquals(String(denoJson.tasks.serve).includes(serverEntrypoint), true);
+  assertEquals(String(denoJson.tasks.serve).includes('--unstable-kv'), true);
   assertEquals(String(denoJson.tasks.serve).includes(oldServeEntrypoint), false);
   assertEquals(removedServeTask in denoJson.tasks, false);
   assertEquals(String(denoJson.tasks.dev).includes(serverEntrypoint), true);
+  assertEquals(String(denoJson.tasks.dev).includes('--unstable-kv'), true);
   assertEquals(String(denoJson.tasks.dev).includes(oldServeEntrypoint), false);
 });
 
