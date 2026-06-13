@@ -1,5 +1,6 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
-import { loadConfigFromString } from './loader.ts';
+import { assertEquals, assertThrows } from 'jsr:@std/assert@1.0.18';
+import { loadConfigFromString, loadProductionConfigFromString } from './loader.ts';
+import type { ProductionPfortnerConfig } from './loader.ts';
 
 Deno.test('loadConfigFromString parses minimal config', () => {
   const config = loadConfigFromString(`
@@ -242,4 +243,110 @@ pipelines:
     - policy: accept
 `);
   assertEquals(config.infra?.redis?.url, 'redis://localhost:6379');
+});
+
+Deno.test('loadProductionConfigFromString rejects env-owned config keys', () => {
+  assertThrows(
+    () =>
+      loadProductionConfigFromString(
+        `
+server:
+  port: 3001
+  upstream_relay: "ws://localhost:7777"
+pipelines:
+  client: []
+  server: []
+`,
+        { backend: { kvAvailable: true, redisAvailable: false } },
+      ),
+    Error,
+    'server.port is env-owned',
+  );
+});
+
+Deno.test('loadProductionConfigFromString does not expand env placeholders', () => {
+  const config = loadProductionConfigFromString(
+    `
+server:
+  upstream_relay: "\${TEST_RELAY}"
+pipelines:
+  client: []
+  server: []
+`,
+    { backend: { kvAvailable: true, redisAvailable: false } },
+  );
+  assertEquals(config.server.upstream_relay, '${TEST_RELAY}');
+});
+
+Deno.test('loadProductionConfigFromString does not default server.port', () => {
+  const config: ProductionPfortnerConfig = loadProductionConfigFromString(
+    `
+server:
+  upstream_relay: "ws://localhost:7777"
+pipelines:
+  client: []
+  server: []
+`,
+    { backend: { kvAvailable: true, redisAvailable: false } },
+  );
+  assertEquals('port' in config.server, false);
+});
+
+Deno.test('loadProductionConfigFromString accepts kv backend when runtime kv is available', () => {
+  const config = loadProductionConfigFromString(
+    `
+server:
+  upstream_relay: "ws://localhost:7777"
+pipelines:
+  client:
+    - policy: rate-limit
+      config:
+        backend: kv
+  server: []
+`,
+    { backend: { kvAvailable: true, redisAvailable: false } },
+  );
+  assertEquals(config.pipelines.client[0].policy, 'rate-limit');
+});
+
+Deno.test('loadProductionConfigFromString rejects kv backend without runtime kv', () => {
+  assertThrows(
+    () =>
+      loadProductionConfigFromString(
+        `
+server:
+  upstream_relay: "ws://localhost:7777"
+pipelines:
+  client:
+    - policy: rate-limit
+      config:
+        backend: kv
+  server: []
+`,
+        { backend: { kvAvailable: false, redisAvailable: false } },
+      ),
+    Error,
+    'requires KV backend',
+  );
+});
+
+Deno.test('loadProductionConfigFromString rejects redis backend without runtime redis', () => {
+  assertThrows(
+    () =>
+      loadProductionConfigFromString(
+        `
+server:
+  upstream_relay: "ws://localhost:7777"
+pipelines:
+  client:
+    - policy: rate-limit
+      config:
+        backend: redis
+  server: []
+`,
+        { backend: { kvAvailable: true, redisAvailable: false } },
+      ),
+    Error,
+    'PFORTNER_REDIS_URL_FILE',
+  );
 });

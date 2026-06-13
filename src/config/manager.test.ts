@@ -2,6 +2,7 @@ import { assertEquals } from 'jsr:@std/assert@1.0.18';
 import { ConfigManager } from './manager.ts';
 import { buildInfraContext } from '../infra/context.ts';
 import { createPluginRegistry } from '../plugins/registry.ts';
+import { loadConfigFromString, loadProductionConfigFromString } from './loader.ts';
 
 const YAML = `
 server:
@@ -106,4 +107,42 @@ pipelines:
   // Allow microtask for async destroy
   await new Promise((r) => setTimeout(r, 10));
   assertEquals(destroyCalled, true); // track-destroy removed from gen 1, so destroy() called
+});
+
+Deno.test('ConfigManager uses injected config loader for create and reload', async () => {
+  const yaml = `
+server:
+  upstream_relay: "ws://localhost:7777"
+pipelines:
+  client: []
+  server: []
+`;
+  let calls = 0;
+  const manager = await ConfigManager.create(yaml, buildInfraContext({}), createPluginRegistry(), undefined, {
+    loadConfig: (content: string) => {
+      calls++;
+      return loadConfigFromString(content);
+    },
+    requestHandlerOptions: { trustProxy: true },
+  });
+  await manager.reload(yaml);
+  assertEquals(calls, 2);
+});
+
+Deno.test('ConfigManager accepts a production config loader', async () => {
+  const yaml = `
+server:
+  upstream_relay: "ws://localhost:7777"
+pipelines:
+  client: []
+  server: []
+`;
+  const manager = await ConfigManager.create(yaml, buildInfraContext({}), createPluginRegistry(), undefined, {
+    loadConfig: (content: string) =>
+      loadProductionConfigFromString(content, {
+        backend: { kvAvailable: true, redisAvailable: false },
+      }),
+  });
+  const reloaded = await manager.reload(yaml);
+  assertEquals('port' in reloaded.server, false);
 });
