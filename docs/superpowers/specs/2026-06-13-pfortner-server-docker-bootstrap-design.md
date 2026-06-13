@@ -165,6 +165,7 @@ runtime envelope の概念 model:
 type RuntimeEnvelope = {
   dataDir: string;
   listen: { hostname: string; port: number };
+  trustProxy: boolean;
   adminAuth: AdminAuthState;
   logging: { level: 'debug' | 'info' | 'warn' | 'error'; format: 'text' | 'json' };
   backend: {
@@ -178,17 +179,18 @@ type RuntimeEnvelope = {
 
 ```ts
 type AdminAuthState =
-  | { enabled: false; path: '/admin'; trustProxy: boolean }
+  | { enabled: false; path: '/admin' }
   | {
     enabled: true;
     path: '/admin';
-    trustProxy: boolean;
     token: string;
     tokenSource: 'env' | 'file' | 'generated';
   };
 ```
 
-Fresh auth middleware、login route、Bearer admin handler は `state.config.admin?.auth_token` や `state.config.admin?.trust_proxy` を読まない。production path では `state.adminAuth.enabled === true` のときだけ `state.adminAuth.token` を参照し、same-origin/CSRF 判定には `state.adminAuth.trustProxy` を参照する。移行中に legacy tests のため fallback を置く場合でも、production runtime は config に admin secret を投影しない。
+Fresh auth middleware、login route、Bearer admin handler は `state.config.admin?.auth_token` や `state.config.admin?.trust_proxy` を読まない。production path では `state.adminAuth.enabled === true` のときだけ `state.adminAuth.token` を参照し、same-origin/CSRF 判定には runtime envelope の `trustProxy` を参照する。移行中に legacy tests のため fallback を置く場合でも、production runtime は config に admin secret を投影しない。
+
+`PFORTNER_TRUST_PROXY` は admin だけでなく relay runtime guard にも効く。production path では `src/server/runtime.ts` が `RuntimeEnvelope.trustProxy` を `buildRequestHandler()` / `evaluateRuntimeGuards()` へ渡し、client IP selection、`max_per_ip`、runtime IP blocklist、connection metadata が trusted proxy header policy と一致するようにする。config から `server.x_forwarded_for` を削除した後、relay guard は `config.server.x_forwarded_for` を参照しない。
 
 setup mode は complete `PfortnerConfig` を持たないため、normal admin state と分ける。
 
@@ -212,7 +214,7 @@ backend availability も runtime envelope で判定する。production config va
 process start
   -> env parse
   -> dataDir resolve
-  -> admin token resolve/generate
+  -> admin token resolve/generate if admin enabled
   -> config path = dataDir/config.yaml
   -> config exists?
        yes -> load and validate config -> normal mode, or fail fast on invalid config
@@ -406,7 +408,8 @@ runtime reload:
   - `PFORTNER_ADMIN_TOKEN` / `PFORTNER_ADMIN_TOKEN_FILE` / generated token から `adminAuth` が作られる。
   - `PFORTNER_ADMIN_ENABLED=false` では `adminAuth` が disabled variant になり、`token` と `tokenSource` を持たない。
   - Fresh auth middleware、login route、Bearer admin handler が `state.adminAuth` を参照し、`state.config.admin?.auth_token` を参照しない。
-  - `PFORTNER_TRUST_PROXY` が `adminAuth.trustProxy` に入り、CSRF same-origin 判定が config admin field に依存しない。
+  - `PFORTNER_TRUST_PROXY` が `RuntimeEnvelope.trustProxy` に入り、CSRF same-origin 判定が config admin field に依存しない。
+  - `RuntimeEnvelope.trustProxy` が `buildRequestHandler()` / `evaluateRuntimeGuards()` に渡り、relay client IP selection が `config.server.x_forwarded_for` に依存しない。
   - `PFORTNER_LOG_LEVEL` / `PFORTNER_LOG_FORMAT` が runtime read model に出る。
 - backend validation:
   - `backend: "kv"` policy は dataDir-derived KV backend が available なら `infra.kv.path` なしで valid。
@@ -472,7 +475,8 @@ deno task build:admin-assets
 - setup save は `pipelines.client` / `pipelines.server` を含む complete YAML を生成する。
 - env で設定できる項目は config から消す。
 - config で設定できる項目は env override しない。
-- admin auth token と trust proxy は `state.adminAuth` で扱い、config へ投影しない。
+- admin auth token は `state.adminAuth` で扱い、config へ投影しない。
+- trust proxy は `RuntimeEnvelope.trustProxy` で扱い、admin CSRF と relay client IP selection の両方へ渡す。
 - admin disabled では token を解決しない。
 - 既存 `/data/admin-token` は再起動時に再利用し、勝手に rotation しない。
 - runtime logging display は config ではなく runtime read model で扱う。
