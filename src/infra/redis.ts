@@ -55,7 +55,7 @@ export async function createRedisClient(options: RedisOptions): Promise<RedisCli
       return await client.sAdd(prefix + key, members);
     },
     async sismember(key: string, member: string): Promise<boolean> {
-      return await client.sIsMember(prefix + key, member);
+      return (await client.sIsMember(prefix + key, member)) === 1;
     },
     async del(...keys: string[]): Promise<number> {
       return await client.del(keys.map((k) => prefix + k));

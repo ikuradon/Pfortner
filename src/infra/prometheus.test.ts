@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { createPrometheusMetrics } from './prometheus.ts';
 
 Deno.test('prometheus counter increments and renders', () => {

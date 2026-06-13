@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { __testing, rateLimitPlugin } from './RateLimitPolicy.ts';
 import { buildInfraContext } from '../infra/context.ts';
 import type { PfortnerInstance } from '../plugins/types.ts';

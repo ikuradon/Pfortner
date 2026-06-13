@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { formatJsonReport, formatMarkdownReport } from './reporter.ts';
 import type { ScenarioStats } from './metrics.ts';
 

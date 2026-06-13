@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { LogBuffer } from './log-buffer.ts';
 
 Deno.test('LogBuffer keeps only max entries', () => {

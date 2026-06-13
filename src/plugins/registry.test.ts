@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { toFileUrl } from '@std/path';
 import { BUILTIN_PLUGIN_NAMES } from './builtin-names.ts';
 import { createPluginRegistry } from './registry.ts';

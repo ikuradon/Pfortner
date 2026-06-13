@@ -1,5 +1,5 @@
 // src/connections/upstream-probe.test.ts
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { UpstreamProbe } from './upstream-probe.ts';
 
 Deno.test('UpstreamProbe returns unknown before start', () => {

@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { registerAdminPageRoutes } from './page_routes.ts';
 import type { AdminRouteApp, AdminRouteContext, AdminRouteHandler } from './route_types.ts';
 

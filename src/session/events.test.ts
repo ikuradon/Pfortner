@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { createSocketEventBus } from './events.ts';
 
 Deno.test('socket event bus calls listeners in order and keeps later listeners after failures', async () => {

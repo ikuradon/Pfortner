@@ -1,5 +1,5 @@
 // src/connections/manager.test.ts
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { ConnectionManager } from './manager.ts';
 import type { ManagedConnection } from './types.ts';
 

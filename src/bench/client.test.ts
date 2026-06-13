@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { BenchClient } from './client.ts';
 
 Deno.test('BenchClient generateEvent creates valid structure', () => {

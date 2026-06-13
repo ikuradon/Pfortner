@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { createUpstreamHeaders } from './upstream.ts';
 
 Deno.test('upstream helper forwards client IP only when available', () => {

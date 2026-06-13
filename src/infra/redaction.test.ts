@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { redactUrlCredentials } from './redaction.ts';
 
 Deno.test('redactUrlCredentials removes username and password from Redis URLs', () => {

@@ -1,5 +1,5 @@
 // src/upstream/pool.test.ts
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { UpstreamConnection, UpstreamPool } from './pool.ts';
 import { createLogger } from '../infra/logger.ts';
 

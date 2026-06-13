@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { createStaticFileServer } from './static_files.ts';
 
 Deno.test('static file server serves known asset types with cache headers', async () => {

@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { spamFilterPlugin } from './SpamFilterPolicy.ts';
 import { buildInfraContext } from '../infra/context.ts';
 import { nostrTools } from '../deps.ts';

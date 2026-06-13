@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { type AdminState, createAdminHandler } from './server.ts';
 import type { ManagedConnection } from '../connections/types.ts';
 import { LogBuffer } from '../infra/log-buffer.ts';

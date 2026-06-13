@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { createRelayQueryFn, parseRelayResponse } from './relay-query.ts';
 import { nostrTools } from '../deps.ts';
 

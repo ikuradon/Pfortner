@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { buildInfraContext } from '../infra/context.ts';
 import { createPluginRegistry } from '../plugins/registry.ts';
 import { resolvePipeline } from './pipeline-resolver.ts';

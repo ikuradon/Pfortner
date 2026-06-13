@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { expandEnvVars } from './env.ts';
 
 Deno.test('expandEnvVars replaces ${VAR} with env value', () => {

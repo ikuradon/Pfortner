@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { getLogs, parseLogLimit } from './logs.ts';
 import type { AdminServiceState } from './state.ts';
 import { LogBuffer } from '../infra/log-buffer.ts';

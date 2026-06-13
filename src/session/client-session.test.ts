@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { parseClientMessagePayload } from './client-session.ts';
 
 Deno.test('client session parser accepts JSON array messages', () => {

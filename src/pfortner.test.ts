@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { nostrTools } from './deps.ts';
 import { pfortnerInit } from './pfortner.ts';
 import { acceptPolicy } from './policies/AcceptPolicy.ts';

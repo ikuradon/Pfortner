@@ -1,5 +1,5 @@
 // src/conditions/context.test.ts
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { buildEvalContext } from './context.ts';
 
 const connInfo = { clientAuthorized: true, clientPubkey: 'pk1', connectionIpAddr: '1.2.3.4', connectionId: 'c1' };

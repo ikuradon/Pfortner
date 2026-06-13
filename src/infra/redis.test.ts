@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { createRedisClient } from './redis.ts';
 
 const REDIS_URL = Deno.env.get('REDIS_URL');

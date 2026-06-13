@@ -1,4 +1,4 @@
-import { assertEquals, assertThrows } from 'jsr:@std/assert@1.0.18';
+import { assertEquals, assertThrows } from '@std/assert';
 import { loadConfigFromString, loadProductionConfigFromString } from './loader.ts';
 import type { ProductionPfortnerConfig } from './loader.ts';
 

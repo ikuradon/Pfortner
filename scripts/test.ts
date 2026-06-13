@@ -1,5 +1,5 @@
 import { nostrTools } from './deps.ts';
-import { Relay } from 'jsr:@nostr/tools@2.23.1/relay';
+import { Relay } from '@nostr/tools/relay';
 
 // Helper function to convert hex string to Uint8Array
 function hexToBytes(hex: string): Uint8Array {
@@ -21,10 +21,8 @@ const sk: Uint8Array = skHex ? hexToBytes(skHex) : nostrTools.generateSecretKey(
 const relay = new Relay(relayUrl);
 
 // Handle AUTH challenges (NIP-42)
-relay.onauth = async (_challenge: string) => {
-  await relay.auth((evt: nostrTools.EventTemplate) => {
-    return nostrTools.finalizeEvent(evt, sk);
-  });
+relay.onauth = (evt: nostrTools.EventTemplate) => {
+  return Promise.resolve(nostrTools.finalizeEvent(evt, sk));
 };
 
 // Connect to relay

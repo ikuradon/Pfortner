@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { buildWotGraph, parseContactList } from './builder.ts';
 
 Deno.test('parseContactList extracts p-tag pubkeys', () => {

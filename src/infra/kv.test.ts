@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { createKvClient } from './kv.ts';
 
 async function countEntries(kv: Deno.Kv, prefix: Deno.KvKey): Promise<number> {

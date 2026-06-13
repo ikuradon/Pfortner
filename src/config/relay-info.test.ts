@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { buildRelayInfo } from './relay-info.ts';
 import type { PfortnerConfig } from './loader.ts';
 

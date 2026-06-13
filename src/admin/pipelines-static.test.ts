@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects, assertStringIncludes } from 'jsr:@std/assert@1.0.18';
+import { assertEquals, assertRejects, assertStringIncludes } from '@std/assert';
 import {
   graphToPipelines,
   matchExecutionSteps,

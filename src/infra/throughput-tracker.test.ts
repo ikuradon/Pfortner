@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert@1.0.18';
+import { assertEquals } from '@std/assert';
 import { ThroughputTracker } from './throughput-tracker.ts';
 
 Deno.test('ThroughputTracker records and retrieves data', () => {

@@ -1,4 +1,4 @@
-import { assertEquals, assertExists } from 'jsr:@std/assert@1.0.18';
+import { assertEquals, assertExists } from '@std/assert';
 import {
   closeConnection,
   closeConnectionBatch,

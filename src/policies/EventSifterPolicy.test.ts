@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from 'jsr:@std/assert@1.0.18';
+import { assertEquals, assertRejects } from '@std/assert';
 import { eventSifterPolicy } from './EventSifterPolicy.ts';
 import { writeGuardPlugin } from './WriteGuardPolicy.ts';
 import { buildInfraContext } from '../infra/context.ts';
