@@ -441,7 +441,7 @@ runtime reload:
 ```sh
 deno fmt --check --config deno.json
 deno lint --config deno.json
-deno check mod.ts src/server/main.ts src/admin/server.ts
+deno check mod.ts src/server/main.ts src/admin/server.ts src/admin/ui/main.ts
 deno test --allow-env --allow-net --allow-read --allow-write --unstable-net --unstable-kv src/admin/ src/config/ src/server/
 deno task build:admin-assets
 ```
